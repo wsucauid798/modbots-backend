@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://modbots.dev/contracts/realtime-v1.schema.json",
+  "title": "Mod Bots realtime envelope",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/reliableRoomEvent"
+    },
+    {
+      "$ref": "#/$defs/ephemeralSignal"
+    }
+  ],
+  "$defs": {
+    "reliableRoomEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "delivery",
+        "channel",
+        "roomId",
+        "sequence",
+        "source",
+        "event"
+      ],
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "delivery": {
+          "const": "reliable"
+        },
+        "channel": {
+          "const": "room.event"
+        },
+        "roomId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sequence": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*$"
+        },
+        "source": {
+          "enum": [
+            "replay",
+            "live"
+          ]
+        },
+        "event": {
+          "type": "object"
+        }
+      }
+    },
+    "ephemeralSignal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "delivery",
+        "channel",
+        "roomId",
+        "sentAt",
+        "payload"
+      ],
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "delivery": {
+          "const": "ephemeral"
+        },
+        "channel": {
+          "enum": [
+            "typing",
+            "presence.heartbeat",
+            "latency.ping",
+            "latency.pong",
+            "bot.status",
+            "simulation.telemetry",
+            "moderation.risk.preview"
+          ]
+        },
+        "roomId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "actorId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sentAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "payload": {}
+      }
+    }
+  }
+}
