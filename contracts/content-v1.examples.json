@@ -1,0 +1,223 @@
+[
+  {
+    "contractVersion": 1,
+    "entityType": "media_asset",
+    "mediaAssetId": "asset-image-1",
+    "roomId": "global-lobby",
+    "ownerActorId": "actor-alice",
+    "mediaKind": "image",
+    "originalFilename": "photo.png",
+    "declaredMediaType": "image/png",
+    "detectedMediaType": "image/png",
+    "byteLength": "2048",
+    "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "storageObjectKey": "rooms/global-lobby/assets/asset-image-1/original",
+    "lifecycleState": "published",
+    "createdAt": "2026-07-02T09:29:58Z",
+    "updatedAt": "2026-07-02T09:30:00Z",
+    "publishedAt": "2026-07-02T09:30:00Z"
+  },
+  {
+    "contractVersion": 1,
+    "entityType": "content_item",
+    "contentItemId": "content-all-parts",
+    "roomId": "global-lobby",
+    "roomSequence": "40",
+    "actorId": "actor-alice",
+    "createdAt": "2026-07-02T09:29:59Z",
+    "lifecycleState": "published",
+    "revision": 1,
+    "parts": [
+      {
+        "partId": "part-text",
+        "kind": "text",
+        "text": "Multimodal contribution",
+        "language": "en"
+      },
+      {
+        "partId": "part-image",
+        "kind": "image",
+        "mediaAssetId": "asset-image-1",
+        "caption": "An image",
+        "altText": "User supplied image"
+      },
+      {
+        "partId": "part-audio",
+        "kind": "audio",
+        "mediaAssetId": "asset-audio-1",
+        "caption": "Recorded audio"
+      },
+      {
+        "partId": "part-video",
+        "kind": "video",
+        "mediaAssetId": "asset-video-1",
+        "caption": "Recorded video"
+      },
+      {
+        "partId": "part-file",
+        "kind": "file",
+        "mediaAssetId": "asset-file-1",
+        "caption": "Supporting document"
+      },
+      {
+        "partId": "part-visible-reference",
+        "kind": "content_reference",
+        "relationshipType": "quotes",
+        "target": {
+          "targetType": "voice_segment",
+          "voiceSegmentId": "segment-3"
+        },
+        "label": "Earlier voice statement"
+      },
+      {
+        "partId": "part-extension",
+        "kind": "extension",
+        "extensionType": "https://modbots.dev/extensions/poll/v1",
+        "payload": {
+          "question": "Example future content"
+        }
+      }
+    ],
+    "references": [
+      {
+        "relationshipType": "context",
+        "target": {
+          "targetType": "media_asset",
+          "mediaAssetId": "asset-image-1"
+        }
+      }
+    ]
+  },
+  {
+    "contractVersion": 1,
+    "entityType": "content_item",
+    "contentItemId": "content-41",
+    "roomId": "global-lobby",
+    "roomSequence": "41",
+    "actorId": "actor-alice",
+    "createdAt": "2026-07-02T09:30:00Z",
+    "lifecycleState": "published",
+    "revision": 1,
+    "parts": [
+      {
+        "partId": "part-image",
+        "kind": "image",
+        "mediaAssetId": "asset-forest-photo",
+        "altText": "User supplied image"
+      }
+    ],
+    "references": []
+  },
+  {
+    "contractVersion": 1,
+    "entityType": "content_item",
+    "contentItemId": "content-42",
+    "roomId": "global-lobby",
+    "roomSequence": "42",
+    "actorId": "actor-bob",
+    "createdAt": "2026-07-02T09:30:04Z",
+    "lifecycleState": "published",
+    "revision": 1,
+    "replyTo": {
+      "contentItemId": "content-41",
+      "contentPartId": "part-image"
+    },
+    "parts": [
+      {
+        "partId": "part-response",
+        "kind": "text",
+        "text": "A response whose moderation meaning depends on the image."
+      }
+    ],
+    "references": [
+      {
+        "relationshipType": "context",
+        "target": {
+          "targetType": "media_asset",
+          "mediaAssetId": "asset-forest-photo"
+        }
+      }
+    ]
+  },
+  {
+    "contractVersion": 1,
+    "entityType": "voice_session",
+    "voiceSessionId": "voice-session-1",
+    "roomId": "global-lobby",
+    "createdByActorId": "actor-alice",
+    "startedAt": "2026-07-02T09:31:00Z",
+    "lifecycleState": "active",
+    "participants": [
+      {
+        "actorId": "actor-alice",
+        "joinedAt": "2026-07-02T09:31:00Z",
+        "state": "connected",
+        "canSpeak": true
+      }
+    ]
+  },
+  {
+    "contractVersion": 1,
+    "entityType": "voice_segment",
+    "voiceSegmentId": "segment-3",
+    "voiceSessionId": "voice-session-1",
+    "roomId": "global-lobby",
+    "actorId": "actor-alice",
+    "segmentIndex": 3,
+    "startOffsetMs": 12000,
+    "endOffsetMs": 14850,
+    "occurredAt": "2026-07-02T09:31:12Z",
+    "observedAtRoomSequence": "44",
+    "lifecycleState": "finalized",
+    "transcript": "A statement interpreted with the earlier image.",
+    "transcriptLanguage": "en",
+    "references": [
+      {
+        "relationshipType": "context",
+        "target": {
+          "targetType": "content_part",
+          "contentItemId": "content-41",
+          "contentPartId": "part-image"
+        }
+      }
+    ]
+  },
+  {
+    "contractVersion": 1,
+    "entityType": "conversation_window",
+    "conversationWindowId": "window-41-44",
+    "roomId": "global-lobby",
+    "createdAt": "2026-07-02T09:31:15Z",
+    "startRoomSequence": "41",
+    "endRoomSequence": "44",
+    "entries": [
+      {
+        "position": 0,
+        "target": {
+          "targetType": "content_item",
+          "contentItemId": "content-41"
+        },
+        "roomSequence": "41",
+        "occurredAt": "2026-07-02T09:30:00Z"
+      },
+      {
+        "position": 1,
+        "target": {
+          "targetType": "content_item",
+          "contentItemId": "content-42"
+        },
+        "roomSequence": "42",
+        "occurredAt": "2026-07-02T09:30:04Z"
+      },
+      {
+        "position": 2,
+        "target": {
+          "targetType": "voice_segment",
+          "voiceSegmentId": "segment-3"
+        },
+        "roomSequence": "44",
+        "occurredAt": "2026-07-02T09:31:12Z"
+      }
+    ]
+  }
+]

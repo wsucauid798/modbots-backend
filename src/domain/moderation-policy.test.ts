@@ -45,4 +45,67 @@ describe("ModerationPolicy", () => {
         error.code === "moderation_confidence_too_low",
     );
   });
+
+  it("requires content actions to target content", () => {
+    assert.throws(
+      () => {
+        policy.assertTargetAllowed("delete_message", {
+          targetType: "actor",
+          actorId: "actor-1",
+        });
+      },
+      (error) =>
+        error instanceof DomainError &&
+        error.code === "moderation_target_mismatch",
+    );
+
+    assert.doesNotThrow(() => {
+      policy.assertTargetAllowed("delete_message", {
+        targetType: "content_item",
+        contentItemId: "content-1",
+      });
+    });
+  });
+
+  it("requires actor actions to target actors", () => {
+    assert.throws(
+      () => {
+        policy.assertTargetAllowed("mute_actor", {
+          targetType: "content_item",
+          contentItemId: "content-1",
+        });
+      },
+      (error) =>
+        error instanceof DomainError &&
+        error.code === "moderation_target_mismatch",
+    );
+
+    assert.doesNotThrow(() => {
+      policy.assertTargetAllowed("remove_actor", {
+        targetType: "actor",
+        actorId: "actor-1",
+      });
+    });
+
+    assert.throws(
+      () => {
+        policy.assertTargetAllowed("unmute_actor", {
+          targetType: "content_item",
+          contentItemId: "content-1",
+        });
+      },
+      (error) =>
+        error instanceof DomainError &&
+        error.code === "moderation_target_mismatch",
+    );
+  });
+
+  it("does not constrain targets for unknown actions", () => {
+    assert.doesNotThrow(() => {
+      policy.assertTargetAllowed("escalate_for_review", {
+        targetType: "actor",
+        actorId: "actor-1",
+      });
+    });
+  });
 });

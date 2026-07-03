@@ -1,0 +1,827 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://modbots.dev/contracts/content-v1.schema.json",
+  "title": "Mod Bots multimodal content contract version 1",
+  "description": "Shared entities for persisted room content, media, live voice, and ordered moderation context.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/contentItem"
+    },
+    {
+      "$ref": "#/$defs/mediaAsset"
+    },
+    {
+      "$ref": "#/$defs/voiceSession"
+    },
+    {
+      "$ref": "#/$defs/voiceSegment"
+    },
+    {
+      "$ref": "#/$defs/conversationWindow"
+    }
+  ],
+  "$defs": {
+    "contractVersion": {
+      "const": 1
+    },
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "roomSequence": {
+      "description": "A positive PostgreSQL bigint encoded as a decimal string so every client can preserve it exactly.",
+      "type": "string",
+      "pattern": "^[1-9][0-9]*$"
+    },
+    "nonNegativeDecimal": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "contentItemReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contentItemId"
+      ],
+      "properties": {
+        "contentItemId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "contentPartId": {
+          "$ref": "#/$defs/identifier"
+        }
+      }
+    },
+    "targetReference": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetType",
+            "contentItemId"
+          ],
+          "properties": {
+            "targetType": {
+              "const": "content_item"
+            },
+            "contentItemId": {
+              "$ref": "#/$defs/identifier"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetType",
+            "contentItemId",
+            "contentPartId"
+          ],
+          "properties": {
+            "targetType": {
+              "const": "content_part"
+            },
+            "contentItemId": {
+              "$ref": "#/$defs/identifier"
+            },
+            "contentPartId": {
+              "$ref": "#/$defs/identifier"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetType",
+            "mediaAssetId"
+          ],
+          "properties": {
+            "targetType": {
+              "const": "media_asset"
+            },
+            "mediaAssetId": {
+              "$ref": "#/$defs/identifier"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetType",
+            "voiceSessionId"
+          ],
+          "properties": {
+            "targetType": {
+              "const": "voice_session"
+            },
+            "voiceSessionId": {
+              "$ref": "#/$defs/identifier"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetType",
+            "voiceSegmentId"
+          ],
+          "properties": {
+            "targetType": {
+              "const": "voice_segment"
+            },
+            "voiceSegmentId": {
+              "$ref": "#/$defs/identifier"
+            }
+          }
+        }
+      ]
+    },
+    "contentRelationship": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "relationshipType",
+        "target"
+      ],
+      "properties": {
+        "relationshipType": {
+          "enum": [
+            "quotes",
+            "mentions",
+            "context"
+          ]
+        },
+        "target": {
+          "$ref": "#/$defs/targetReference"
+        }
+      }
+    },
+    "textPart": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "partId",
+        "kind",
+        "text"
+      ],
+      "properties": {
+        "partId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "kind": {
+          "const": "text"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        },
+        "language": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 35
+        }
+      }
+    },
+    "assetPartBase": {
+      "type": "object",
+      "required": [
+        "partId",
+        "kind",
+        "mediaAssetId"
+      ],
+      "properties": {
+        "partId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "mediaAssetId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "caption": {
+          "type": "string",
+          "maxLength": 4096
+        }
+      }
+    },
+    "imagePart": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/assetPartBase"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "partId",
+            "kind",
+            "mediaAssetId"
+          ],
+          "properties": {
+            "partId": {
+              "$ref": "#/$defs/identifier"
+            },
+            "kind": {
+              "const": "image"
+            },
+            "mediaAssetId": {
+              "$ref": "#/$defs/identifier"
+            },
+            "caption": {
+              "type": "string",
+              "maxLength": 4096
+            },
+            "altText": {
+              "type": "string",
+              "maxLength": 4096
+            }
+          }
+        }
+      ]
+    },
+    "audioPart": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/assetPartBase"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "partId",
+            "kind",
+            "mediaAssetId"
+          ],
+          "properties": {
+            "partId": {
+              "$ref": "#/$defs/identifier"
+            },
+            "kind": {
+              "const": "audio"
+            },
+            "mediaAssetId": {
+              "$ref": "#/$defs/identifier"
+            },
+            "caption": {
+              "type": "string",
+              "maxLength": 4096
+            }
+          }
+        }
+      ]
+    },
+    "videoPart": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/assetPartBase"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "partId",
+            "kind",
+            "mediaAssetId"
+          ],
+          "properties": {
+            "partId": {
+              "$ref": "#/$defs/identifier"
+            },
+            "kind": {
+              "const": "video"
+            },
+            "mediaAssetId": {
+              "$ref": "#/$defs/identifier"
+            },
+            "caption": {
+              "type": "string",
+              "maxLength": 4096
+            }
+          }
+        }
+      ]
+    },
+    "filePart": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/assetPartBase"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "partId",
+            "kind",
+            "mediaAssetId"
+          ],
+          "properties": {
+            "partId": {
+              "$ref": "#/$defs/identifier"
+            },
+            "kind": {
+              "const": "file"
+            },
+            "mediaAssetId": {
+              "$ref": "#/$defs/identifier"
+            },
+            "caption": {
+              "type": "string",
+              "maxLength": 4096
+            }
+          }
+        }
+      ]
+    },
+    "contentReferencePart": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "partId",
+        "kind",
+        "relationshipType",
+        "target"
+      ],
+      "properties": {
+        "partId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "kind": {
+          "const": "content_reference"
+        },
+        "relationshipType": {
+          "enum": [
+            "quotes",
+            "mentions",
+            "context"
+          ]
+        },
+        "target": {
+          "$ref": "#/$defs/targetReference"
+        },
+        "label": {
+          "type": "string",
+          "maxLength": 1024
+        }
+      }
+    },
+    "extensionPart": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "partId",
+        "kind",
+        "extensionType",
+        "payload"
+      ],
+      "properties": {
+        "partId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "kind": {
+          "const": "extension"
+        },
+        "extensionType": {
+          "type": "string",
+          "format": "uri",
+          "maxLength": 2048
+        },
+        "payload": {
+          "type": "object"
+        }
+      }
+    },
+    "contentPart": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/textPart"
+        },
+        {
+          "$ref": "#/$defs/imagePart"
+        },
+        {
+          "$ref": "#/$defs/audioPart"
+        },
+        {
+          "$ref": "#/$defs/videoPart"
+        },
+        {
+          "$ref": "#/$defs/filePart"
+        },
+        {
+          "$ref": "#/$defs/contentReferencePart"
+        },
+        {
+          "$ref": "#/$defs/extensionPart"
+        }
+      ]
+    },
+    "contentItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "entityType",
+        "contentItemId",
+        "roomId",
+        "roomSequence",
+        "actorId",
+        "createdAt",
+        "lifecycleState",
+        "revision",
+        "parts",
+        "references"
+      ],
+      "properties": {
+        "contractVersion": {
+          "$ref": "#/$defs/contractVersion"
+        },
+        "entityType": {
+          "const": "content_item"
+        },
+        "contentItemId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "roomId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "roomSequence": {
+          "$ref": "#/$defs/roomSequence"
+        },
+        "actorId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "createdAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "updatedAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "lifecycleState": {
+          "enum": [
+            "published",
+            "edited",
+            "removed"
+          ]
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "replyTo": {
+          "$ref": "#/$defs/contentItemReference"
+        },
+        "parts": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/contentPart"
+          }
+        },
+        "references": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/contentRelationship"
+          }
+        }
+      }
+    },
+    "mediaAsset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "entityType",
+        "mediaAssetId",
+        "roomId",
+        "ownerActorId",
+        "mediaKind",
+        "originalFilename",
+        "declaredMediaType",
+        "byteLength",
+        "lifecycleState",
+        "createdAt"
+      ],
+      "properties": {
+        "contractVersion": {
+          "$ref": "#/$defs/contractVersion"
+        },
+        "entityType": {
+          "const": "media_asset"
+        },
+        "mediaAssetId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "roomId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "ownerActorId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "mediaKind": {
+          "enum": [
+            "image",
+            "audio",
+            "video",
+            "file"
+          ]
+        },
+        "originalFilename": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "declaredMediaType": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 255
+        },
+        "detectedMediaType": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 255
+        },
+        "byteLength": {
+          "$ref": "#/$defs/nonNegativeDecimal"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "storageObjectKey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "lifecycleState": {
+          "enum": [
+            "initiated",
+            "uploaded",
+            "quarantined",
+            "processing",
+            "published",
+            "rejected",
+            "deleted"
+          ]
+        },
+        "createdAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "updatedAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "publishedAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "deletedAt": {
+          "$ref": "#/$defs/timestamp"
+        }
+      }
+    },
+    "voiceParticipant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "actorId",
+        "joinedAt",
+        "state",
+        "canSpeak"
+      ],
+      "properties": {
+        "actorId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "joinedAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "leftAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "state": {
+          "enum": [
+            "connected",
+            "reconnecting",
+            "left",
+            "removed"
+          ]
+        },
+        "canSpeak": {
+          "type": "boolean"
+        }
+      }
+    },
+    "voiceSession": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "entityType",
+        "voiceSessionId",
+        "roomId",
+        "createdByActorId",
+        "startedAt",
+        "lifecycleState",
+        "participants"
+      ],
+      "properties": {
+        "contractVersion": {
+          "$ref": "#/$defs/contractVersion"
+        },
+        "entityType": {
+          "const": "voice_session"
+        },
+        "voiceSessionId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "roomId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "createdByActorId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "startedAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "endedAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "lifecycleState": {
+          "enum": [
+            "active",
+            "ended"
+          ]
+        },
+        "participants": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": {
+            "$ref": "#/$defs/voiceParticipant"
+          }
+        }
+      }
+    },
+    "voiceSegment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "entityType",
+        "voiceSegmentId",
+        "voiceSessionId",
+        "roomId",
+        "actorId",
+        "segmentIndex",
+        "startOffsetMs",
+        "endOffsetMs",
+        "occurredAt",
+        "lifecycleState",
+        "references"
+      ],
+      "properties": {
+        "contractVersion": {
+          "$ref": "#/$defs/contractVersion"
+        },
+        "entityType": {
+          "const": "voice_segment"
+        },
+        "voiceSegmentId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "voiceSessionId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "roomId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "actorId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "segmentIndex": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "startOffsetMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "endOffsetMs": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "occurredAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "observedAtRoomSequence": {
+          "$ref": "#/$defs/roomSequence"
+        },
+        "lifecycleState": {
+          "enum": [
+            "observed",
+            "finalized",
+            "redacted",
+            "deleted"
+          ]
+        },
+        "transcript": {
+          "type": "string",
+          "maxLength": 65536
+        },
+        "transcriptLanguage": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 35
+        },
+        "audioAssetId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "references": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/contentRelationship"
+          }
+        }
+      }
+    },
+    "conversationWindowEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "position",
+        "target",
+        "occurredAt"
+      ],
+      "properties": {
+        "position": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "target": {
+          "$ref": "#/$defs/targetReference"
+        },
+        "roomSequence": {
+          "$ref": "#/$defs/roomSequence"
+        },
+        "occurredAt": {
+          "$ref": "#/$defs/timestamp"
+        }
+      }
+    },
+    "conversationWindow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "entityType",
+        "conversationWindowId",
+        "roomId",
+        "createdAt",
+        "entries"
+      ],
+      "properties": {
+        "contractVersion": {
+          "$ref": "#/$defs/contractVersion"
+        },
+        "entityType": {
+          "const": "conversation_window"
+        },
+        "conversationWindowId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "roomId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "createdAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "startRoomSequence": {
+          "$ref": "#/$defs/roomSequence"
+        },
+        "endRoomSequence": {
+          "$ref": "#/$defs/roomSequence"
+        },
+        "entries": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 10000,
+          "items": {
+            "$ref": "#/$defs/conversationWindowEntry"
+          }
+        }
+      }
+    }
+  }
+}

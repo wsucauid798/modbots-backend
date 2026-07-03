@@ -1014,7 +1014,7 @@ dependencies = [
 
 [[package]]
 name = "modbots-realtime-gateway"
-version = "0.0.0"
+version = "0.0.1-alpha"
 dependencies = [
  "anyhow",
  "async-nats",

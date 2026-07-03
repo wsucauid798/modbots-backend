@@ -24,4 +24,25 @@ describe("loadConfig", () => {
       /NATS_URL must be a valid URL/,
     );
   });
+
+  it("defaults authentication to optional with a 30 day session lifetime", () => {
+    const config = loadConfig({});
+
+    assert.equal(config.auth.mode, "optional");
+    assert.equal(config.auth.sessionTtlDays, 30);
+  });
+
+  it("rejects an unknown authentication mode", () => {
+    assert.throws(
+      () => loadConfig({ AUTH_MODE: "strict" }),
+      /AUTH_MODE must be 'optional' or 'required'/,
+    );
+  });
+
+  it("rejects an invalid session lifetime", () => {
+    assert.throws(
+      () => loadConfig({ SESSION_TTL_DAYS: "0" }),
+      /SESSION_TTL_DAYS must be an integer/,
+    );
+  });
 });

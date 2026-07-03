@@ -1,24 +1,32 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import type { Pool } from "pg";
+import type { WriteAuthorizer } from "./domain/auth.js";
 import type { CommandService } from "./domain/commands.js";
 import { DomainError } from "./domain/errors.js";
 import type { EventPublisher } from "./events/outbox-publisher.js";
 import type { ActorRepository } from "./repositories/actors.js";
+import type { ContentRepository } from "./repositories/content.js";
 import type { ModerationRepository } from "./repositories/moderation.js";
 import type { RoomRepository } from "./repositories/rooms.js";
+import type { SessionRepository } from "./repositories/sessions.js";
 import { actorRoutes } from "./routes/actors.js";
 import { commandRoutes } from "./routes/commands.js";
+import { contentRoutes } from "./routes/content.js";
 import { healthRoutes } from "./routes/health.js";
 import { moderationRoutes } from "./routes/moderation.js";
 import { roomRoutes } from "./routes/rooms.js";
+import { sessionRoutes } from "./routes/sessions.js";
 
 export interface AppDependencies {
   database: Pool;
   actors: ActorRepository;
+  auth: WriteAuthorizer;
   commands: CommandService;
+  content: ContentRepository;
   moderation: ModerationRepository;
   publisher: EventPublisher;
   rooms: RoomRepository;
+  sessions: SessionRepository;
 }
 
 export const buildApp = (dependencies: AppDependencies): FastifyInstance => {
@@ -60,8 +68,12 @@ export const buildApp = (dependencies: AppDependencies): FastifyInstance => {
   app.register(healthRoutes(dependencies.database, dependencies.publisher));
   app.register(actorRoutes(dependencies.actors));
   app.register(roomRoutes(dependencies.rooms, dependencies.publisher));
+  app.register(contentRoutes(dependencies.content));
   app.register(moderationRoutes(dependencies.moderation));
-  app.register(commandRoutes(dependencies.commands));
+  app.register(sessionRoutes(dependencies.sessions));
+  app.register(
+    commandRoutes(dependencies.commands, dependencies.sessions, dependencies.auth),
+  );
   app.addHook("onReady", async () => {
     dependencies.publisher.start(app.log);
   });
