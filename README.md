@@ -1,13 +1,13 @@
 # Mod Bots Backend
 
 The Mod Bots backend is the authoritative platform API for actors, room events,
-messages, and moderation outcomes.
+content lifecycle, live-room state, and moderation outcomes. It uses Fastify and
+TypeScript, PostgreSQL for authoritative persistence, and NATS JetStream for
+event distribution. The Rust realtime gateway provides WebTransport as the
+primary realtime transport and WebSocket as a compatibility fallback.
 
-It uses Fastify and TypeScript, PostgreSQL for authoritative persistence, and
-NATS JetStream for event distribution. Redis and S3-compatible object storage
-are available to later backend subsystems through the root Docker Compose stack.
-The Rust realtime gateway provides WebTransport as the primary realtime
-transport and WebSocket as a compatibility fallback.
+Interface contracts, such as the realtime protocol schema, live in the
+[`contracts/`](contracts) directory.
 
 ## Requirements
 
@@ -31,6 +31,7 @@ Run validation:
 
 ```powershell
 npm test
+npm run test:contracts
 npm run build
 ```
 
@@ -62,8 +63,8 @@ The realtime gateway listens on:
 - `ws://localhost:3002` for WebSocket fallback
 - `http://localhost:3002/v1/realtime/config` for client transport configuration
 
-See [Realtime Protocol](docs/realtime-protocol.md) for framing, replay, and
-ephemeral channel details.
+The parent stack also starts the ML inference service and the chat bot
+runtime; see the parent repository README for their prerequisites.
 
 ## Room Activity Smoke Flow
 
@@ -74,10 +75,7 @@ in PowerShell:
 npm run smoke:activity
 ```
 
-The flow creates or reuses dedicated development actors, emits presence,
-message, moderation proposal, rejection, and accepted-action events, then
-verifies persistence, reliable realtime delivery, and an ephemeral realtime
-echo.
+It is safe to run repeatedly against local development data.
 
 Optional environment variables are:
 
@@ -90,4 +88,4 @@ outside a local development environment.
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+&copy; 2026 William Sawyerr. See [License](LICENSE) for more details.

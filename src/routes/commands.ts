@@ -1,7 +1,23 @@
 import type { FastifyPluginAsync } from "fastify";
 import type { ActorType } from "../repositories/actors.js";
-import type { CommandHandler } from "../domain/commands.js";
-import { badRequest } from "../domain/errors.js";
+import type { SessionRepository } from "../repositories/sessions.js";
+import type { WriteAuthorizer } from "../domain/auth.js";
+import type {
+  CommandHandler,
+  ContentPartInput,
+} from "../domain/commands.js";
+import type {
+  ContentItemReference,
+  ContentRelationship,
+  ContentTargetReference,
+} from "../repositories/content.js";
+import type {
+  ModerationEvidence,
+  ModerationTarget,
+} from "../repositories/moderation.js";
+import { badRequest, conflict, DomainError } from "../domain/errors.js";
+import { participationPolicy } from "../domain/policy.js";
+import { roomRules, ruleById } from "../domain/rules.js";
 
 interface RoomParams {
   roomId: string;
@@ -9,6 +25,14 @@ interface RoomParams {
 
 interface ProposalParams extends RoomParams {
   proposalId: string;
+}
+
+interface ActorParams {
+  actorId: string;
+}
+
+interface ContentParams extends RoomParams {
+  contentItemId: string;
 }
 
 const actorTypes = new Set<ActorType>(["human", "chat_bot", "mod_bot"]);
@@ -65,6 +89,298 @@ const actorId = (body: Record<string, unknown>, field: string): string => {
   return value;
 };
 
+const identifierPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,254}$/;
+
+const identifier = (value: unknown, label: string): string => {
+  if (typeof value !== "string" || !identifierPattern.test(value)) {
+    throw badRequest(
+      "invalid_identifier",
+      `'${label}' must be an identifier of 1 to 255 letters, numbers, or ._:- characters`,
+    );
+  }
+
+  return value;
+};
+
+const asRecord = (value: unknown, label: string): Record<string, unknown> => {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw badRequest("invalid_body", `'${label}' must be a JSON object`);
+  }
+
+  return value as Record<string, unknown>;
+};
+
+const contentParts = (body: Record<string, unknown>): ContentPartInput[] => {
+  if (!Array.isArray(body.parts) || body.parts.length === 0) {
+    throw badRequest(
+      "invalid_content_parts",
+      "'parts' must be a non-empty array",
+    );
+  }
+
+  return body.parts.map((raw, index) => {
+    const part = asRecord(raw, `parts[${index}]`);
+
+    if (part.kind !== "text") {
+      throw badRequest(
+        "invalid_part_kind",
+        "Only 'text' parts are supported until media assets are implemented",
+      );
+    }
+
+    if (typeof part.text !== "string") {
+      throw badRequest(
+        "invalid_content_parts",
+        `'parts[${index}].text' must be a string`,
+      );
+    }
+
+    const input: ContentPartInput = { kind: "text", text: part.text };
+
+    if (part.language !== undefined) {
+      if (
+        typeof part.language !== "string" ||
+        part.language.length < 2 ||
+        part.language.length > 35
+      ) {
+        throw badRequest(
+          "invalid_content_parts",
+          `'parts[${index}].language' must be 2 to 35 characters`,
+        );
+      }
+
+      input.language = part.language;
+    }
+
+    if (part.partId !== undefined) {
+      input.partId = identifier(part.partId, `parts[${index}].partId`);
+    }
+
+    return input;
+  });
+};
+
+const optionalReplyTo = (
+  body: Record<string, unknown>,
+): ContentItemReference | undefined => {
+  if (body.replyTo === undefined || body.replyTo === null) {
+    return undefined;
+  }
+
+  const raw = asRecord(body.replyTo, "replyTo");
+  const reference: ContentItemReference = {
+    contentItemId: identifier(raw.contentItemId, "replyTo.contentItemId"),
+  };
+
+  if (raw.contentPartId !== undefined) {
+    reference.contentPartId = identifier(
+      raw.contentPartId,
+      "replyTo.contentPartId",
+    );
+  }
+
+  return reference;
+};
+
+const relationshipTypes = new Set(["quotes", "mentions", "context"]);
+
+const referenceTarget = (
+  raw: Record<string, unknown>,
+  label: string,
+): ContentTargetReference => {
+  switch (raw.targetType) {
+    case "content_item":
+      return {
+        targetType: "content_item",
+        contentItemId: identifier(raw.contentItemId, `${label}.contentItemId`),
+      };
+    case "content_part":
+      return {
+        targetType: "content_part",
+        contentItemId: identifier(raw.contentItemId, `${label}.contentItemId`),
+        contentPartId: identifier(raw.contentPartId, `${label}.contentPartId`),
+      };
+    case "media_asset":
+      return {
+        targetType: "media_asset",
+        mediaAssetId: identifier(raw.mediaAssetId, `${label}.mediaAssetId`),
+      };
+    case "voice_session":
+      return {
+        targetType: "voice_session",
+        voiceSessionId: identifier(
+          raw.voiceSessionId,
+          `${label}.voiceSessionId`,
+        ),
+      };
+    case "voice_segment":
+      return {
+        targetType: "voice_segment",
+        voiceSegmentId: identifier(
+          raw.voiceSegmentId,
+          `${label}.voiceSegmentId`,
+        ),
+      };
+    default:
+      throw badRequest(
+        "invalid_content_references",
+        `'${label}.targetType' must be a known target type`,
+      );
+  }
+};
+
+const optionalReferences = (
+  body: Record<string, unknown>,
+): ContentRelationship[] | undefined => {
+  if (body.references === undefined || body.references === null) {
+    return undefined;
+  }
+
+  if (!Array.isArray(body.references)) {
+    throw badRequest(
+      "invalid_content_references",
+      "'references' must be an array",
+    );
+  }
+
+  return body.references.map((raw, index) => {
+    const reference = asRecord(raw, `references[${index}]`);
+
+    if (
+      typeof reference.relationshipType !== "string" ||
+      !relationshipTypes.has(reference.relationshipType)
+    ) {
+      throw badRequest(
+        "invalid_content_references",
+        `'references[${index}].relationshipType' must be quotes, mentions, or context`,
+      );
+    }
+
+    return {
+      relationshipType: reference.relationshipType as
+        | "quotes"
+        | "mentions"
+        | "context",
+      target: referenceTarget(
+        asRecord(reference.target, `references[${index}].target`),
+        `references[${index}].target`,
+      ),
+    };
+  });
+};
+
+const moderationTarget = (
+  raw: Record<string, unknown>,
+  label: string,
+): ModerationTarget => {
+  if (raw.targetType === "actor") {
+    return {
+      targetType: "actor",
+      actorId: identifier(raw.actorId, `${label}.actorId`),
+    };
+  }
+
+  return referenceTarget(raw, label);
+};
+
+const optionalModerationTarget = (
+  body: Record<string, unknown>,
+): ModerationTarget | undefined => {
+  if (body.target === undefined || body.target === null) {
+    return undefined;
+  }
+
+  return moderationTarget(asRecord(body.target, "target"), "target");
+};
+
+const optionalModerationEvidence = (
+  body: Record<string, unknown>,
+): ModerationEvidence[] | undefined => {
+  if (body.evidence === undefined || body.evidence === null) {
+    return undefined;
+  }
+
+  if (!Array.isArray(body.evidence)) {
+    throw badRequest(
+      "invalid_moderation_evidence",
+      "'evidence' must be an array",
+    );
+  }
+
+  return body.evidence.map((raw, index) => {
+    const entry = asRecord(raw, `evidence[${index}]`);
+    const result: ModerationEvidence = {
+      target: moderationTarget(
+        asRecord(entry.target, `evidence[${index}].target`),
+        `evidence[${index}].target`,
+      ),
+    };
+
+    if (entry.note !== undefined) {
+      if (typeof entry.note !== "string" || entry.note.length > 4_096) {
+        throw badRequest(
+          "invalid_moderation_evidence",
+          `'evidence[${index}].note' must be a string of at most 4096 characters`,
+        );
+      }
+
+      result.note = entry.note;
+    }
+
+    return result;
+  });
+};
+
+// Every human participant, guest or registered, accepts the participation
+// policy. The accepted version is recorded on the actor as consent.
+const requirePolicyAcceptance = (body: Record<string, unknown>): string => {
+  if (body.acceptPolicy !== true) {
+    throw badRequest(
+      "policy_not_accepted",
+      `Participation requires accepting policy version ${participationPolicy.version}`,
+    );
+  }
+
+  return participationPolicy.version;
+};
+
+// A moderation proposal may cite the room rule it enforces.
+const optionalRuleId = (body: Record<string, unknown>): string | undefined => {
+  if (body.ruleId === undefined || body.ruleId === null) {
+    return undefined;
+  }
+
+  const value = string(body, "ruleId", { maximum: 64 });
+
+  if (ruleById(value) === undefined) {
+    throw badRequest(
+      "unknown_rule",
+      "'ruleId' must be one of the room's rule identifiers",
+    );
+  }
+
+  return value;
+};
+
+const optionalHandle = (
+  body: Record<string, unknown>,
+): string | undefined => {
+  if (body.handle === undefined || body.handle === null) {
+    return undefined;
+  }
+
+  const value = string(body, "handle", { maximum: 64 });
+
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{2,63}$/.test(value)) {
+    throw badRequest(
+      "invalid_handle",
+      "'handle' must be 3 to 64 letters, numbers, underscores, or hyphens",
+    );
+  }
+
+  return value;
+};
+
 const number = (
   body: Record<string, unknown>,
   field: string,
@@ -108,6 +424,8 @@ const sequence = (body: Record<string, unknown>): string => {
 
 export const commandRoutes = (
   commands: CommandHandler,
+  sessions: SessionRepository,
+  auth: WriteAuthorizer,
 ): FastifyPluginAsync => {
   return async (app): Promise<void> => {
     app.post<{ Body: unknown }>("/api/actors", async (request, reply) => {
@@ -121,14 +439,129 @@ export const commandRoutes = (
         );
       }
 
+      let registered: boolean | undefined;
+
+      if (body.registered !== undefined) {
+        if (typeof body.registered !== "boolean") {
+          throw badRequest("invalid_body", "'registered' must be a boolean");
+        }
+
+        registered = body.registered;
+      }
+
       const actor = await commands.createActor({
-        id: actorId(body, "id"),
         displayName: string(body, "displayName", { maximum: 100 }),
         type: type as ActorType,
+        handle: optionalHandle(body),
+        registered,
       });
 
       return reply.code(201).send(actor);
     });
+
+    app.patch<{ Params: ActorParams; Body: unknown }>(
+      "/api/actors/:actorId",
+      async (request, reply) => {
+        const body = record(request.body);
+        const actor = await commands.renameActor({
+          actorId: request.params.actorId,
+          displayName: string(body, "displayName", { maximum: 100 }),
+        });
+
+        return reply.code(200).send(actor);
+      },
+    );
+
+    app.post<{ Params: ActorParams }>(
+      "/api/actors/:actorId/retire",
+      async (request, reply) => {
+        const actor = await commands.retireActor({
+          actorId: request.params.actorId,
+        });
+
+        return reply.code(200).send(actor);
+      },
+    );
+
+    app.post<{ Params: ActorParams }>(
+      "/api/actors/:actorId/restore",
+      async (request, reply) => {
+        const actor = await commands.restoreActor({
+          actorId: request.params.actorId,
+        });
+
+        return reply.code(200).send(actor);
+      },
+    );
+
+    app.get("/api/policy", async () => participationPolicy);
+
+    app.get("/api/rules", async () => roomRules);
+
+    app.post<{ Body: unknown }>("/api/guests", async (request, reply) => {
+      const body = record(request.body);
+      const policyVersion = requirePolicyAcceptance(body);
+      const displayName =
+        body.displayName === undefined || body.displayName === null
+          ? "Guest"
+          : string(body, "displayName", { maximum: 100 });
+
+      const actor = await commands.createActor({
+        displayName,
+        type: "human",
+        registered: false,
+        policyVersionAccepted: policyVersion,
+      });
+      const session = await sessions.issue(actor.id);
+
+      return reply.code(201).send({ actor, session });
+    });
+
+    app.post<{ Body: unknown }>(
+      "/api/registrations",
+      async (request, reply) => {
+        const body = record(request.body);
+        const policyVersion = requirePolicyAcceptance(body);
+        const username = string(body, "username", { maximum: 64 });
+
+        if (!/^[A-Za-z0-9][A-Za-z0-9_-]{2,63}$/.test(username)) {
+          throw badRequest(
+            "invalid_username",
+            "'username' must be 3 to 64 letters, numbers, underscores, or hyphens",
+          );
+        }
+
+        const displayName =
+          body.displayName === undefined || body.displayName === null
+            ? username
+            : string(body, "displayName", { maximum: 100 });
+
+        try {
+          const actor = await commands.createActor({
+            displayName,
+            type: "human",
+            handle: username,
+            registered: true,
+            policyVersionAccepted: policyVersion,
+          });
+          const session = await sessions.issue(actor.id);
+
+          return reply.code(201).send({ actor, session });
+        } catch (error) {
+          if (
+            error instanceof DomainError &&
+            error.code === "actor_handle_taken"
+          ) {
+            throw conflict(
+              "username_taken",
+              `Username '${username}' is already taken`,
+            );
+          }
+
+          throw error;
+        }
+      },
+    );
 
     app.post<{ Params: RoomParams; Body: unknown }>(
       "/api/rooms/:roomId/presence",
@@ -143,9 +576,12 @@ export const commandRoutes = (
           );
         }
 
+        const acting = actorId(body, "actorId");
+        await auth.authorizeActor(request.headers.authorization, acting);
+
         const event = await commands.setPresence({
           roomId: request.params.roomId,
-          actorId: actorId(body, "actorId"),
+          actorId: acting,
           state,
         });
 
@@ -157,10 +593,14 @@ export const commandRoutes = (
       "/api/rooms/:roomId/messages",
       async (request, reply) => {
         const body = record(request.body);
+        const acting = actorId(body, "actorId");
+        await auth.authorizeActor(request.headers.authorization, acting);
+
         const event = await commands.postMessage({
           roomId: request.params.roomId,
-          actorId: actorId(body, "actorId"),
+          actorId: acting,
           content: string(body, "content", { maximum: 4_000 }),
+          replyTo: optionalReplyTo(body),
         });
 
         return reply.code(201).send(event);
@@ -168,14 +608,75 @@ export const commandRoutes = (
     );
 
     app.post<{ Params: RoomParams; Body: unknown }>(
+      "/api/rooms/:roomId/content",
+      async (request, reply) => {
+        const body = record(request.body);
+        const acting = actorId(body, "actorId");
+        await auth.authorizeActor(request.headers.authorization, acting);
+
+        const result = await commands.postContent({
+          roomId: request.params.roomId,
+          actorId: acting,
+          parts: contentParts(body),
+          replyTo: optionalReplyTo(body),
+          references: optionalReferences(body),
+        });
+
+        return reply.code(201).send(result);
+      },
+    );
+
+    app.patch<{ Params: ContentParams; Body: unknown }>(
+      "/api/rooms/:roomId/content/:contentItemId",
+      async (request, reply) => {
+        const body = record(request.body);
+        const acting = actorId(body, "actorId");
+        await auth.authorizeActor(request.headers.authorization, acting);
+
+        const result = await commands.editContent({
+          roomId: request.params.roomId,
+          contentItemId: request.params.contentItemId,
+          actorId: acting,
+          parts: contentParts(body),
+        });
+
+        return reply.code(200).send(result);
+      },
+    );
+
+    app.post<{ Params: ContentParams; Body: unknown }>(
+      "/api/rooms/:roomId/content/:contentItemId/remove",
+      async (request, reply) => {
+        const body = record(request.body);
+        const acting = actorId(body, "actorId");
+        await auth.authorizeActor(request.headers.authorization, acting);
+
+        const result = await commands.removeContent({
+          roomId: request.params.roomId,
+          contentItemId: request.params.contentItemId,
+          actorId: acting,
+        });
+
+        return reply.code(200).send(result);
+      },
+    );
+
+    app.post<{ Params: RoomParams; Body: unknown }>(
       "/api/rooms/:roomId/moderation/proposals",
       async (request, reply) => {
         const body = record(request.body);
+        const modBotId = actorId(body, "modBotId");
+        await auth.authorizeActor(request.headers.authorization, modBotId);
+
         const result = await commands.createModerationProposal({
           roomId: request.params.roomId,
-          modBotId: actorId(body, "modBotId"),
-          targetEventSequence: sequence(body),
+          modBotId,
+          target: optionalModerationTarget(body),
+          targetEventSequence:
+            body.targetEventSequence === undefined ? undefined : sequence(body),
+          evidence: optionalModerationEvidence(body),
           action: string(body, "action", { maximum: 100 }),
+          ruleId: optionalRuleId(body),
           confidence: number(body, "confidence", 0, 1),
           rationale: body.rationale ?? {},
           modelVersion: string(body, "modelVersion", { maximum: 200 }),
@@ -198,10 +699,16 @@ export const commandRoutes = (
           );
         }
 
+        const reviewerActorId = actorId(body, "reviewerActorId");
+        await auth.authorizeActor(
+          request.headers.authorization,
+          reviewerActorId,
+        );
+
         return commands.decideModerationProposal({
           roomId: request.params.roomId,
           proposalId: request.params.proposalId,
-          reviewerActorId: actorId(body, "reviewerActorId"),
+          reviewerActorId,
           decision,
         });
       },

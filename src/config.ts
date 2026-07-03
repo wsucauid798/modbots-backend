@@ -1,7 +1,13 @@
+export type AuthMode = "optional" | "required";
+
 export interface AppConfig {
   server: {
     host: string;
     port: number;
+  };
+  auth: {
+    mode: AuthMode;
+    sessionTtlDays: number;
   };
   database: {
     host: string;
@@ -67,6 +73,34 @@ const url = (
   }
 };
 
+const authMode = (
+  environment: NodeJS.ProcessEnv,
+  name: string,
+  fallback: string,
+): AuthMode => {
+  const value = required(environment, name, fallback);
+
+  if (value !== "optional" && value !== "required") {
+    throw new Error(`${name} must be 'optional' or 'required'`);
+  }
+
+  return value;
+};
+
+const days = (
+  environment: NodeJS.ProcessEnv,
+  name: string,
+  fallback: string,
+): number => {
+  const value = Number(required(environment, name, fallback));
+
+  if (!Number.isInteger(value) || value < 1 || value > 3650) {
+    throw new Error(`${name} must be an integer between 1 and 3650`);
+  }
+
+  return value;
+};
+
 const confidence = (
   environment: NodeJS.ProcessEnv,
   name: string,
@@ -87,6 +121,10 @@ export const loadConfig = (
   server: {
     host: required(environment, "HOST", "0.0.0.0"),
     port: port(environment, "PORT", "3001"),
+  },
+  auth: {
+    mode: authMode(environment, "AUTH_MODE", "optional"),
+    sessionTtlDays: days(environment, "SESSION_TTL_DAYS", "30"),
   },
   database: {
     host: required(environment, "POSTGRES_HOST", "localhost"),
@@ -112,7 +150,7 @@ export const loadConfig = (
     allowedActions: required(
       environment,
       "MODERATION_ALLOWED_ACTIONS",
-      "delete_message,mute_actor,remove_actor",
+      "delete_message,mute_actor,unmute_actor,remove_actor",
     )
       .split(",")
       .map((action) => action.trim())

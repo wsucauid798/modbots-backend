@@ -22,5 +22,21 @@ export const actorRoutes = (actors: ActorRepository): FastifyPluginAsync => {
         return actor;
       },
     );
+
+    app.get<{ Params: { handle: string } }>(
+      "/api/actors/by-handle/:handle",
+      async (request, reply) => {
+        const actor = await actors.getByHandle(request.params.handle);
+
+        if (actor === null) {
+          return reply.code(404).send({
+            error: "actor_not_found",
+            message: `No actor with handle '${request.params.handle}'`,
+          });
+        }
+
+        return actor;
+      },
+    );
   };
 };

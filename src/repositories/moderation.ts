@@ -1,13 +1,32 @@
 import type { Pool } from "pg";
+import type { ContentTargetReference } from "./content.js";
 
 export type ModerationProposalStatus = "pending" | "accepted" | "rejected";
+
+// What a moderation proposal acts against: an actor, or any content-v1
+// target (content item, content part, media asset, voice session, voice
+// segment).
+export type ModerationTarget =
+  | { targetType: "actor"; actorId: string }
+  | ContentTargetReference;
+
+// One cited piece of evidence. A proposal may cite several, so cross-modal
+// context (an image and a later response) survives review and training.
+export interface ModerationEvidence {
+  target: ModerationTarget;
+  note?: string;
+}
 
 export interface ModerationProposal {
   id: string;
   roomId: string;
   modBotId: string;
+  target: ModerationTarget | null;
   targetEventSequence: string | null;
+  evidence: ModerationEvidence[];
   action: string;
+  ruleId: string | null;
+  rulesVersion: string | null;
   confidence: number;
   rationale: unknown;
   modelVersion: string;
@@ -27,8 +46,12 @@ interface ProposalRow {
   id: string;
   room_id: string;
   mod_bot_id: string;
+  target: ModerationTarget | null;
   target_event_sequence: string | null;
+  evidence: ModerationEvidence[];
   action: string;
+  rule_id: string | null;
+  rules_version: string | null;
   confidence: number;
   rationale: unknown;
   model_version: string;
@@ -59,8 +82,12 @@ export class PostgresModerationRepository implements ModerationRepository {
           id,
           room_id,
           mod_bot_id,
+          target,
           target_event_sequence,
+          evidence,
           action,
+          rule_id,
+          rules_version,
           confidence,
           rationale,
           model_version,
@@ -80,8 +107,12 @@ export class PostgresModerationRepository implements ModerationRepository {
       id: proposal.id,
       roomId: proposal.room_id,
       modBotId: proposal.mod_bot_id,
+      target: proposal.target,
       targetEventSequence: proposal.target_event_sequence,
+      evidence: proposal.evidence,
       action: proposal.action,
+      ruleId: proposal.rule_id,
+      rulesVersion: proposal.rules_version,
       confidence: proposal.confidence,
       rationale: proposal.rationale,
       modelVersion: proposal.model_version,

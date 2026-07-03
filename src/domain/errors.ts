@@ -20,3 +20,6 @@ export const conflict = (code: string, message: string): DomainError =>
 
 export const forbidden = (code: string, message: string): DomainError =>
   new DomainError(code, message, 403);
+
+export const unauthorized = (code: string, message: string): DomainError =>
+  new DomainError(code, message, 401);

@@ -69,9 +69,227 @@ const outboxMigration = `
     WHERE published_at IS NULL;
 `;
 
+const actorIdentityMigration = `
+  ALTER TABLE actors ADD COLUMN IF NOT EXISTS handle text;
+  ALTER TABLE actors ADD COLUMN IF NOT EXISTS retired_at timestamptz;
+
+  CREATE UNIQUE INDEX IF NOT EXISTS actors_handle_idx
+    ON actors (handle)
+    WHERE handle IS NOT NULL;
+`;
+
+const actorDiscriminatorMigration = `
+  ALTER TABLE actors ADD COLUMN IF NOT EXISTS discriminator text;
+  ALTER TABLE actors ADD COLUMN IF NOT EXISTS registered boolean NOT NULL DEFAULT false;
+
+  -- Adopt legacy client-supplied slug ids as handles so upgraded databases
+  -- do not grow duplicate actors on the next find-or-create.
+  UPDATE actors
+  SET handle = id
+  WHERE handle IS NULL
+    AND retired_at IS NULL
+    AND id ~ '^[A-Za-z0-9][A-Za-z0-9_-]{2,63}$'
+    AND id !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+    AND NOT EXISTS (
+      SELECT 1 FROM actors other WHERE other.handle = actors.id
+    );
+
+  -- Adopt handles for the named development chat bots created before the
+  -- handle column existed.
+  UPDATE actors
+  SET handle = adopt.handle
+  FROM (VALUES
+    ('Arwen', 'arwen'),
+    ('Jacob', 'jacob'),
+    ('Ru', 'ru-bot'),
+    ('Felix', 'felix'),
+    ('Bob', 'bob')
+  ) AS adopt(display_name, handle)
+  WHERE actors.handle IS NULL
+    AND actors.retired_at IS NULL
+    AND actors.actor_type = 'chat_bot'
+    AND actors.display_name = adopt.display_name
+    AND NOT EXISTS (
+      SELECT 1 FROM actors other WHERE other.handle = adopt.handle
+    );
+
+  -- Assign discriminators to existing humans: random per name, starting at
+  -- 4 digits and widening when a name's space fills.
+  DO $$
+  DECLARE
+    human record;
+    candidate text;
+    width integer;
+  BEGIN
+    FOR human IN
+      SELECT id, display_name
+      FROM actors
+      WHERE actor_type = 'human' AND discriminator IS NULL
+      ORDER BY created_at
+    LOOP
+      width := 4;
+      LOOP
+        candidate := lpad(
+          floor(random() * (10 ^ width))::bigint::text, width, '0'
+        );
+
+        IF NOT EXISTS (
+          SELECT 1 FROM actors
+          WHERE actor_type = 'human'
+            AND display_name = human.display_name
+            AND discriminator = candidate
+        ) THEN
+          UPDATE actors SET discriminator = candidate WHERE id = human.id;
+          EXIT;
+        END IF;
+
+        IF (
+          SELECT count(*) FROM actors
+          WHERE actor_type = 'human'
+            AND display_name = human.display_name
+            AND length(discriminator) = width
+        ) >= (10 ^ width) * 0.9 THEN
+          width := width + 1;
+        END IF;
+      END LOOP;
+    END LOOP;
+  END $$;
+
+  -- Humans always carry a discriminator; bots never do.
+  ALTER TABLE actors ADD CONSTRAINT actors_discriminator_by_type
+    CHECK ((actor_type = 'human') = (discriminator IS NOT NULL));
+
+  -- A human identity (name plus discriminator) is unique, including retired
+  -- actors, so a rendered identity is never reused.
+  CREATE UNIQUE INDEX IF NOT EXISTS actors_human_identity_idx
+    ON actors (display_name, discriminator)
+    WHERE actor_type = 'human';
+
+  -- Bot names are unique across chat bots and mod bots together. Retiring a
+  -- bot frees its name.
+  CREATE UNIQUE INDEX IF NOT EXISTS actors_bot_name_idx
+    ON actors (lower(display_name))
+    WHERE actor_type IN ('chat_bot', 'mod_bot') AND retired_at IS NULL;
+`;
+
+const contentItemsMigration = `
+  CREATE TABLE IF NOT EXISTS content_items (
+    id text PRIMARY KEY,
+    room_id text NOT NULL REFERENCES rooms(id),
+    room_sequence bigint NOT NULL,
+    actor_id text NOT NULL REFERENCES actors(id),
+    lifecycle_state text NOT NULL DEFAULT 'published'
+      CHECK (lifecycle_state IN ('published', 'edited', 'removed')),
+    revision integer NOT NULL DEFAULT 1 CHECK (revision >= 1),
+    reply_to jsonb,
+    parts jsonb NOT NULL,
+    refs jsonb NOT NULL DEFAULT '[]'::jsonb,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (room_id, room_sequence)
+  );
+
+  CREATE INDEX IF NOT EXISTS content_items_room_order_idx
+    ON content_items (room_id, room_sequence);
+
+  -- Backfill: represent existing text messages as published content items
+  -- with one text part, so the content projection covers the full history.
+  INSERT INTO content_items (
+    id, room_id, room_sequence, actor_id, lifecycle_state, revision,
+    parts, refs, created_at, updated_at
+  )
+  SELECT
+    gen_random_uuid()::text,
+    room_id,
+    sequence,
+    actor_id,
+    'published',
+    1,
+    jsonb_build_array(
+      jsonb_build_object(
+        'partId', 'part-1',
+        'kind', 'text',
+        'text', payload->>'content'
+      )
+    ),
+    '[]'::jsonb,
+    occurred_at,
+    occurred_at
+  FROM room_events
+  WHERE event_type = 'message_posted'
+    AND actor_id IS NOT NULL
+    AND coalesce(payload->>'content', '') <> ''
+    AND NOT EXISTS (
+      SELECT 1 FROM content_items existing
+      WHERE existing.room_id = room_events.room_id
+        AND existing.room_sequence = room_events.sequence
+    );
+`;
+
+const moderationTargetsMigration = `
+  ALTER TABLE moderation_proposals ADD COLUMN IF NOT EXISTS target jsonb;
+  ALTER TABLE moderation_proposals
+    ADD COLUMN IF NOT EXISTS evidence jsonb NOT NULL DEFAULT '[]'::jsonb;
+
+  -- Backfill typed targets: legacy proposals targeted message event
+  -- sequences, and those messages are now content items.
+  UPDATE moderation_proposals
+  SET target = jsonb_build_object(
+    'targetType', 'content_item',
+    'contentItemId', content_items.id
+  )
+  FROM content_items
+  WHERE moderation_proposals.target IS NULL
+    AND moderation_proposals.target_event_sequence IS NOT NULL
+    AND content_items.room_id = moderation_proposals.room_id
+    AND content_items.room_sequence = moderation_proposals.target_event_sequence;
+`;
+
+const participationPolicyMigration = `
+  ALTER TABLE actors ADD COLUMN IF NOT EXISTS policy_version_accepted text;
+  ALTER TABLE actors ADD COLUMN IF NOT EXISTS policy_accepted_at timestamptz;
+`;
+
+const sessionsMigration = `
+  CREATE TABLE IF NOT EXISTS sessions (
+    token_hash text PRIMARY KEY,
+    actor_id text NOT NULL REFERENCES actors(id),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    expires_at timestamptz NOT NULL,
+    revoked_at timestamptz
+  );
+
+  CREATE INDEX IF NOT EXISTS sessions_actor_idx
+    ON sessions (actor_id);
+`;
+
+const roomNameCleanupMigration = `
+  -- The single room is called Room. The identifier stays global-lobby; ids
+  -- are internal and never shown. The room description column was a mistake
+  -- (the description is client copy, not room data) and is dropped.
+  ALTER TABLE rooms DROP COLUMN IF EXISTS description;
+
+  UPDATE rooms
+  SET name = 'Room'
+  WHERE id = 'global-lobby' AND name = 'Global Lobby';
+`;
+
+const ruleCitationsMigration = `
+  ALTER TABLE moderation_proposals ADD COLUMN IF NOT EXISTS rule_id text;
+  ALTER TABLE moderation_proposals ADD COLUMN IF NOT EXISTS rules_version text;
+`;
+
 const migrations = [
   { version: 1, sql: initialMigration },
   { version: 2, sql: outboxMigration },
+  { version: 3, sql: actorIdentityMigration },
+  { version: 4, sql: actorDiscriminatorMigration },
+  { version: 5, sql: contentItemsMigration },
+  { version: 6, sql: moderationTargetsMigration },
+  { version: 7, sql: participationPolicyMigration },
+  { version: 8, sql: sessionsMigration },
+  { version: 11, sql: roomNameCleanupMigration },
+  { version: 12, sql: ruleCitationsMigration },
 ] as const;
 
 export const createDatabase = (config: PoolConfig): Pool =>

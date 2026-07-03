@@ -1,27 +1,38 @@
 import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { createDatabase, migrateDatabase } from "./database.js";
+import { SessionWriteAuthorizer } from "./domain/auth.js";
 import { CommandService } from "./domain/commands.js";
 import { ModerationPolicy } from "./domain/moderation-policy.js";
 import { JetStreamOutboxPublisher } from "./events/outbox-publisher.js";
 import { PostgresActorRepository } from "./repositories/actors.js";
+import { PostgresContentRepository } from "./repositories/content.js";
 import { PostgresModerationRepository } from "./repositories/moderation.js";
 import { PostgresRoomRepository } from "./repositories/rooms.js";
+import { PostgresSessionRepository } from "./repositories/sessions.js";
 
 const start = async (): Promise<void> => {
   const config = loadConfig();
   const database = createDatabase(config.database);
   const publisher = new JetStreamOutboxPublisher(database, config.natsUrl);
+  const actors = new PostgresActorRepository(database);
+  const sessions = new PostgresSessionRepository(
+    database,
+    config.auth.sessionTtlDays,
+  );
   const app = buildApp({
-    actors: new PostgresActorRepository(database),
+    actors,
+    auth: new SessionWriteAuthorizer(sessions, actors, config.auth.mode),
     commands: new CommandService(
       database,
       new ModerationPolicy(config.moderation),
     ),
+    content: new PostgresContentRepository(database),
     database,
     moderation: new PostgresModerationRepository(database),
     publisher,
     rooms: new PostgresRoomRepository(database),
+    sessions,
   });
 
   try {
