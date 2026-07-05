@@ -6,23 +6,27 @@ import { DomainError } from "./domain/errors.js";
 import type { EventPublisher } from "./events/outbox-publisher.js";
 import type { ActorRepository } from "./repositories/actors.js";
 import type { ContentRepository } from "./repositories/content.js";
+import type { CredentialRepository } from "./repositories/credentials.js";
 import type { ModerationRepository } from "./repositories/moderation.js";
 import type { RoomRepository } from "./repositories/rooms.js";
 import type { SessionRepository } from "./repositories/sessions.js";
 import { actorRoutes } from "./routes/actors.js";
 import { commandRoutes } from "./routes/commands.js";
 import { contentRoutes } from "./routes/content.js";
+import { credentialRoutes } from "./routes/credentials.js";
 import { healthRoutes } from "./routes/health.js";
 import { moderationRoutes } from "./routes/moderation.js";
 import { roomRoutes } from "./routes/rooms.js";
 import { sessionRoutes } from "./routes/sessions.js";
 
 export interface AppDependencies {
+  accountUrl: string;
   database: Pool;
   actors: ActorRepository;
   auth: WriteAuthorizer;
   commands: CommandService;
   content: ContentRepository;
+  credentials: CredentialRepository;
   moderation: ModerationRepository;
   publisher: EventPublisher;
   rooms: RoomRepository;
@@ -70,9 +74,21 @@ export const buildApp = (dependencies: AppDependencies): FastifyInstance => {
   app.register(roomRoutes(dependencies.rooms, dependencies.publisher));
   app.register(contentRoutes(dependencies.content));
   app.register(moderationRoutes(dependencies.moderation));
-  app.register(sessionRoutes(dependencies.sessions));
   app.register(
-    commandRoutes(dependencies.commands, dependencies.sessions, dependencies.auth),
+    sessionRoutes(
+      dependencies.sessions,
+      dependencies.actors,
+      dependencies.accountUrl,
+    ),
+  );
+  app.register(credentialRoutes(dependencies.actors, dependencies.credentials));
+  app.register(
+    commandRoutes(
+      dependencies.commands,
+      dependencies.sessions,
+      dependencies.auth,
+      dependencies.credentials,
+    ),
   );
   app.addHook("onReady", async () => {
     dependencies.publisher.start(app.log);

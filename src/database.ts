@@ -279,6 +279,15 @@ const ruleCitationsMigration = `
   ALTER TABLE moderation_proposals ADD COLUMN IF NOT EXISTS rules_version text;
 `;
 
+const credentialsMigration = `
+  CREATE TABLE IF NOT EXISTS actor_credentials (
+    actor_id text PRIMARY KEY REFERENCES actors(id),
+    password_hash text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+  );
+`;
+
 const migrations = [
   { version: 1, sql: initialMigration },
   { version: 2, sql: outboxMigration },
@@ -290,6 +299,7 @@ const migrations = [
   { version: 8, sql: sessionsMigration },
   { version: 11, sql: roomNameCleanupMigration },
   { version: 12, sql: ruleCitationsMigration },
+  { version: 13, sql: credentialsMigration },
 ] as const;
 
 export const createDatabase = (config: PoolConfig): Pool =>

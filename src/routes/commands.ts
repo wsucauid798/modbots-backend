@@ -15,9 +15,11 @@ import type {
   ModerationEvidence,
   ModerationTarget,
 } from "../repositories/moderation.js";
+import { hashPassword } from "../domain/credentials.js";
 import { badRequest, conflict, DomainError } from "../domain/errors.js";
 import { participationPolicy } from "../domain/policy.js";
 import { roomRules, ruleById } from "../domain/rules.js";
+import type { CredentialRepository } from "../repositories/credentials.js";
 
 interface RoomParams {
   roomId: string;
@@ -426,6 +428,7 @@ export const commandRoutes = (
   commands: CommandHandler,
   sessions: SessionRepository,
   auth: WriteAuthorizer,
+  credentials: CredentialRepository,
 ): FastifyPluginAsync => {
   return async (app): Promise<void> => {
     app.post<{ Body: unknown }>("/api/actors", async (request, reply) => {
@@ -536,6 +539,26 @@ export const commandRoutes = (
             ? username
             : string(body, "displayName", { maximum: 100 });
 
+        // Passwords are optional while in-app registration still exists;
+        // the account surface always sends one. Never trimmed: a password
+        // is stored as typed.
+        let password: string | null = null;
+
+        if (body.password !== undefined && body.password !== null) {
+          if (typeof body.password !== "string") {
+            throw badRequest("invalid_body", "'password' must be a string");
+          }
+
+          if (body.password.length < 8 || body.password.length > 200) {
+            throw badRequest(
+              "invalid_password",
+              "'password' must be 8 to 200 characters",
+            );
+          }
+
+          password = body.password;
+        }
+
         try {
           const actor = await commands.createActor({
             displayName,
@@ -544,6 +567,11 @@ export const commandRoutes = (
             registered: true,
             policyVersionAccepted: policyVersion,
           });
+
+          if (password !== null) {
+            await credentials.setPassword(actor.id, await hashPassword(password));
+          }
+
           const session = await sessions.issue(actor.id);
 
           return reply.code(201).send({ actor, session });

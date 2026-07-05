@@ -7,6 +7,7 @@ import { ModerationPolicy } from "./domain/moderation-policy.js";
 import { JetStreamOutboxPublisher } from "./events/outbox-publisher.js";
 import { PostgresActorRepository } from "./repositories/actors.js";
 import { PostgresContentRepository } from "./repositories/content.js";
+import { PostgresCredentialRepository } from "./repositories/credentials.js";
 import { PostgresModerationRepository } from "./repositories/moderation.js";
 import { PostgresRoomRepository } from "./repositories/rooms.js";
 import { PostgresSessionRepository } from "./repositories/sessions.js";
@@ -21,6 +22,7 @@ const start = async (): Promise<void> => {
     config.auth.sessionTtlDays,
   );
   const app = buildApp({
+    accountUrl: config.auth.accountUrl,
     actors,
     auth: new SessionWriteAuthorizer(sessions, actors, config.auth.mode),
     commands: new CommandService(
@@ -28,6 +30,7 @@ const start = async (): Promise<void> => {
       new ModerationPolicy(config.moderation),
     ),
     content: new PostgresContentRepository(database),
+    credentials: new PostgresCredentialRepository(database),
     database,
     moderation: new PostgresModerationRepository(database),
     publisher,

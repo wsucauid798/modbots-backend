@@ -4,6 +4,7 @@ import Fastify from "fastify";
 import { SessionWriteAuthorizer } from "../domain/auth.js";
 import type { CommandHandler } from "../domain/commands.js";
 import type { ActorRepository } from "../repositories/actors.js";
+import type { CredentialRepository } from "../repositories/credentials.js";
 import type { EventPublisher } from "../events/outbox-publisher.js";
 import type { ModerationRepository } from "../repositories/moderation.js";
 import type { RoomRepository } from "../repositories/rooms.js";
@@ -67,6 +68,11 @@ const sessions: SessionRepository = {
 
 const auth = new SessionWriteAuthorizer(sessions, actors, "optional");
 const requiredAuth = new SessionWriteAuthorizer(sessions, actors, "required");
+
+const credentials: CredentialRepository = {
+  setPassword: async () => {},
+  passwordHashFor: async () => null,
+};
 
 const rooms: RoomRepository = {
   getOverview: async (roomId) =>
@@ -273,7 +279,7 @@ describe("moderation routes", () => {
 describe("command routes", () => {
   it("creates a validated actor", async () => {
     const app = Fastify();
-    await app.register(commandRoutes(commands, sessions, auth));
+    await app.register(commandRoutes(commands, sessions, auth, credentials));
 
     const response = await app.inject({
       method: "POST",
@@ -291,7 +297,7 @@ describe("command routes", () => {
 
   it("rejects empty messages before reaching the command service", async () => {
     const app = Fastify();
-    await app.register(commandRoutes(commands, sessions, auth));
+    await app.register(commandRoutes(commands, sessions, auth, credentials));
 
     const response = await app.inject({
       method: "POST",
@@ -308,7 +314,7 @@ describe("command routes", () => {
 
   it("serves the room rules with stable identifiers", async () => {
     const app = Fastify();
-    await app.register(commandRoutes(commands, sessions, auth));
+    await app.register(commandRoutes(commands, sessions, auth, credentials));
 
     const response = await app.inject({ method: "GET", url: "/api/rules" });
 
@@ -325,7 +331,7 @@ describe("command routes", () => {
 
   it("serves the participation policy", async () => {
     const app = Fastify();
-    await app.register(commandRoutes(commands, sessions, auth));
+    await app.register(commandRoutes(commands, sessions, auth, credentials));
 
     const response = await app.inject({ method: "GET", url: "/api/policy" });
 
@@ -337,7 +343,7 @@ describe("command routes", () => {
 
   it("requires policy acceptance before guest participation", async () => {
     const app = Fastify();
-    await app.register(commandRoutes(commands, sessions, auth));
+    await app.register(commandRoutes(commands, sessions, auth, credentials));
 
     const response = await app.inject({
       method: "POST",
@@ -351,7 +357,7 @@ describe("command routes", () => {
 
   it("creates guests with an assigned name, consent, and a session", async () => {
     const app = Fastify();
-    await app.register(commandRoutes(commands, sessions, auth));
+    await app.register(commandRoutes(commands, sessions, auth, credentials));
 
     const response = await app.inject({
       method: "POST",
@@ -373,7 +379,7 @@ describe("command routes", () => {
 
   it("registers humans with a chosen username and a session", async () => {
     const app = Fastify();
-    await app.register(commandRoutes(commands, sessions, auth));
+    await app.register(commandRoutes(commands, sessions, auth, credentials));
 
     const response = await app.inject({
       method: "POST",
@@ -394,7 +400,7 @@ describe("command routes", () => {
 
   it("posts text content parts", async () => {
     const app = Fastify();
-    await app.register(commandRoutes(commands, sessions, auth));
+    await app.register(commandRoutes(commands, sessions, auth, credentials));
 
     const response = await app.inject({
       method: "POST",
@@ -416,7 +422,7 @@ describe("command routes", () => {
 
   it("rejects unsupported part kinds before the command service", async () => {
     const app = Fastify();
-    await app.register(commandRoutes(commands, sessions, auth));
+    await app.register(commandRoutes(commands, sessions, auth, credentials));
 
     const response = await app.inject({
       method: "POST",
@@ -436,7 +442,7 @@ describe("command routes", () => {
 describe("session authentication", () => {
   it("accepts a bearer session that matches the acting actor", async () => {
     const app = Fastify();
-    await app.register(commandRoutes(commands, sessions, auth));
+    await app.register(commandRoutes(commands, sessions, auth, credentials));
 
     const response = await app.inject({
       method: "POST",
@@ -451,7 +457,7 @@ describe("session authentication", () => {
 
   it("rejects a bearer session that does not match the acting actor", async () => {
     const app = Fastify();
-    await app.register(commandRoutes(commands, sessions, auth));
+    await app.register(commandRoutes(commands, sessions, auth, credentials));
 
     const response = await app.inject({
       method: "POST",
@@ -467,7 +473,7 @@ describe("session authentication", () => {
 
   it("rejects a bearer token that does not resolve to a session", async () => {
     const app = Fastify();
-    await app.register(commandRoutes(commands, sessions, auth));
+    await app.register(commandRoutes(commands, sessions, auth, credentials));
 
     const response = await app.inject({
       method: "POST",
@@ -483,7 +489,7 @@ describe("session authentication", () => {
 
   it("lets tokenless requests through unchanged in optional mode", async () => {
     const app = Fastify();
-    await app.register(commandRoutes(commands, sessions, auth));
+    await app.register(commandRoutes(commands, sessions, auth, credentials));
 
     const response = await app.inject({
       method: "POST",
@@ -497,7 +503,7 @@ describe("session authentication", () => {
 
   it("refuses tokenless human writes in required mode", async () => {
     const app = Fastify();
-    await app.register(commandRoutes(commands, sessions, requiredAuth));
+    await app.register(commandRoutes(commands, sessions, requiredAuth, credentials));
 
     const response = await app.inject({
       method: "POST",
@@ -512,7 +518,7 @@ describe("session authentication", () => {
 
   it("keeps bots exempt from required mode until service credentials exist", async () => {
     const app = Fastify();
-    await app.register(commandRoutes(commands, sessions, requiredAuth));
+    await app.register(commandRoutes(commands, sessions, requiredAuth, credentials));
 
     const response = await app.inject({
       method: "POST",
@@ -526,7 +532,9 @@ describe("session authentication", () => {
 
   it("revokes the session of a live bearer token", async () => {
     const app = Fastify();
-    await app.register(sessionRoutes(sessions));
+    await app.register(
+      sessionRoutes(sessions, actors, "http://localhost:3003"),
+    );
 
     const response = await app.inject({
       method: "POST",
@@ -540,7 +548,9 @@ describe("session authentication", () => {
 
   it("returns 401 when revoking an unknown token", async () => {
     const app = Fastify();
-    await app.register(sessionRoutes(sessions));
+    await app.register(
+      sessionRoutes(sessions, actors, "http://localhost:3003"),
+    );
 
     const response = await app.inject({
       method: "POST",

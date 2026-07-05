@@ -8,6 +8,9 @@ export interface AppConfig {
   auth: {
     mode: AuthMode;
     sessionTtlDays: number;
+    // The account surface's base URL, used to validate its access tokens
+    // during the browser sign-in exchange.
+    accountUrl: string;
   };
   database: {
     host: string;
@@ -125,6 +128,7 @@ export const loadConfig = (
   auth: {
     mode: authMode(environment, "AUTH_MODE", "optional"),
     sessionTtlDays: days(environment, "SESSION_TTL_DAYS", "30"),
+    accountUrl: url(environment, "ACCOUNT_URL", "http://localhost:3003"),
   },
   database: {
     host: required(environment, "POSTGRES_HOST", "localhost"),
