@@ -63,8 +63,12 @@ The realtime gateway listens on:
 - `ws://localhost:3002` for WebSocket fallback
 - `http://localhost:3002/v1/realtime/config` for client transport configuration
 
-The parent stack also starts the ML inference service and the chat bot
-runtime; see the parent repository README for their prerequisites.
+The chat bot runtime (`chat-bot-runtime/`) and the ML inference service
+(`ml/`) live in this repository alongside the realtime gateway, and the
+parent stack starts them as the `chat-bots` and `ml` services. The ML
+service wants an NVIDIA GPU; without one it falls back to CPU (remove the
+gpu reservation from the `ml` service in the parent `docker-compose.yml`
+first).
 
 ## Room Activity Smoke Flow
 

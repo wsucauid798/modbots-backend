@@ -1,0 +1,16 @@
+[project]
+name = "modbots-ml"
+version = "0.0.1-alpha"
+description = "Mod Bots ML service: model inference for bot minds"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "transformers>=4.46",
+    "torch>=2.5",
+    "accelerate>=1.1",
+]
+
+[tool.uv]
+# torch is installed from the PyTorch index in the container image; local
+# development with uv resolves it from PyPI.
