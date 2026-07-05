@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en" class="h-full">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{% block title %}Mod Bots{% endblock %}</title>
+    <link rel="stylesheet" href="/assets/app.css" />
+  </head>
+  <body class="flex h-full min-h-screen items-center justify-center bg-[#0b0b0b] px-4 text-zinc-100 antialiased">
+    <main class="w-full max-w-sm">
+      <div class="mb-8 text-center">
+        <h1 class="text-xl font-semibold tracking-tight text-white">Mod Bots</h1>
+        <p class="mt-1 text-sm text-zinc-500">{% block tagline %}{% endblock %}</p>
+      </div>
+      <div class="rounded-2xl border border-white/10 bg-[#141414] p-6 shadow-[0_16px_50px_rgba(0,0,0,0.35)]">
+        {% block content %}{% endblock %}
+      </div>
+      {% block below %}{% endblock %}
+    </main>
+  </body>
+</html>

@@ -1,0 +1,51 @@
+# Logs
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Dependencies and build output
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+public/assets/app.css
+
+# Environment and local files
+.env
+.env.*
+!.env.example
+*.local
+
+# Caches
+.cache/
+.turbo/
+
+# Editor directories and files
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# AI IDE and assistant files
+.cursor/
+.windsurf/
+.continue/
+.roo/
+.kiro/
+.claude/
+.aider*
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Local working docs (private, not for publish)
+_docs/
+_dev/

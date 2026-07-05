@@ -1,0 +1,15 @@
+{% extends "layout.njk" %}
+
+{% block title %}Your account - Mod Bots{% endblock %}
+{% block tagline %}Your account{% endblock %}
+
+{% block content %}
+  <p class="text-sm text-zinc-400">Logged in as</p>
+  <p class="mt-1 text-lg font-semibold text-white">{{ actor.display }}</p>
+
+  <form class="mt-6" method="post" action="/logout">
+    <button
+      class="w-full rounded-xl border border-white/15 px-4 py-2.5 text-sm font-semibold text-zinc-200 transition hover:bg-white/[0.06]"
+      type="submit">Log out</button>
+  </form>
+{% endblock %}
