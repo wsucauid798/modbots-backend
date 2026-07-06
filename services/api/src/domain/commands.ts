@@ -2,7 +2,11 @@ import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { withTransaction } from "../database.js";
 import { roomRules } from "./rules.js";
-import { renderActorDisplay } from "../repositories/actors.js";
+import {
+  renderActorProfilePictureUrl,
+  renderActorDisplay,
+  residentProfilePictureId,
+} from "../repositories/actors.js";
 import type { Actor, ActorType } from "../repositories/actors.js";
 import { contentItemFromRow } from "../repositories/content.js";
 import type {
@@ -41,6 +45,7 @@ interface ActorRow {
   discriminator: string | null;
   registered: boolean;
   actor_type: ActorType;
+  profile_picture_id: string | null;
   policy_version_accepted: string | null;
   policy_accepted_at: Date | null;
   retired_at: Date | null;
@@ -171,13 +176,18 @@ export interface CommandHandler {
   ): Promise<{ proposal: ModerationProposal; event: RoomEvent }>;
 }
 
-const actorFromRow = (actor: ActorRow): Actor => ({
+const actorFromRow = (actor: ActorRow, uppsBaseUrl: string): Actor => ({
   id: actor.id,
   handle: actor.handle,
   displayName: actor.display_name,
   discriminator: actor.discriminator,
   registered: actor.registered,
   display: renderActorDisplay(actor),
+  profilePictureId: actor.profile_picture_id,
+  profilePictureUrl: renderActorProfilePictureUrl(
+    actor.profile_picture_id,
+    uppsBaseUrl,
+  ),
   type: actor.actor_type,
   policyVersionAccepted: actor.policy_version_accepted,
   policyAcceptedAt: actor.policy_accepted_at?.toISOString() ?? null,
@@ -185,7 +195,7 @@ const actorFromRow = (actor: ActorRow): Actor => ({
   createdAt: actor.created_at.toISOString(),
 });
 
-const actorColumns = `id, handle, display_name, discriminator, registered, actor_type, policy_version_accepted, policy_accepted_at, retired_at, created_at`;
+const actorColumns = `id, handle, display_name, discriminator, registered, actor_type, profile_picture_id, policy_version_accepted, policy_accepted_at, retired_at, created_at`;
 
 const uniqueViolation = (error: unknown): string | null => {
   if (
@@ -679,6 +689,7 @@ export class CommandService implements CommandHandler {
   public constructor(
     private readonly database: Pool,
     private readonly moderationPolicy: ModerationPolicy,
+    private readonly uppsBaseUrl: string,
   ) {}
 
   public async createActor(command: CreateActorCommand): Promise<Actor> {
@@ -694,11 +705,11 @@ export class CommandService implements CommandHandler {
           `
             INSERT INTO actors (
               id, handle, display_name, discriminator, registered, actor_type,
-              policy_version_accepted, policy_accepted_at
+              profile_picture_id, policy_version_accepted, policy_accepted_at
             )
             VALUES (
-              $1, $2, $3, $4, $5, $6, $7,
-              CASE WHEN $7::text IS NULL THEN NULL ELSE now() END
+              $1, $2, $3, $4, $5, $6, $7, $8,
+              CASE WHEN $8::text IS NULL THEN NULL ELSE now() END
             )
             RETURNING ${actorColumns}
           `,
@@ -709,11 +720,12 @@ export class CommandService implements CommandHandler {
             discriminator,
             command.registered ?? false,
             command.type,
+            residentProfilePictureId(command.handle ?? null, command.type),
             command.policyVersionAccepted ?? null,
           ],
         );
 
-        return actorFromRow(result.rows[0]!);
+        return actorFromRow(result.rows[0]!, this.uppsBaseUrl);
       } catch (error) {
         const constraint = uniqueViolation(error);
 
@@ -769,7 +781,7 @@ export class CommandService implements CommandHandler {
     }
 
     if (actor.display_name === command.displayName) {
-      return actorFromRow(actor);
+      return actorFromRow(actor, this.uppsBaseUrl);
     }
 
     const isHuman = actor.actor_type === "human";
@@ -792,7 +804,7 @@ export class CommandService implements CommandHandler {
           [command.actorId, command.displayName, discriminator],
         );
 
-        return actorFromRow(result.rows[0]!);
+        return actorFromRow(result.rows[0]!, this.uppsBaseUrl);
       } catch (error) {
         const constraint = uniqueViolation(error);
 
@@ -876,7 +888,7 @@ export class CommandService implements CommandHandler {
         });
       }
 
-      return actorFromRow(actor);
+      return actorFromRow(actor, this.uppsBaseUrl);
     });
   }
 
@@ -900,7 +912,7 @@ export class CommandService implements CommandHandler {
         );
       }
 
-      return actorFromRow(actor);
+      return actorFromRow(actor, this.uppsBaseUrl);
     } catch (error) {
       // A retired bot's name may have been reused while it was retired.
       if (uniqueViolation(error) === "actors_bot_name_idx") {

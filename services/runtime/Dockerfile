@@ -4,6 +4,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY modbots-backend/services/api/package.json ./modbots-backend/services/api/package.json
 COPY modbots-backend/services/runtime/package.json ./modbots-backend/services/runtime/package.json
+COPY modbots-backend/services/upps/package.json ./modbots-backend/services/upps/package.json
 RUN npm ci
 
 COPY modbots-backend/services/runtime ./modbots-backend/services/runtime

@@ -16,7 +16,7 @@ const start = async (): Promise<void> => {
   const config = loadConfig();
   const database = createDatabase(config.database);
   const publisher = new JetStreamOutboxPublisher(database, config.natsUrl);
-  const actors = new PostgresActorRepository(database);
+  const actors = new PostgresActorRepository(database, config.upps.publicUrl);
   const sessions = new PostgresSessionRepository(
     database,
     config.auth.sessionTtlDays,
@@ -28,6 +28,7 @@ const start = async (): Promise<void> => {
     commands: new CommandService(
       database,
       new ModerationPolicy(config.moderation),
+      config.upps.publicUrl,
     ),
     content: new PostgresContentRepository(database),
     credentials: new PostgresCredentialRepository(database),

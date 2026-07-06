@@ -288,6 +288,25 @@ const credentialsMigration = `
   );
 `;
 
+const profilePicturesMigration = `
+  ALTER TABLE actors ADD COLUMN IF NOT EXISTS profile_picture_id text;
+
+  UPDATE actors
+  SET profile_picture_id = CASE handle
+    WHEN 'arwen' THEN 'resident-arwen'
+    WHEN 'bob' THEN 'resident-bob'
+    WHEN 'felix' THEN 'resident-felix'
+    WHEN 'iris' THEN 'resident-iris'
+    WHEN 'jacob' THEN 'resident-jacob'
+    WHEN 'milo' THEN 'resident-milo'
+    WHEN 'ru-bot' THEN 'resident-ru-bot'
+    WHEN 'vera' THEN 'resident-vera'
+    ELSE profile_picture_id
+  END
+  WHERE actor_type IN ('chat_bot', 'mod_bot')
+    AND profile_picture_id IS NULL;
+`;
+
 const migrations = [
   { version: 1, sql: initialMigration },
   { version: 2, sql: outboxMigration },
@@ -300,6 +319,7 @@ const migrations = [
   { version: 11, sql: roomNameCleanupMigration },
   { version: 12, sql: ruleCitationsMigration },
   { version: 13, sql: credentialsMigration },
+  { version: 14, sql: profilePicturesMigration },
 ] as const;
 
 export const createDatabase = (config: PoolConfig): Pool =>

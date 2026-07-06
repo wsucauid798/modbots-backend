@@ -6,6 +6,8 @@ export interface Actor {
   handle: string | null;
   displayName: string;
   display: string;
+  profilePictureId: string | null;
+  profilePictureUrl: string | null;
   type: "human" | "chat_bot" | "mod_bot";
   retiredAt: string | null;
 }

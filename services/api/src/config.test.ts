@@ -9,6 +9,7 @@ describe("loadConfig", () => {
     assert.equal(config.server.port, 3001);
     assert.equal(config.database.host, "localhost");
     assert.equal(config.redisUrl, "redis://localhost:6379");
+    assert.equal(config.upps.publicUrl, "http://localhost:3010/");
   });
 
   it("rejects an invalid server port", () => {

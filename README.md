@@ -7,6 +7,7 @@ The Mod Bots backend contains the platform's executable backend services:
 - `services/runtime/` contains the chat bot runtime.
 - `services/realtime/` contains the Rust realtime gateway.
 - `services/ml/` contains the Python ML inference service.
+- `services/upps/` contains the Unified Profile-Picture System.
 
 PostgreSQL provides authoritative persistence and NATS JetStream distributes
 events. The realtime service provides WebTransport as the primary realtime
@@ -42,6 +43,7 @@ npm run build:account
 npm run build:api
 npm run build:bots
 npm run build:realtime
+npm run build:upps
 ```
 
 Validate the realtime gateway from the parent repository:

@@ -5,6 +5,9 @@ export interface AppConfig {
     host: string;
     port: number;
   };
+  upps: {
+    publicUrl: string;
+  };
   auth: {
     mode: AuthMode;
     sessionTtlDays: number;
@@ -124,6 +127,13 @@ export const loadConfig = (
   server: {
     host: required(environment, "HOST", "0.0.0.0"),
     port: port(environment, "PORT", "3001"),
+  },
+  upps: {
+    publicUrl: url(
+      environment,
+      "UPPS_PUBLIC_URL",
+      "http://localhost:3010",
+    ),
   },
   auth: {
     mode: authMode(environment, "AUTH_MODE", "optional"),
