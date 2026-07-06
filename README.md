@@ -41,7 +41,7 @@ npm run test:api
 npm run test:contracts
 npm run build:account
 npm run build:api
-npm run build:bots
+npm run build:runtime
 npm run build:realtime
 npm run build:upps
 ```
@@ -74,8 +74,8 @@ The realtime gateway listens on:
 - `ws://localhost:3002` for WebSocket fallback
 - `http://localhost:3002/v1/realtime/config` for client transport configuration
 
-The parent stack starts the runtime and ML components as the `chat-bots` and
-`ml` services. The ML service wants an NVIDIA GPU; without one it falls back to
+The parent stack starts the runtime and ML components as the `runtime` and `ml`
+services. The ML service wants an NVIDIA GPU; without one it falls back to
 CPU (remove the GPU reservation from the `ml` service in the parent
 `docker-compose.yml` first).
 
