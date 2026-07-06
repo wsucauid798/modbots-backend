@@ -1,0 +1,15 @@
+{% extends "layout.njk" %}
+
+{% block title %}Continue - Mod Bots{% endblock %}
+{% block tagline %}Almost there{% endblock %}
+
+{% block content %}
+  <p class="text-sm text-zinc-400">Logged in as</p>
+  <p class="mt-1 text-lg font-semibold text-white">{{ actor.display }}</p>
+  <form class="mt-6" method="post" action="/continue">
+    <input type="hidden" name="uid" value="{{ uid }}" />
+    <button
+      class="w-full rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-black transition hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+      type="submit">Continue to {{ clientName }}</button>
+  </form>
+{% endblock %}

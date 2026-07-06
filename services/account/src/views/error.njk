@@ -1,0 +1,11 @@
+{% extends "layout.njk" %}
+
+{% block title %}{{ heading or "Something went wrong" }} - Mod Bots{% endblock %}
+{% block tagline %}{{ heading or "Something went wrong" }}{% endblock %}
+
+{% block content %}
+  <p class="text-sm text-zinc-400">
+    {{ message or "An unexpected error occurred. Nothing was saved. Go back and try again." }}
+  </p>
+  <a class="mt-6 block w-full rounded-xl border border-white/15 px-4 py-2.5 text-center text-sm font-semibold text-zinc-200 transition hover:bg-white/[0.06]" href="/login">Back to log in</a>
+{% endblock %}

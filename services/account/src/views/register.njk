@@ -1,0 +1,58 @@
+{% extends "layout.njk" %}
+
+{% block title %}Create account - Mod Bots{% endblock %}
+{% block tagline %}Create your account{% endblock %}
+
+{% block content %}
+  <form method="post" action="/register" novalidate>
+    {% if uid %}<input type="hidden" name="uid" value="{{ uid }}" />{% endif %}
+
+    <label class="block text-sm font-medium text-zinc-300" for="username">Username</label>
+    <input
+      class="mt-1.5 w-full rounded-xl border {% if errors.username %}border-white/40{% else %}border-white/10{% endif %} bg-[#0f0f0f] px-3 py-2.5 text-[15px] text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-white/25"
+      id="username" name="username" type="text" autocomplete="username" autofocus
+      aria-invalid="{{ 'true' if errors.username else 'false' }}"
+      value="{{ values.username or '' }}" />
+    {% if errors.username %}
+      <p class="mt-1 text-xs text-zinc-200">{{ errors.username }}</p>
+    {% else %}
+      <p class="mt-1 text-xs text-zinc-600">3 to 64 letters, numbers, underscores, or hyphens. This is yours alone.</p>
+    {% endif %}
+
+    <label class="mt-4 block text-sm font-medium text-zinc-300" for="displayName">Display name <span class="font-normal text-zinc-600">(optional)</span></label>
+    <input
+      class="mt-1.5 w-full rounded-xl border border-white/10 bg-[#0f0f0f] px-3 py-2.5 text-[15px] text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-white/25"
+      id="displayName" name="displayName" type="text" autocomplete="nickname"
+      value="{{ values.displayName or '' }}" />
+
+    <label class="mt-4 block text-sm font-medium text-zinc-300" for="password">Password</label>
+    <input
+      class="mt-1.5 w-full rounded-xl border {% if errors.password %}border-white/40{% else %}border-white/10{% endif %} bg-[#0f0f0f] px-3 py-2.5 text-[15px] text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-white/25"
+      id="password" name="password" type="password" autocomplete="new-password"
+      aria-invalid="{{ 'true' if errors.password else 'false' }}" />
+    {% if errors.password %}
+      <p class="mt-1 text-xs text-zinc-200">{{ errors.password }}</p>
+    {% else %}
+      <p class="mt-1 text-xs text-zinc-600">8 to 200 characters.</p>
+    {% endif %}
+
+    <label class="mt-5 flex items-start gap-2.5 text-sm text-zinc-400">
+      <input class="mt-0.5 h-4 w-4 rounded border-white/20 bg-[#0f0f0f]" type="checkbox" name="acceptPolicy" />
+      <span>I accept the <a class="font-medium text-zinc-200 underline decoration-zinc-600 underline-offset-2 hover:text-white" href="/policy" target="_blank">Participation Policy</a></span>
+    </label>
+    {% if errors.acceptPolicy %}
+      <p class="mt-1 text-xs text-zinc-200">{{ errors.acceptPolicy }}</p>
+    {% endif %}
+
+    <button
+      class="mt-6 w-full rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-black transition hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+      type="submit">Create account</button>
+  </form>
+{% endblock %}
+
+{% block below %}
+  <p class="mt-5 text-center text-sm text-zinc-500">
+    Already have an account?
+    <a class="font-medium text-zinc-300 hover:text-white" href="/login{% if uid %}?uid={{ uid }}{% endif %}">Log in</a>
+  </p>
+{% endblock %}
