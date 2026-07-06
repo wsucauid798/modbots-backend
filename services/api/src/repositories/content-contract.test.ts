@@ -12,6 +12,8 @@ const schemaPath = join(
   dirname(fileURLToPath(import.meta.url)),
   "..",
   "..",
+  "..",
+  "..",
   "contracts",
   "content-v1.schema.json",
 );

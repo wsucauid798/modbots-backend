@@ -1,10 +1,15 @@
 # Mod Bots Backend
 
-The Mod Bots backend is the authoritative platform API for actors, room events,
-content lifecycle, live-room state, and moderation outcomes. It uses Fastify and
-TypeScript, PostgreSQL for authoritative persistence, and NATS JetStream for
-event distribution. The Rust realtime gateway provides WebTransport as the
-primary realtime transport and WebSocket as a compatibility fallback.
+The Mod Bots backend contains the platform's executable backend services:
+
+- `services/api/` contains the Fastify and TypeScript API.
+- `services/runtime/` contains the chat bot runtime.
+- `services/realtime/` contains the Rust realtime gateway.
+- `services/ml/` contains the Python ML inference service.
+
+PostgreSQL provides authoritative persistence and NATS JetStream distributes
+events. The realtime service provides WebTransport as the primary realtime
+transport and WebSocket as a compatibility fallback.
 
 Interface contracts, such as the realtime protocol schema, live in the
 [`contracts/`](contracts) directory.
@@ -18,11 +23,11 @@ Interface contracts, such as the realtime protocol schema, live in the
 
 ## Development
 
-Install dependencies and run the backend from PowerShell:
+Install dependencies and run the API from the parent repository:
 
 ```powershell
 npm install
-npm run dev
+npm run dev:api
 ```
 
 The direct development command expects PostgreSQL on `localhost:5432`.
@@ -30,9 +35,11 @@ The direct development command expects PostgreSQL on `localhost:5432`.
 Run validation:
 
 ```powershell
-npm test
+npm run test:api
 npm run test:contracts
-npm run build
+npm run build:api
+npm run build:bots
+npm run build:realtime
 ```
 
 Validate the realtime gateway from the parent repository:
@@ -63,12 +70,10 @@ The realtime gateway listens on:
 - `ws://localhost:3002` for WebSocket fallback
 - `http://localhost:3002/v1/realtime/config` for client transport configuration
 
-The chat bot runtime (`chat-bot-runtime/`) and the ML inference service
-(`ml/`) live in this repository alongside the realtime gateway, and the
-parent stack starts them as the `chat-bots` and `ml` services. The ML
-service wants an NVIDIA GPU; without one it falls back to CPU (remove the
-gpu reservation from the `ml` service in the parent `docker-compose.yml`
-first).
+The parent stack starts the runtime and ML components as the `chat-bots` and
+`ml` services. The ML service wants an NVIDIA GPU; without one it falls back to
+CPU (remove the GPU reservation from the `ml` service in the parent
+`docker-compose.yml` first).
 
 ## Room Activity Smoke Flow
 
