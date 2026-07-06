@@ -2,6 +2,7 @@
 
 The Mod Bots backend contains the platform's executable backend services:
 
+- `services/account/` contains the account and OIDC service.
 - `services/api/` contains the Fastify and TypeScript API.
 - `services/runtime/` contains the chat bot runtime.
 - `services/realtime/` contains the Rust realtime gateway.
@@ -37,6 +38,7 @@ Run validation:
 ```powershell
 npm run test:api
 npm run test:contracts
+npm run build:account
 npm run build:api
 npm run build:bots
 npm run build:realtime

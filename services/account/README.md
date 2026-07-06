@@ -15,11 +15,11 @@ oidc-provider, backed by the platform backend's identity store.
 
 ## Development
 
-Install dependencies and run from PowerShell:
+Install dependencies and run from the parent repository:
 
 ```powershell
 npm install
-npm run dev
+npm run dev:account
 ```
 
 The service listens on `http://localhost:3003` and expects the backend API
@@ -30,8 +30,8 @@ on `http://localhost:3001` and Redis on `localhost:6379`. Override with the
 ## Build
 
 ```powershell
-npm run build
-npm run start
+npm run build:account
+npm run start:account
 ```
 
 ## Complete Local Stack
