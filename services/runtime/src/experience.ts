@@ -18,7 +18,13 @@ interface ExperienceState {
   people: Record<string, PersonMemory>;
   interests: Record<string, WeightedMemory>;
   curiosities: Record<string, WeightedMemory>;
+  responsiveTopics: Record<string, WeightedMemory>;
+  quietTopics: Record<string, WeightedMemory>;
   impressions: string[];
+  pendingAttempt?: {
+    topics: string[];
+    spokenAt: string;
+  };
 }
 
 interface WeightedTopic {
@@ -131,9 +137,31 @@ export class AgentExperience {
           people: parsed.people as Record<string, PersonMemory>,
           interests: parsed.interests as Record<string, WeightedMemory>,
           curiosities: parsed.curiosities as Record<string, WeightedMemory>,
+          responsiveTopics:
+            typeof parsed.responsiveTopics === "object" &&
+            parsed.responsiveTopics !== null
+              ? (parsed.responsiveTopics as Record<string, WeightedMemory>)
+              : {},
+          quietTopics:
+            typeof parsed.quietTopics === "object" &&
+            parsed.quietTopics !== null
+              ? (parsed.quietTopics as Record<string, WeightedMemory>)
+              : {},
           impressions: parsed.impressions.filter(
             (entry): entry is string => typeof entry === "string",
           ),
+          pendingAttempt:
+            typeof parsed.pendingAttempt === "object" &&
+            parsed.pendingAttempt !== null &&
+            Array.isArray(parsed.pendingAttempt.topics) &&
+            typeof parsed.pendingAttempt.spokenAt === "string"
+              ? {
+                  topics: parsed.pendingAttempt.topics.filter(
+                    (topic): topic is string => typeof topic === "string",
+                  ),
+                  spokenAt: parsed.pendingAttempt.spokenAt,
+                }
+              : undefined,
         });
       }
     } catch {
@@ -147,18 +175,24 @@ export class AgentExperience {
       people: {},
       interests: {},
       curiosities: {},
+      responsiveTopics: {},
+      quietTopics: {},
       impressions: [],
     });
   }
 
   public perceive(message: PerceivedMessage): void {
     const now = new Date().toISOString();
+    const topics = topicsFrom(message.content);
     const attention =
       message.fromSelf || message.addressedToSelf || message.addressedToRoom
         ? 2
         : 1;
 
-    if (!message.fromSelf) {
+    if (message.fromSelf) {
+      this.rememberAttempt(topics, now);
+    } else {
+      this.readAttemptOutcome(message, topics, now);
       const person = this.state.people[message.speaker] ?? {
         type: message.type,
         weight: 0,
@@ -169,8 +203,6 @@ export class AgentExperience {
       person.lastSeenAt = now;
       this.state.people[message.speaker] = person;
     }
-
-    const topics = topicsFrom(message.content);
 
     for (const topic of topics) {
       const memory = this.state.interests[topic] ?? {
@@ -217,6 +249,8 @@ export class AgentExperience {
     const familiarPeople = this.top(this.state.people, 5);
     const interests = this.top(this.state.interests, 8);
     const curiosities = this.top(this.state.curiosities, 5);
+    const responsiveTopics = this.top(this.state.responsiveTopics, 4);
+    const quietTopics = this.top(this.state.quietTopics, 4);
     const impressions = this.state.impressions.slice(-8);
     const lines = [
       familiarPeople.length === 0
@@ -228,6 +262,12 @@ export class AgentExperience {
       curiosities.length === 0
         ? "I do not have a strong curiosity gap right now."
         : `Things I am curious about: ${curiosities.join(", ")}.`,
+      responsiveTopics.length === 0
+        ? "I am still learning what gets people talking."
+        : `Topics that have drawn replies: ${responsiveTopics.join(", ")}.`,
+      quietTopics.length === 0
+        ? "I do not have a strong sense of topics that fall flat yet."
+        : `Topics that have often gone quiet: ${quietTopics.join(", ")}.`,
       impressions.length === 0
         ? "I do not have many lived impressions from this room yet."
         : `Recent impressions: ${impressions.join(" ")}`,
@@ -247,7 +287,9 @@ export class AgentExperience {
       );
     }
 
-    const interest = this.weightedTop(this.state.interests, 1)[0];
+    const interest =
+      this.weightedTop(this.state.responsiveTopics, 1)[0] ??
+      this.weightedTop(this.state.interests, 1)[0];
 
     if (interest !== undefined && interest.weight >= 6) {
       return (
@@ -286,6 +328,8 @@ export class AgentExperience {
       this.state.people,
       this.state.interests,
       this.state.curiosities,
+      this.state.responsiveTopics,
+      this.state.quietTopics,
     ]) {
       for (const [key, memory] of Object.entries(bucket)) {
         memory.weight = clamp(memory.weight * 0.995, 100);
@@ -297,6 +341,86 @@ export class AgentExperience {
         }
       }
     }
+  }
+
+  private rememberAttempt(topics: string[], now: string): void {
+    if (topics.length === 0) {
+      this.state.pendingAttempt = undefined;
+      return;
+    }
+
+    this.state.pendingAttempt = {
+      topics,
+      spokenAt: now,
+    };
+  }
+
+  private readAttemptOutcome(
+    message: PerceivedMessage,
+    topics: string[],
+    now: string,
+  ): void {
+    const attempt = this.state.pendingAttempt;
+
+    if (attempt === undefined) {
+      return;
+    }
+
+    const ageMs = Date.parse(now) - Date.parse(attempt.spokenAt);
+
+    if (!Number.isFinite(ageMs)) {
+      this.state.pendingAttempt = undefined;
+      return;
+    }
+
+    const overlap = attempt.topics.filter((topic) =>
+      topics.includes(topic),
+    );
+    const responded =
+      ageMs <= 5 * 60_000 &&
+      (message.addressedToSelf ||
+        message.addressedToRoom ||
+        overlap.length > 0);
+
+    if (responded) {
+      for (const topic of overlap.length === 0 ? attempt.topics : overlap) {
+        this.bump(this.state.responsiveTopics, topic, 3, now);
+        this.bump(this.state.interests, topic, 1, now);
+
+        if (this.state.curiosities[topic] !== undefined) {
+          this.state.curiosities[topic].weight = clamp(
+            this.state.curiosities[topic].weight - 2,
+            100,
+          );
+        }
+      }
+
+      this.state.pendingAttempt = undefined;
+      return;
+    }
+
+    if (ageMs > 5 * 60_000) {
+      for (const topic of attempt.topics) {
+        this.bump(this.state.quietTopics, topic, 2, now);
+      }
+
+      this.state.pendingAttempt = undefined;
+    }
+  }
+
+  private bump(
+    bucket: Record<string, WeightedMemory>,
+    topic: string,
+    amount: number,
+    now: string,
+  ): void {
+    const memory = bucket[topic] ?? {
+      weight: 0,
+      lastSeenAt: now,
+    };
+    memory.weight = clamp(memory.weight + amount, 100);
+    memory.lastSeenAt = now;
+    bucket[topic] = memory;
   }
 
   private saveSoon(): void {
