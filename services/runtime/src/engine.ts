@@ -248,7 +248,7 @@ export class ConversationEngine {
     return undefined;
   }
 
-  private guidanceForOpenTurn(): string | null {
+  private guidanceForOpenTurn(bot: BotState): string | null {
     const unanswered = this.recentHumanQuestionWithoutBotReply();
 
     if (
@@ -278,7 +278,7 @@ export class ConversationEngine {
       );
     }
 
-    return null;
+    return bot.experience.openTurnImpulse();
   }
 
   private addressedBot(content: string): BotState | undefined {
@@ -396,7 +396,7 @@ export class ConversationEngine {
       candidates.sort((a, b) => a.lastSpokeAt - b.lastSpokeAt);
       const bot = Math.random() < 0.7 ? candidates[0] : pick(candidates);
 
-      await this.takeTurn(bot, this.guidanceForOpenTurn());
+      await this.takeTurn(bot, this.guidanceForOpenTurn(bot));
     }
   }
 

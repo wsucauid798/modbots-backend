@@ -102,7 +102,10 @@ export class Mind {
       `Your own lived experience in this chatroom:\n${experience}\n` +
       `Mod bots watch the room, so stay civil.\n` +
       `${choice} When the room feels stale or quiet, starting a ` +
-      `completely new subject is welcome. Once a question has been ` +
+      `completely new subject is welcome. Before writing, choose one ` +
+      `natural move: answer someone, continue a live thread, ask from ` +
+      `your curiosity, bring up something familiar from your experience, ` +
+      `repair confusion, or pass. Once a question has been ` +
       `answered by a couple of people it is done; answering it again ` +
       `adds nothing, take the conversation somewhere new instead. When a ` +
       `human asks a direct question, answer the question before you pivot. ` +

@@ -21,6 +21,11 @@ interface ExperienceState {
   impressions: string[];
 }
 
+interface WeightedTopic {
+  topic: string;
+  weight: number;
+}
+
 export interface PerceivedMessage {
   speaker: string;
   type: string;
@@ -231,6 +236,30 @@ export class AgentExperience {
     return lines.join("\n");
   }
 
+  public openTurnImpulse(): string | null {
+    const curiosity = this.weightedTop(this.state.curiosities, 1)[0];
+
+    if (curiosity !== undefined && curiosity.weight >= 4) {
+      return (
+        `Your own curiosity keeps returning to ${curiosity.topic}. ` +
+        `If it fits the room, ask about it naturally or connect it to what ` +
+        `people have been saying. If it does not fit, pass.`
+      );
+    }
+
+    const interest = this.weightedTop(this.state.interests, 1)[0];
+
+    if (interest !== undefined && interest.weight >= 6) {
+      return (
+        `You have become familiar with ${interest.topic} in this room. ` +
+        `If the conversation is open, you may bring it up from your own ` +
+        `point of view. If the timing is wrong, pass.`
+      );
+    }
+
+    return null;
+  }
+
   public async flush(): Promise<void> {
     await this.saveChain;
   }
@@ -239,10 +268,17 @@ export class AgentExperience {
     entries: Record<string, WeightedMemory>,
     limit: number,
   ): string[] {
+    return this.weightedTop(entries, limit).map((entry) => entry.topic);
+  }
+
+  private weightedTop(
+    entries: Record<string, WeightedMemory>,
+    limit: number,
+  ): WeightedTopic[] {
     return Object.entries(entries)
       .sort((a, b) => b[1].weight - a[1].weight || a[0].localeCompare(b[0]))
       .slice(0, limit)
-      .map(([key]) => key);
+      .map(([topic, memory]) => ({ topic, weight: memory.weight }));
   }
 
   private fade(now: string): void {
