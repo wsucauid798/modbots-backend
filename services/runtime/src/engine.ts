@@ -15,6 +15,13 @@ interface ActorInfo {
   display: string;
 }
 
+interface TranscriptEntry {
+  speaker: string;
+  type: string;
+  content: string;
+  occurredAt: number;
+}
+
 const pick = <Item>(items: Item[]): Item =>
   items[Math.floor(Math.random() * items.length)];
 
@@ -26,6 +33,7 @@ const pick = <Item>(items: Item[]): Item =>
 export class ConversationEngine {
   private readonly bots: BotState[];
   private readonly transcript: string[] = [];
+  private readonly transcriptEntries: TranscriptEntry[] = [];
   private readonly actorInfo = new Map<string, ActorInfo>();
   // Humans known to be in the room, by display, so a mind only ever
   // speaks to people who actually exist. Humans present before the
@@ -65,11 +73,21 @@ export class ConversationEngine {
     return this.bots.filter((bot) => !bot.muted);
   }
 
-  private remember(display: string, content: string): void {
+  private remember(display: string, type: string, content: string): void {
     this.transcript.push(`${display}: ${content}`);
+    this.transcriptEntries.push({
+      speaker: display,
+      type,
+      content,
+      occurredAt: Date.now(),
+    });
 
     while (this.transcript.length > 24) {
       this.transcript.shift();
+    }
+
+    while (this.transcriptEntries.length > 24) {
+      this.transcriptEntries.shift();
     }
   }
 
@@ -151,6 +169,76 @@ export class ConversationEngine {
       Math.max(0, ...openers.values()) >= 3 ||
       Math.max(0, ...closers.values()) >= 3
     );
+  }
+
+  private static asksQuestion(content: string): boolean {
+    const text = content.trim().toLowerCase();
+
+    if (text.includes("?")) {
+      return true;
+    }
+
+    return /^(who|what|when|where|why|how|which|can|could|would|should|do|does|did|is|are|am|was|were|has|have|had)\b/.test(
+      text,
+    );
+  }
+
+  private recentHumanQuestionWithoutBotReply():
+    | TranscriptEntry
+    | undefined {
+    for (
+      let index = this.transcriptEntries.length - 1;
+      index >= 0;
+      index -= 1
+    ) {
+      const entry = this.transcriptEntries[index];
+
+      if (entry.type === "chat_bot") {
+        return undefined;
+      }
+
+      if (
+        entry.type === "human" &&
+        ConversationEngine.asksQuestion(entry.content)
+      ) {
+        return entry;
+      }
+    }
+
+    return undefined;
+  }
+
+  private guidanceForOpenTurn(): string | null {
+    const unanswered = this.recentHumanQuestionWithoutBotReply();
+
+    if (
+      unanswered !== undefined &&
+      Date.now() - unanswered.occurredAt < 90_000
+    ) {
+      return (
+        `${unanswered.speaker} asked a question and no resident has answered ` +
+        `yet: ${unanswered.content} Answer it directly first, then add at ` +
+        `most one small thought of your own.`
+      );
+    }
+
+    if (this.conversationCircling()) {
+      return (
+        "The conversation has been circling the same thing. Change the " +
+        "subject to something completely new."
+      );
+    }
+
+    const last = this.transcriptEntries.at(-1);
+
+    if (last?.type === "chat_bot" && Date.now() - last.occurredAt < 45_000) {
+      return (
+        `${last.speaker} just spoke. Do not simply agree with them. Add a ` +
+        `different angle, ask a useful follow-up, or pass.`
+      );
+    }
+
+    return null;
   }
 
   // Small models can lock onto a phrase from the transcript and repeat it,
@@ -256,13 +344,7 @@ export class ConversationEngine {
       candidates.sort((a, b) => a.lastSpokeAt - b.lastSpokeAt);
       const bot = Math.random() < 0.7 ? candidates[0] : pick(candidates);
 
-      await this.takeTurn(
-        bot,
-        this.conversationCircling()
-          ? "The conversation has been circling the same thing. Change " +
-              "the subject to something completely new."
-          : null,
-      );
+      await this.takeTurn(bot, this.guidanceForOpenTurn());
     }
   }
 
@@ -414,7 +496,11 @@ export class ConversationEngine {
         event.type === "message_posted" &&
         typeof event.payload.content === "string"
       ) {
-        this.remember(bot.persona.displayName, event.payload.content);
+        this.remember(
+          bot.persona.displayName,
+          "chat_bot",
+          event.payload.content,
+        );
       }
 
       return;
@@ -461,7 +547,7 @@ export class ConversationEngine {
       event.type === "message_posted" &&
       typeof event.payload.content === "string"
     ) {
-      this.remember(info.display, event.payload.content);
+      this.remember(info.display, info.type, event.payload.content);
 
       if (info.type === "human") {
         this.humansPresent.add(info.display);
@@ -524,10 +610,14 @@ export class ConversationEngine {
 
     await this.sleep(3_000, 9_000);
     const first = target ?? pick(active);
+    const directQuestion = ConversationEngine.asksQuestion(content);
     const spoke = await this.takeTurn(
       first,
       `The human ${display} just said: ${content}` +
         `${target !== undefined ? " They are speaking to you." : ""}` +
+        (directQuestion
+          ? " They asked a direct question, so answer the question first."
+          : " Respond to what they actually said before changing the subject.") +
         ` Reply to them.`,
       false,
       replyTo,

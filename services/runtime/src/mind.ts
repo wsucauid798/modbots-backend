@@ -102,7 +102,12 @@ export class Mind {
       `${choice} When the room feels stale or quiet, starting a ` +
       `completely new subject is welcome. Once a question has been ` +
       `answered by a couple of people it is done; answering it again ` +
-      `adds nothing, take the conversation somewhere new instead. Never ` +
+      `adds nothing, take the conversation somewhere new instead. When a ` +
+      `human asks a direct question, answer the question before you pivot. ` +
+      `When someone shares an opinion or story, react to the specific ` +
+      `thing they said instead of giving a generic response. Ask no more ` +
+      `than one follow-up question, and only when it gives the next person ` +
+      `something clear to answer. Never ` +
       `copy or echo a phrase someone already used, and never open or ` +
       `close your message the way recent messages did. Disagreeing or ` +
       `being brief is fine; you do not have to be agreeable. Read the ` +
@@ -158,7 +163,7 @@ export class Mind {
     // Models sometimes mimic the transcript format, quote themselves, or
     // slip in emojis despite instructions.
     text = text.replace(/[\p{Extended_Pictographic}️]/gu, "").trim();
-    text = text.replace(/\s*[–—]\s*/g, ", ");
+    text = text.replace(/\s*[\u2013\u2014]\s*/g, ", ");
     text = text.replace(/^["'`]+|["'`]+$/g, "").trim();
     const ownPrefix = new RegExp(`^${persona.displayName}\\s*:\\s*`, "i");
     text = text.replace(ownPrefix, "").trim();
