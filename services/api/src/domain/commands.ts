@@ -10,6 +10,7 @@ import {
 import type { Actor, ActorType } from "../repositories/actors.js";
 import { contentItemFromRow } from "../repositories/content.js";
 import type {
+  ContentAddress,
   ContentItem,
   ContentItemReference,
   ContentItemRow,
@@ -102,6 +103,7 @@ export interface PostMessageCommand {
   actorId: string;
   content: string;
   replyTo?: ContentItemReference;
+  addressedTo?: ContentAddress[];
 }
 
 export interface ContentPartInput {
@@ -116,6 +118,7 @@ export interface PostContentCommand {
   actorId: string;
   parts: ContentPartInput[];
   replyTo?: ContentItemReference;
+  addressedTo?: ContentAddress[];
   references?: ContentRelationship[];
 }
 
@@ -368,12 +371,65 @@ const requireNotMuted = async (
 
 const contentColumns = `
   id, room_id, room_sequence::text, actor_id, lifecycle_state, revision,
-  reply_to, parts, refs, created_at, updated_at
+  reply_to, addressed_to, parts, refs, created_at, updated_at
 `;
 
 const maxContentParts = 64;
 const maxContentTextLength = 65_536;
 const maxContentReferences = 64;
+const maxContentAddresses = 16;
+
+const requireAddressedTargets = async (
+  client: PoolClient,
+  roomId: string,
+  addressedTo: ContentAddress[] | undefined,
+): Promise<ContentAddress[]> => {
+  if (addressedTo === undefined || addressedTo.length === 0) {
+    return [];
+  }
+
+  if (addressedTo.length > maxContentAddresses) {
+    throw badRequest(
+      "invalid_addressing",
+      `addressedTo must contain at most ${maxContentAddresses} targets`,
+    );
+  }
+
+  const seen = new Set<string>();
+  const normalized: ContentAddress[] = [];
+
+  for (const target of addressedTo) {
+    const key =
+      target.targetType === "room" ? "room" : `actor:${target.actorId}`;
+
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+
+    if (target.targetType === "room") {
+      normalized.push(target);
+      continue;
+    }
+
+    await requireActiveActor(client, target.actorId);
+    await requireOnline(client, roomId, target.actorId);
+    normalized.push(target);
+  }
+
+  if (
+    normalized.some((target) => target.targetType === "room") &&
+    normalized.length > 1
+  ) {
+    throw badRequest(
+      "invalid_addressing",
+      "A room address cannot be combined with actor addresses",
+    );
+  }
+
+  return normalized;
+};
 
 // Validate part inputs and assign stable part identifiers. On edit,
 // `existingParts` lets an input keep a part identifier from the current
@@ -963,6 +1019,12 @@ export class CommandService implements CommandHandler {
         );
       }
 
+      const addressedTo = await requireAddressedTargets(
+        client,
+        command.roomId,
+        command.addressedTo,
+      );
+
       // Compatibility path: the event stays message_posted for existing text
       // clients, while the same transaction materializes the message as a
       // content item with one text part.
@@ -977,6 +1039,7 @@ export class CommandService implements CommandHandler {
           ...(command.replyTo === undefined
             ? {}
             : { replyTo: command.replyTo }),
+          ...(addressedTo.length === 0 ? {} : { addressedTo }),
           authorRegistered: actor.registered,
         },
       });
@@ -984,10 +1047,10 @@ export class CommandService implements CommandHandler {
       await client.query(
         `
           INSERT INTO content_items (
-            id, room_id, room_sequence, actor_id, reply_to, parts,
+            id, room_id, room_sequence, actor_id, reply_to, addressed_to, parts,
             created_at, updated_at
           )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
         `,
         [
           contentItemId,
@@ -997,6 +1060,7 @@ export class CommandService implements CommandHandler {
           command.replyTo === undefined
             ? null
             : JSON.stringify(command.replyTo),
+          JSON.stringify(addressedTo),
           JSON.stringify([
             { partId: randomUUID(), kind: "text", text: command.content },
           ]),
@@ -1030,6 +1094,12 @@ export class CommandService implements CommandHandler {
         );
       }
 
+      const addressedTo = await requireAddressedTargets(
+        client,
+        command.roomId,
+        command.addressedTo,
+      );
+
       await requireReferences(client, command.roomId, references);
 
       const contentItemId = randomUUID();
@@ -1045,6 +1115,7 @@ export class CommandService implements CommandHandler {
           ...(command.replyTo === undefined
             ? {}
             : { replyTo: command.replyTo }),
+          ...(addressedTo.length === 0 ? {} : { addressedTo }),
           references,
           authorRegistered: actor.registered,
         },
@@ -1053,10 +1124,11 @@ export class CommandService implements CommandHandler {
       const inserted = await client.query<ContentItemRow>(
         `
           INSERT INTO content_items (
-            id, room_id, room_sequence, actor_id, reply_to, parts, refs,
+            id, room_id, room_sequence, actor_id, reply_to, addressed_to,
+            parts, refs,
             created_at, updated_at
           )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
           RETURNING ${contentColumns}
         `,
         [
@@ -1067,6 +1139,7 @@ export class CommandService implements CommandHandler {
           command.replyTo === undefined
             ? null
             : JSON.stringify(command.replyTo),
+          JSON.stringify(addressedTo),
           JSON.stringify(parts),
           JSON.stringify(references),
           event.occurredAt,

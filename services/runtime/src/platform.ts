@@ -20,6 +20,10 @@ export interface RoomEvent {
   occurredAt: string;
 }
 
+export type ContentAddress =
+  | { targetType: "room" }
+  | { targetType: "actor"; actorId: string };
+
 export class PlatformError extends Error {
   public constructor(
     public readonly status: number,
@@ -124,6 +128,7 @@ export class PlatformClient {
     actorId: string,
     content: string,
     replyTo?: { contentItemId: string },
+    addressedTo?: ContentAddress[],
   ): Promise<void> {
     await this.post(
       `/api/rooms/${this.roomId}/messages`,
@@ -131,6 +136,9 @@ export class PlatformClient {
         actorId,
         content,
         ...(replyTo === undefined ? {} : { replyTo }),
+        ...(addressedTo === undefined || addressedTo.length === 0
+          ? {}
+          : { addressedTo }),
       },
       [201],
     );

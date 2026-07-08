@@ -16,7 +16,11 @@ describe("replayContentItems", () => {
       event({
         sequence: "5",
         type: "message_posted",
-        payload: { content: "Hello", contentItemId: "content-a" },
+        payload: {
+          content: "Hello",
+          contentItemId: "content-a",
+          addressedTo: [{ targetType: "actor", actorId: "actor-2" }],
+        },
       }),
     ]);
 
@@ -26,6 +30,9 @@ describe("replayContentItems", () => {
     assert.equal(item.revision, 1);
     assert.deepEqual(item.parts, [
       { partId: "part-1", kind: "text", text: "Hello" },
+    ]);
+    assert.deepEqual(item.addressedTo, [
+      { targetType: "actor", actorId: "actor-2" },
     ]);
   });
 
@@ -50,6 +57,7 @@ describe("replayContentItems", () => {
           contentItemId: "content-b",
           lifecycleState: "published",
           revision: 1,
+          addressedTo: [{ targetType: "room" }],
           parts: [{ partId: "p1", kind: "text", text: "First" }],
           references: [],
         },
@@ -77,6 +85,7 @@ describe("replayContentItems", () => {
     assert.equal(item.revision, 2);
     assert.equal(item.lifecycleState, "removed");
     assert.equal(item.parts[0]?.text, "First, edited");
+    assert.deepEqual(item.addressedTo, [{ targetType: "room" }]);
     assert.equal(item.updatedAt, "2026-01-01T00:02:00.000Z");
     assert.equal(item.createdAt, "2026-01-01T00:00:00.000Z");
   });

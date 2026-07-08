@@ -1,4 +1,5 @@
 import type {
+  ContentAddress,
   ContentItemReference,
   ContentLifecycleState,
   ContentPart,
@@ -16,6 +17,7 @@ export interface ReplayedContentItem {
   lifecycleState: ContentLifecycleState;
   revision: number;
   replyTo?: ContentItemReference;
+  addressedTo: ContentAddress[];
   parts: ContentPart[];
   references: ContentRelationship[];
 }
@@ -60,6 +62,7 @@ export const replayContentItems = (
         updatedAt: event.occurredAt,
         lifecycleState: "published",
         revision: 1,
+        addressedTo: (payload.addressedTo ?? []) as ContentAddress[],
         parts: [{ partId: "part-1", kind: "text", text: content }],
         references: [],
       });
@@ -84,6 +87,7 @@ export const replayContentItems = (
         ...(payload.replyTo === undefined
           ? {}
           : { replyTo: payload.replyTo as ContentItemReference }),
+        addressedTo: (payload.addressedTo ?? []) as ContentAddress[],
         parts: (payload.parts ?? []) as ContentPart[],
         references: (payload.references ?? []) as ContentRelationship[],
       });

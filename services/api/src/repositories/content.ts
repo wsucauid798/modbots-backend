@@ -8,6 +8,10 @@ export interface ContentItemReference {
   contentPartId?: string;
 }
 
+export type ContentAddress =
+  | { targetType: "room" }
+  | { targetType: "actor"; actorId: string };
+
 export type ContentTargetReference =
   | { targetType: "content_item"; contentItemId: string }
   | { targetType: "content_part"; contentItemId: string; contentPartId: string }
@@ -43,6 +47,7 @@ export interface ContentItem {
   lifecycleState: ContentLifecycleState;
   revision: number;
   replyTo?: ContentItemReference;
+  addressedTo: ContentAddress[];
   parts: ContentPart[];
   references: ContentRelationship[];
 }
@@ -63,6 +68,7 @@ export interface ContentItemRow {
   lifecycle_state: ContentLifecycleState;
   revision: number;
   reply_to: ContentItemReference | null;
+  addressed_to: ContentAddress[];
   parts: ContentPart[];
   refs: ContentRelationship[];
   created_at: Date;
@@ -81,13 +87,14 @@ export const contentItemFromRow = (row: ContentItemRow): ContentItem => ({
   lifecycleState: row.lifecycle_state,
   revision: row.revision,
   ...(row.reply_to === null ? {} : { replyTo: row.reply_to }),
+  addressedTo: row.addressed_to,
   parts: row.parts,
   references: row.refs,
 });
 
 const selectColumns = `
   id, room_id, room_sequence::text, actor_id, lifecycle_state, revision,
-  reply_to, parts, refs, created_at, updated_at
+  reply_to, addressed_to, parts, refs, created_at, updated_at
 `;
 
 export class PostgresContentRepository implements ContentRepository {

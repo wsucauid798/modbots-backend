@@ -31,6 +31,7 @@ const baseRow: ContentItemRow = {
   lifecycle_state: "published",
   revision: 1,
   reply_to: null,
+  addressed_to: [],
   parts: [
     {
       partId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
@@ -62,6 +63,7 @@ describe("content item contract", () => {
         contentItemId: "content-41",
         contentPartId: "part-image",
       },
+      addressed_to: [{ targetType: "actor", actorId: "actor-1" }],
       refs: [
         {
           relationshipType: "context",
@@ -76,6 +78,9 @@ describe("content item contract", () => {
 
     assert.equal(validate(entity), true, JSON.stringify(validate.errors));
     assert.equal(entity.replyTo?.contentPartId, "part-image");
+    assert.deepEqual(entity.addressedTo, [
+      { targetType: "actor", actorId: "actor-1" },
+    ]);
     assert.equal(entity.references[0]?.relationshipType, "context");
   });
 });

@@ -185,7 +185,15 @@ const commands: CommandHandler = {
     createdAt: "2026-01-01T00:00:00.000Z",
   }),
   setPresence: async () => event,
-  postMessage: async () => event,
+  postMessage: async (command) => ({
+    ...event,
+    payload: {
+      content: command.content,
+      ...(command.addressedTo === undefined
+        ? {}
+        : { addressedTo: command.addressedTo }),
+    },
+  }),
   postContent: async (command) => ({
     contentItem: {
       contractVersion: 1,
@@ -197,6 +205,7 @@ const commands: CommandHandler = {
       createdAt: "2026-01-01T00:00:00.000Z",
       lifecycleState: "published",
       revision: 1,
+      addressedTo: command.addressedTo ?? [],
       parts: command.parts.map((part, index) => ({
         partId: `part-${index + 1}`,
         kind: "text",
@@ -324,6 +333,27 @@ describe("command routes", () => {
     await app.close();
   });
 
+  it("passes message addressing to the command service", async () => {
+    const app = Fastify();
+    await app.register(commandRoutes(commands, sessions, auth, credentials));
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/rooms/global-lobby/messages",
+      payload: {
+        actorId: "human-1",
+        content: "Helper, are you there?",
+        addressedTo: [{ targetType: "actor", actorId: "chat-bot-1" }],
+      },
+    });
+
+    assert.equal(response.statusCode, 201);
+    assert.deepEqual(response.json().payload.addressedTo, [
+      { targetType: "actor", actorId: "chat-bot-1" },
+    ]);
+    await app.close();
+  });
+
   it("serves the room rules with stable identifiers", async () => {
     const app = Fastify();
     await app.register(commandRoutes(commands, sessions, auth, credentials));
@@ -419,6 +449,7 @@ describe("command routes", () => {
       url: "/api/rooms/global-lobby/content",
       payload: {
         actorId: "human-1",
+        addressedTo: [{ targetType: "room" }],
         parts: [{ kind: "text", text: "Hello from the content path" }],
       },
     });
@@ -429,6 +460,9 @@ describe("command routes", () => {
       response.json().contentItem.parts[0].text,
       "Hello from the content path",
     );
+    assert.deepEqual(response.json().contentItem.addressedTo, [
+      { targetType: "room" },
+    ]);
     await app.close();
   });
 

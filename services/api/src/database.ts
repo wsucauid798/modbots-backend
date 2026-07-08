@@ -182,6 +182,7 @@ const contentItemsMigration = `
       CHECK (lifecycle_state IN ('published', 'edited', 'removed')),
     revision integer NOT NULL DEFAULT 1 CHECK (revision >= 1),
     reply_to jsonb,
+    addressed_to jsonb NOT NULL DEFAULT '[]'::jsonb,
     parts jsonb NOT NULL,
     refs jsonb NOT NULL DEFAULT '[]'::jsonb,
     created_at timestamptz NOT NULL DEFAULT now(),
@@ -307,6 +308,11 @@ const profilePicturesMigration = `
     AND profile_picture_id IS NULL;
 `;
 
+const contentAddressingMigration = `
+  ALTER TABLE content_items
+    ADD COLUMN IF NOT EXISTS addressed_to jsonb NOT NULL DEFAULT '[]'::jsonb;
+`;
+
 const migrations = [
   { version: 1, sql: initialMigration },
   { version: 2, sql: outboxMigration },
@@ -320,6 +326,7 @@ const migrations = [
   { version: 12, sql: ruleCitationsMigration },
   { version: 13, sql: credentialsMigration },
   { version: 14, sql: profilePicturesMigration },
+  { version: 15, sql: contentAddressingMigration },
 ] as const;
 
 export const createDatabase = (config: PoolConfig): Pool =>

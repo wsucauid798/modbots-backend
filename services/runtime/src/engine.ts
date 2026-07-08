@@ -1,7 +1,7 @@
 import type { Mind } from "./mind.js";
 import type { Persona } from "./personas.js";
 import { PlatformClient, PlatformError } from "./platform.js";
-import type { RoomEvent } from "./platform.js";
+import type { ContentAddress, RoomEvent } from "./platform.js";
 import type { AgentExperience } from "./experience.js";
 
 interface BotState {
@@ -98,15 +98,80 @@ export class ConversationEngine {
     return { addressedTo, addressedToRoom };
   }
 
-  private remember(display: string, type: string, content: string): void {
+  private addressedTargetsIn(content: string): ContentAddress[] {
     const addresses = this.addressesIn(content);
+
+    if (addresses.addressedToRoom) {
+      return [{ targetType: "room" }];
+    }
+
+    return addresses.addressedTo
+      .map((display) =>
+        this.bots.find((bot) => bot.persona.displayName === display),
+      )
+      .filter((bot): bot is BotState => bot !== undefined)
+      .map((bot): ContentAddress => ({
+        targetType: "actor",
+        actorId: bot.actorId,
+      }));
+  }
+
+  private addressesFromEvent(
+    payload: Record<string, unknown>,
+    fallbackContent: string,
+  ): {
+    addressedTo: string[];
+    addressedToRoom: boolean;
+  } {
+    const raw = payload.addressedTo;
+
+    if (!Array.isArray(raw)) {
+      return this.addressesIn(fallbackContent);
+    }
+
+    const addressedTo: string[] = [];
+    let addressedToRoom = false;
+
+    for (const entry of raw) {
+      if (typeof entry !== "object" || entry === null) {
+        continue;
+      }
+
+      const target = entry as Record<string, unknown>;
+
+      if (target.targetType === "room") {
+        addressedToRoom = true;
+        continue;
+      }
+
+      if (target.targetType === "actor" && typeof target.actorId === "string") {
+        const bot = this.bots.find((candidate) =>
+          candidate.actorId === target.actorId,
+        );
+
+        if (bot !== undefined) {
+          addressedTo.push(bot.persona.displayName);
+        }
+      }
+    }
+
+    return { addressedTo, addressedToRoom };
+  }
+
+  private remember(
+    display: string,
+    type: string,
+    content: string,
+    addresses?: { addressedTo: string[]; addressedToRoom: boolean },
+  ): void {
+    const resolvedAddresses = addresses ?? this.addressesIn(content);
     this.transcript.push(`${display}: ${content}`);
     this.transcriptEntries.push({
       speaker: display,
       type,
       content,
       occurredAt: Date.now(),
-      ...addresses,
+      ...resolvedAddresses,
     });
 
     for (const bot of this.bots) {
@@ -115,10 +180,10 @@ export class ConversationEngine {
         type,
         content,
         fromSelf: bot.persona.displayName === display,
-        addressedToSelf: addresses.addressedTo.includes(
+        addressedToSelf: resolvedAddresses.addressedTo.includes(
           bot.persona.displayName,
         ),
-        addressedToRoom: addresses.addressedToRoom,
+        addressedToRoom: resolvedAddresses.addressedToRoom,
       });
     }
 
@@ -405,6 +470,7 @@ export class ConversationEngine {
     hint: string | null,
     mustSpeak = false,
     replyTo?: { contentItemId: string },
+    addressedTo?: ContentAddress[],
   ): Promise<boolean> {
     if (bot.muted || this.stopped) {
       return false;
@@ -458,7 +524,7 @@ export class ConversationEngine {
           return false;
         }
 
-        await this.say(bot, decision.message, replyTo);
+        await this.say(bot, decision.message, replyTo, addressedTo);
         return true;
       }
 
@@ -483,6 +549,7 @@ export class ConversationEngine {
     bot: BotState,
     content: string,
     replyTo?: { contentItemId: string },
+    addressedTo: ContentAddress[] = this.addressedTargetsIn(content),
   ): Promise<void> {
     if (bot.muted || this.stopped) {
       return;
@@ -499,7 +566,7 @@ export class ConversationEngine {
     }
 
     try {
-      await this.client.postMessage(bot.actorId, content, replyTo);
+      await this.client.postMessage(bot.actorId, content, replyTo, addressedTo);
       this.lastBotMessageAt = Date.now();
       bot.lastSpokeAt = Date.now();
     } catch (error) {
@@ -511,7 +578,12 @@ export class ConversationEngine {
 
         if (error.code === "actor_not_in_room") {
           await this.client.join(bot.actorId);
-          await this.client.postMessage(bot.actorId, content, replyTo);
+          await this.client.postMessage(
+            bot.actorId,
+            content,
+            replyTo,
+            addressedTo,
+          );
           this.lastBotMessageAt = Date.now();
           bot.lastSpokeAt = Date.now();
           return;
@@ -556,6 +628,7 @@ export class ConversationEngine {
           bot.persona.displayName,
           "chat_bot",
           event.payload.content,
+          this.addressesFromEvent(event.payload, event.payload.content),
         );
       }
 
@@ -588,7 +661,17 @@ export class ConversationEngine {
       if (greeter !== undefined) {
         const hint = `A human named ${info.display} just walked into the room. Greet them.`;
         await this.sleep(5_000, 14_000);
-        const spoke = await this.takeTurn(greeter, hint, true);
+        const addressedTo: ContentAddress[] = [
+          { targetType: "actor", actorId: event.actorId },
+        ];
+
+        const spoke = await this.takeTurn(
+          greeter,
+          hint,
+          true,
+          undefined,
+          addressedTo,
+        );
 
         if (!spoke) {
           const second = pick(
@@ -596,7 +679,7 @@ export class ConversationEngine {
           );
 
           if (second !== undefined) {
-            await this.takeTurn(second, hint, true);
+            await this.takeTurn(second, hint, true, undefined, addressedTo);
           }
         }
       }
@@ -608,7 +691,12 @@ export class ConversationEngine {
       event.type === "message_posted" &&
       typeof event.payload.content === "string"
     ) {
-      this.remember(info.display, info.type, event.payload.content);
+      this.remember(
+        info.display,
+        info.type,
+        event.payload.content,
+        this.addressesFromEvent(event.payload, event.payload.content),
+      );
 
       if (info.type === "human" && options.react) {
         this.humansPresent.add(info.display);
@@ -625,6 +713,7 @@ export class ConversationEngine {
             typeof event.payload.contentItemId === "string"
               ? { contentItemId: event.payload.contentItemId }
               : undefined,
+            event.actorId,
           );
         } finally {
           this.humanReplyPending = false;
@@ -643,6 +732,7 @@ export class ConversationEngine {
     display: string,
     content: string,
     replyTo?: { contentItemId: string },
+    humanActorId?: string,
   ): Promise<void> {
     const active = this.activeBots();
 
@@ -651,10 +741,17 @@ export class ConversationEngine {
     }
 
     const lower = content.toLowerCase();
-    let target = active.find((entry) =>
+    const latest = this.transcriptEntries.at(-1);
+    let target = active.find(
+      (entry) =>
+        latest?.speaker === display &&
+        latest.content === content &&
+        latest.addressedTo.includes(entry.persona.displayName),
+    );
+    target ??= active.find((entry) =>
       lower.includes(entry.persona.displayName.toLowerCase()),
     );
-    target = this.addressedBot(content) ?? target;
+    target = target ?? this.addressedBot(content);
 
     if (target === undefined) {
       try {
@@ -673,6 +770,10 @@ export class ConversationEngine {
     await this.sleep(3_000, 9_000);
     const first = target ?? pick(active);
     const directQuestion = ConversationEngine.asksQuestion(content);
+    const addressedTo =
+      humanActorId === undefined
+        ? undefined
+        : [{ targetType: "actor", actorId: humanActorId } satisfies ContentAddress];
     const spoke = await this.takeTurn(
       first,
       `The human ${display} just said: ${content}` +
@@ -683,6 +784,7 @@ export class ConversationEngine {
         ` Reply to them.`,
       false,
       replyTo,
+      addressedTo,
     );
 
     if (!spoke) {
@@ -695,6 +797,7 @@ export class ConversationEngine {
             `them yet. Reply to them.`,
           true,
           replyTo,
+          addressedTo,
         );
       }
     }

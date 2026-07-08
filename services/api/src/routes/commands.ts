@@ -7,6 +7,7 @@ import type {
   ContentPartInput,
 } from "../domain/commands.js";
 import type {
+  ContentAddress,
   ContentItemReference,
   ContentRelationship,
   ContentTargetReference,
@@ -182,6 +183,44 @@ const optionalReplyTo = (
   }
 
   return reference;
+};
+
+const optionalAddressedTo = (
+  body: Record<string, unknown>,
+): ContentAddress[] | undefined => {
+  if (body.addressedTo === undefined || body.addressedTo === null) {
+    return undefined;
+  }
+
+  if (!Array.isArray(body.addressedTo)) {
+    throw badRequest("invalid_addressing", "'addressedTo' must be an array");
+  }
+
+  if (body.addressedTo.length === 0 || body.addressedTo.length > 16) {
+    throw badRequest(
+      "invalid_addressing",
+      "'addressedTo' must contain 1 to 16 targets",
+    );
+  }
+
+  return body.addressedTo.map((raw, index) => {
+    const target = asRecord(raw, `addressedTo[${index}]`);
+
+    switch (target.targetType) {
+      case "room":
+        return { targetType: "room" };
+      case "actor":
+        return {
+          targetType: "actor",
+          actorId: actorId(target, "actorId"),
+        };
+      default:
+        throw badRequest(
+          "invalid_addressing",
+          `'addressedTo[${index}].targetType' must be room or actor`,
+        );
+    }
+  });
 };
 
 const relationshipTypes = new Set(["quotes", "mentions", "context"]);
@@ -629,6 +668,7 @@ export const commandRoutes = (
           actorId: acting,
           content: string(body, "content", { maximum: 4_000 }),
           replyTo: optionalReplyTo(body),
+          addressedTo: optionalAddressedTo(body),
         });
 
         return reply.code(201).send(event);
@@ -647,6 +687,7 @@ export const commandRoutes = (
           actorId: acting,
           parts: contentParts(body),
           replyTo: optionalReplyTo(body),
+          addressedTo: optionalAddressedTo(body),
           references: optionalReferences(body),
         });
 

@@ -27,6 +27,11 @@
     "createdAt": "2026-07-02T09:29:59Z",
     "lifecycleState": "published",
     "revision": 1,
+    "addressedTo": [
+      {
+        "targetType": "room"
+      }
+    ],
     "parts": [
       {
         "partId": "part-text",
@@ -98,6 +103,7 @@
     "createdAt": "2026-07-02T09:30:00Z",
     "lifecycleState": "published",
     "revision": 1,
+    "addressedTo": [],
     "parts": [
       {
         "partId": "part-image",
@@ -122,6 +128,12 @@
       "contentItemId": "content-41",
       "contentPartId": "part-image"
     },
+    "addressedTo": [
+      {
+        "targetType": "actor",
+        "actorId": "actor-alice"
+      }
+    ],
     "parts": [
       {
         "partId": "part-response",
