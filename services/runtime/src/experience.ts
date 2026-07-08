@@ -20,6 +20,7 @@ interface ExperienceState {
   curiosities: Record<string, WeightedMemory>;
   responsiveTopics: Record<string, WeightedMemory>;
   quietTopics: Record<string, WeightedMemory>;
+  confusingTopics: Record<string, WeightedMemory>;
   impressions: string[];
   pendingAttempt?: {
     topics: string[];
@@ -98,6 +99,19 @@ const asksQuestion = (content: string): boolean =>
     content.trim(),
   );
 
+const signalsConfusion = (content: string): boolean => {
+  const text = content.toLowerCase();
+
+  return (
+    /\b(confused|confusing|unclear|lost|explain|clarify|clarification)\b/.test(
+      text,
+    ) ||
+    /\b(what do you mean|what does that mean|i do not understand|i don't understand|not following|say more|huh)\b/.test(
+      text,
+    )
+  );
+};
+
 export class AgentExperience {
   private saveChain: Promise<void> = Promise.resolve();
 
@@ -147,6 +161,11 @@ export class AgentExperience {
             parsed.quietTopics !== null
               ? (parsed.quietTopics as Record<string, WeightedMemory>)
               : {},
+          confusingTopics:
+            typeof parsed.confusingTopics === "object" &&
+            parsed.confusingTopics !== null
+              ? (parsed.confusingTopics as Record<string, WeightedMemory>)
+              : {},
           impressions: parsed.impressions.filter(
             (entry): entry is string => typeof entry === "string",
           ),
@@ -177,6 +196,7 @@ export class AgentExperience {
       curiosities: {},
       responsiveTopics: {},
       quietTopics: {},
+      confusingTopics: {},
       impressions: [],
     });
   }
@@ -251,6 +271,7 @@ export class AgentExperience {
     const curiosities = this.top(this.state.curiosities, 5);
     const responsiveTopics = this.top(this.state.responsiveTopics, 4);
     const quietTopics = this.top(this.state.quietTopics, 4);
+    const confusingTopics = this.top(this.state.confusingTopics, 4);
     const impressions = this.state.impressions.slice(-8);
     const lines = [
       familiarPeople.length === 0
@@ -268,6 +289,9 @@ export class AgentExperience {
       quietTopics.length === 0
         ? "I do not have a strong sense of topics that fall flat yet."
         : `Topics that have often gone quiet: ${quietTopics.join(", ")}.`,
+      confusingTopics.length === 0
+        ? "I do not have a strong sense of what I have made confusing yet."
+        : `Topics I may need to explain more clearly: ${confusingTopics.join(", ")}.`,
       impressions.length === 0
         ? "I do not have many lived impressions from this room yet."
         : `Recent impressions: ${impressions.join(" ")}`,
@@ -277,6 +301,16 @@ export class AgentExperience {
   }
 
   public openTurnImpulse(): string | null {
+    const confusing = this.weightedTop(this.state.confusingTopics, 1)[0];
+
+    if (confusing !== undefined && confusing.weight >= 2) {
+      return (
+        `Something about ${confusing.topic} may have confused people. ` +
+        `If the conversation allows it, repair it plainly from your own ` +
+        `point of view. If it no longer fits, pass.`
+      );
+    }
+
     const curiosity = this.weightedTop(this.state.curiosities, 1)[0];
 
     if (curiosity !== undefined && curiosity.weight >= 4) {
@@ -330,6 +364,7 @@ export class AgentExperience {
       this.state.curiosities,
       this.state.responsiveTopics,
       this.state.quietTopics,
+      this.state.confusingTopics,
     ]) {
       for (const [key, memory] of Object.entries(bucket)) {
         memory.weight = clamp(memory.weight * 0.995, 100);
@@ -376,11 +411,33 @@ export class AgentExperience {
     const overlap = attempt.topics.filter((topic) =>
       topics.includes(topic),
     );
+    const confused =
+      ageMs <= 5 * 60_000 &&
+      signalsConfusion(message.content) &&
+      (message.addressedToSelf ||
+        message.addressedToRoom ||
+        overlap.length > 0 ||
+        asksQuestion(message.content));
     const responded =
       ageMs <= 5 * 60_000 &&
       (message.addressedToSelf ||
         message.addressedToRoom ||
         overlap.length > 0);
+
+    if (confused) {
+      for (const topic of overlap.length === 0 ? attempt.topics : overlap) {
+        this.bump(this.state.confusingTopics, topic, 4, now);
+        this.bump(this.state.curiosities, topic, 1, now);
+      }
+
+      this.state.impressions.push(
+        `My last point may have confused the room around ${
+          (overlap.length === 0 ? attempt.topics : overlap).join(", ")
+        }.`,
+      );
+      this.state.pendingAttempt = undefined;
+      return;
+    }
 
     if (responded) {
       for (const topic of overlap.length === 0 ? attempt.topics : overlap) {
