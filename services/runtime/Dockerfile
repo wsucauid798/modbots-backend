@@ -13,6 +13,7 @@ RUN npm run build --workspace modbots-chat-bot-runtime
 FROM node:22-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
+ENV RUNTIME_EXPERIENCE_DIR=/data/runtime
 
 COPY --from=build /app/modbots-backend/services/runtime/dist ./dist
 

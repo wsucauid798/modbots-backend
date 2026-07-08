@@ -72,6 +72,7 @@ export class Mind {
     persona: Persona,
     roster: { residents: string[]; humans: string[] },
     transcript: string[],
+    experience: string,
     hint: string | null,
     allowPass = true,
   ): Promise<Decision> {
@@ -98,6 +99,7 @@ export class Mind {
       `chatroom. When you mention the room, call it this room or this ` +
       `chat, never a name. ${persona.card}\n` +
       `${company}\n` +
+      `Your own lived experience in this chatroom:\n${experience}\n` +
       `Mod bots watch the room, so stay civil.\n` +
       `${choice} When the room feels stale or quiet, starting a ` +
       `completely new subject is welcome. Once a question has been ` +

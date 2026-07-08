@@ -152,4 +152,28 @@ export class PlatformClient {
       cursor = page.nextCursor;
     }
   }
+
+  public async recentEvents(limit: number): Promise<RoomEvent[]> {
+    let cursor = "0";
+    const events: RoomEvent[] = [];
+
+    while (true) {
+      const page = await this.request<{
+        data: RoomEvent[];
+        nextCursor: string;
+      }>(`/api/rooms/${this.roomId}/events?after=${cursor}&limit=500`);
+
+      events.push(...page.data);
+
+      while (events.length > limit) {
+        events.shift();
+      }
+
+      if (page.data.length < 500 || page.nextCursor === cursor) {
+        return events;
+      }
+
+      cursor = page.nextCursor;
+    }
+  }
 }

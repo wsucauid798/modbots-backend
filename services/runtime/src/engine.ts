@@ -2,10 +2,12 @@ import type { Mind } from "./mind.js";
 import type { Persona } from "./personas.js";
 import { PlatformClient, PlatformError } from "./platform.js";
 import type { RoomEvent } from "./platform.js";
+import type { AgentExperience } from "./experience.js";
 
 interface BotState {
   persona: Persona;
   actorId: string;
+  experience: AgentExperience;
   muted: boolean;
   lastSpokeAt: number;
 }
@@ -20,6 +22,8 @@ interface TranscriptEntry {
   type: string;
   content: string;
   occurredAt: number;
+  addressedTo: string[];
+  addressedToRoom: boolean;
 }
 
 const pick = <Item>(items: Item[]): Item =>
@@ -47,7 +51,11 @@ export class ConversationEngine {
     private readonly client: PlatformClient,
     private readonly mind: Mind,
     private readonly tempo: number,
-    bots: Array<{ persona: Persona; actorId: string }>,
+    bots: Array<{
+      persona: Persona;
+      actorId: string;
+      experience: AgentExperience;
+    }>,
   ) {
     this.bots = bots.map((bot) => ({ ...bot, muted: false, lastSpokeAt: 0 }));
 
@@ -73,14 +81,46 @@ export class ConversationEngine {
     return this.bots.filter((bot) => !bot.muted);
   }
 
+  private addressesIn(content: string): {
+    addressedTo: string[];
+    addressedToRoom: boolean;
+  } {
+    const addressedTo = this.bots
+      .filter((bot) =>
+        new RegExp(
+          `@${bot.persona.displayName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`,
+          "i",
+        ).test(content),
+      )
+      .map((bot) => bot.persona.displayName);
+    const addressedToRoom = /@(room|everyone|everybody|all)\b/i.test(content);
+
+    return { addressedTo, addressedToRoom };
+  }
+
   private remember(display: string, type: string, content: string): void {
+    const addresses = this.addressesIn(content);
     this.transcript.push(`${display}: ${content}`);
     this.transcriptEntries.push({
       speaker: display,
       type,
       content,
       occurredAt: Date.now(),
+      ...addresses,
     });
+
+    for (const bot of this.bots) {
+      bot.experience.perceive({
+        speaker: display,
+        type,
+        content,
+        fromSelf: bot.persona.displayName === display,
+        addressedToSelf: addresses.addressedTo.includes(
+          bot.persona.displayName,
+        ),
+        addressedToRoom: addresses.addressedToRoom,
+      });
+    }
 
     while (this.transcript.length > 24) {
       this.transcript.shift();
@@ -241,6 +281,18 @@ export class ConversationEngine {
     return null;
   }
 
+  private addressedBot(content: string): BotState | undefined {
+    const addresses = this.addressesIn(content);
+
+    if (addresses.addressedTo.length === 0) {
+      return undefined;
+    }
+
+    return this.activeBots().find((bot) =>
+      addresses.addressedTo.includes(bot.persona.displayName),
+    );
+  }
+
   // Small models can lock onto a phrase from the transcript and repeat it,
   // and the repetition then feeds every other bot's context until the whole
   // room chants it. Any message that reuses a five word run a bot already
@@ -366,6 +418,7 @@ export class ConversationEngine {
           humans: [...this.humansPresent],
         },
         [...this.transcript],
+        bot.experience.view(),
         hint,
         !mustSpeak,
       );
@@ -473,7 +526,10 @@ export class ConversationEngine {
     }
   }
 
-  public async onRoomEvent(event: RoomEvent): Promise<void> {
+  public async onRoomEvent(
+    event: RoomEvent,
+    options: { react: boolean } = { react: true },
+  ): Promise<void> {
     if (this.stopped || event.actorId === null) {
       return;
     }
@@ -522,6 +578,11 @@ export class ConversationEngine {
     // standing in the doorway.
     if (event.type === "actor_joined" && info.type === "human") {
       this.humansPresent.add(info.display);
+
+      if (!options.react) {
+        return;
+      }
+
       const greeter = pick(this.activeBots());
 
       if (greeter !== undefined) {
@@ -549,12 +610,12 @@ export class ConversationEngine {
     ) {
       this.remember(info.display, info.type, event.payload.content);
 
-      if (info.type === "human") {
+      if (info.type === "human" && options.react) {
         this.humansPresent.add(info.display);
       }
 
       // One considered reply per human message, never a pile-on.
-      if (info.type === "human" && !this.humanReplyPending) {
+      if (info.type === "human" && options.react && !this.humanReplyPending) {
         this.humanReplyPending = true;
 
         try {
@@ -593,6 +654,7 @@ export class ConversationEngine {
     let target = active.find((entry) =>
       lower.includes(entry.persona.displayName.toLowerCase()),
     );
+    target = this.addressedBot(content) ?? target;
 
     if (target === undefined) {
       try {

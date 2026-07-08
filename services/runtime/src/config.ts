@@ -3,6 +3,7 @@ export interface RuntimeConfig {
   realtimeUrl: string;
   mlUrl: string;
   roomId: string;
+  experienceDir: string;
   // Multiplier over all conversational delays. 1 is the normal calm pace;
   // lower is chattier. Used to speed verification without code changes.
   tempo: number;
@@ -18,6 +19,8 @@ export const loadConfig = (
     realtimeUrl: environment.MODBOTS_REALTIME_URL ?? "ws://localhost:3002",
     mlUrl: environment.ML_URL ?? "http://localhost:8000",
     roomId: environment.MODBOTS_ROOM_ID ?? "global-lobby",
+    experienceDir:
+      environment.RUNTIME_EXPERIENCE_DIR ?? ".runtime-experience",
     tempo: Number.isFinite(tempo) && tempo > 0 ? tempo : 1,
   };
 };

@@ -1,5 +1,6 @@
 import { loadConfig } from "./config.js";
 import { ConversationEngine } from "./engine.js";
+import { AgentExperience } from "./experience.js";
 import { Mind } from "./mind.js";
 import { personas } from "./personas.js";
 import { PlatformClient } from "./platform.js";
@@ -105,12 +106,23 @@ const main = async (): Promise<void> => {
       persona.displayName,
     );
     await client.join(actor.id);
-    bots.push({ persona, actorId: actor.id });
+    const experience = await AgentExperience.load(
+      config.experienceDir,
+      persona,
+    );
+    bots.push({ persona, actorId: actor.id, experience });
     console.log(`${persona.displayName} is in the room (${actor.id})`);
   }
 
   const engine = new ConversationEngine(client, mind, config.tempo, bots);
-  const startSequence = await client.latestSequence();
+  const recentEvents = await client.recentEvents(500);
+
+  for (const event of recentEvents) {
+    await engine.onRoomEvent(event, { react: false });
+  }
+
+  const startSequence =
+    recentEvents.at(-1)?.sequence ?? (await client.latestSequence());
 
   void watchRoom(startSequence, (event) => {
     void engine.onRoomEvent(event);
