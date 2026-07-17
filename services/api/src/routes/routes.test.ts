@@ -7,11 +7,13 @@ import type { ActorRepository } from "../repositories/actors.js";
 import type { CredentialRepository } from "../repositories/credentials.js";
 import type { EventPublisher } from "../events/outbox-publisher.js";
 import type { ModerationRepository } from "../repositories/moderation.js";
+import type { MediaRepository } from "../repositories/media.js";
 import type { RoomRepository } from "../repositories/rooms.js";
 import type { SessionRepository } from "../repositories/sessions.js";
 import { actorRoutes } from "./actors.js";
 import { commandRoutes } from "./commands.js";
 import { moderationRoutes } from "./moderation.js";
+import { mediaRoutes } from "./media.js";
 import { roomRoutes } from "./rooms.js";
 import { sessionRoutes } from "./sessions.js";
 
@@ -102,6 +104,25 @@ const rooms: RoomRepository = {
 
 const moderation: ModerationRepository = {
   listProposals: async (roomId) => (roomId === "global-lobby" ? [] : null),
+};
+
+const media: MediaRepository = {
+  createPublished: async (input) => ({
+    contractVersion: 1,
+    entityType: "media_asset",
+    mediaAssetId: "asset-1",
+    roomId: input.roomId,
+    ownerActorId: input.ownerActorId,
+    mediaKind: input.mediaKind,
+    originalFilename: input.originalFilename,
+    declaredMediaType: input.declaredMediaType,
+    detectedMediaType: input.detectedMediaType,
+    byteLength: String(input.data.length),
+    lifecycleState: "published",
+    createdAt: "2026-01-01T00:00:00.000Z",
+  }),
+  get: async () => null,
+  data: async () => null,
 };
 
 const publisher: EventPublisher = {
@@ -207,11 +228,19 @@ const commands: CommandHandler = {
       lifecycleState: "published",
       revision: 1,
       addressedTo: command.addressedTo ?? [],
-      parts: command.parts.map((part, index) => ({
-        partId: `part-${index + 1}`,
-        kind: "text",
-        text: part.text,
-      })),
+      parts: command.parts.map((part, index) =>
+        part.kind === "text"
+          ? {
+              partId: `part-${index + 1}`,
+              kind: "text" as const,
+              text: part.text,
+            }
+          : {
+              partId: `part-${index + 1}`,
+              kind: part.kind,
+              mediaAssetId: part.mediaAssetId,
+            },
+      ),
       references: command.references ?? [],
     },
     event: { ...event, type: "content_posted" },
@@ -467,7 +496,7 @@ describe("command routes", () => {
     await app.close();
   });
 
-  it("rejects unsupported part kinds before the command service", async () => {
+  it("posts media asset content parts", async () => {
     const app = Fastify();
     await app.register(commandRoutes(commands, sessions, auth, credentials));
 
@@ -480,8 +509,66 @@ describe("command routes", () => {
       },
     });
 
-    assert.equal(response.statusCode, 400);
-    assert.match(response.json().message, /Only 'text' parts are supported/);
+    assert.equal(response.statusCode, 201);
+    assert.deepEqual(response.json().contentItem.parts[0], {
+      partId: "part-1",
+      kind: "image",
+      mediaAssetId: "asset-1",
+    });
+    await app.close();
+  });
+});
+
+describe("media routes", () => {
+  it("stores a published image asset without putting bytes in its contract", async () => {
+    const app = Fastify();
+    await app.register(mediaRoutes(media, auth));
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/rooms/global-lobby/media-assets",
+      payload: {
+        actorId: "human-1",
+        mediaKind: "image",
+        originalFilename: "room.png",
+        declaredMediaType: "image/png",
+        data: "iVBORw0KGgo=",
+      },
+    });
+
+    assert.equal(response.statusCode, 201);
+    assert.equal(response.json().mediaAssetId, "asset-1");
+    assert.equal(response.json().detectedMediaType, "image/png");
+    assert.equal("data" in response.json(), false);
+    await app.close();
+  });
+
+  it("serves byte ranges for audio and video playback", async () => {
+    const asset = await media.createPublished({
+      roomId: "global-lobby",
+      ownerActorId: "human-1",
+      mediaKind: "video",
+      originalFilename: "clip.mp4",
+      declaredMediaType: "video/mp4",
+      detectedMediaType: "video/mp4",
+      data: Buffer.from("0123456789"),
+    });
+    const rangedMedia: MediaRepository = {
+      ...media,
+      data: async () => ({ asset, data: Buffer.from("0123456789") }),
+    };
+    const app = Fastify();
+    await app.register(mediaRoutes(rangedMedia, auth));
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/rooms/global-lobby/media-assets/asset-1/data",
+      headers: { range: "bytes=2-5" },
+    });
+
+    assert.equal(response.statusCode, 206);
+    assert.equal(response.headers["content-range"], "bytes 2-5/10");
+    assert.equal(response.body, "2345");
     await app.close();
   });
 });

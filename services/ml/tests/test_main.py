@@ -1,5 +1,6 @@
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from fastapi import HTTPException
 
@@ -21,6 +22,7 @@ class FakeClient:
 class ChatTests(unittest.TestCase):
     def tearDown(self):
         main.state["client"] = None
+        main.state["transcriber"] = None
 
     def test_maps_text_request_to_ollama_chat(self):
         client = FakeClient()
@@ -36,6 +38,8 @@ class ChatTests(unittest.TestCase):
         )
 
         self.assertEqual(response.content, "Hello from Gemma")
+        self.assertEqual(response.model, "gemma4:31b-cloud")
+        self.assertEqual(response.observations, [])
         self.assertEqual(client.request["model"], "gemma4:31b-cloud")
         self.assertEqual(
             client.request["messages"],
@@ -70,6 +74,106 @@ class ChatTests(unittest.TestCase):
             client.request["messages"][1]["images"],
             ["aW1hZ2UtYnl0ZXM="],
         )
+
+    def test_routes_ordered_image_part_to_gemma(self):
+        client = FakeClient()
+        main.state["client"] = client
+
+        response = main.chat(
+            main.ChatRequest(
+                system="Observe the room.",
+                messages=[
+                    main.ChatMessage(
+                        role="user",
+                        parts=[
+                            main.ChatPart(kind="text", text="Look at this."),
+                            main.ChatPart(
+                                kind="image",
+                                data="aW1hZ2UtYnl0ZXM=",
+                                mediaType="image/png",
+                                filename="room.png",
+                            ),
+                        ],
+                    )
+                ],
+            )
+        )
+
+        prepared = client.request["messages"][1]
+        self.assertIn("Look at this.", prepared["content"])
+        self.assertIn("ordered content part 1", prepared["content"])
+        self.assertEqual(prepared["images"], ["aW1hZ2UtYnl0ZXM="])
+        self.assertEqual(response.observations[0].kind, "image")
+        self.assertEqual(response.observations[0].sourcePart, 1)
+
+    def test_routes_audio_transcript_to_gemma(self):
+        client = FakeClient()
+        main.state["client"] = client
+        observation = main.DerivedObservation(
+            kind="transcript",
+            sourcePart=0,
+            processor="faster-whisper",
+            model="small",
+            text="hello room",
+            startMs=0,
+            endMs=900,
+        )
+
+        with patch.object(
+            main,
+            "_transcribe",
+            return_value=("hello room", [observation]),
+        ):
+            response = main.chat(
+                main.ChatRequest(
+                    system="Observe the room.",
+                    messages=[
+                        main.ChatMessage(
+                            role="user",
+                            parts=[
+                                main.ChatPart(
+                                    kind="audio",
+                                    data="YXVkaW8tYnl0ZXM=",
+                                    mediaType="audio/wav",
+                                    filename="voice.wav",
+                                )
+                            ],
+                        )
+                    ],
+                )
+            )
+
+        prepared = client.request["messages"][1]
+        self.assertIn("Audio transcript", prepared["content"])
+        self.assertIn("hello room", prepared["content"])
+        self.assertEqual(response.observations, [observation])
+
+    def test_extracts_text_document_before_gemma(self):
+        client = FakeClient()
+        main.state["client"] = client
+
+        response = main.chat(
+            main.ChatRequest(
+                system="Observe the room.",
+                messages=[
+                    main.ChatMessage(
+                        role="user",
+                        parts=[
+                            main.ChatPart(
+                                kind="file",
+                                data="cmVzZWFyY2ggbm90ZXM=",
+                                mediaType="text/plain",
+                                filename="notes.txt",
+                            )
+                        ],
+                    )
+                ],
+            )
+        )
+
+        prepared = client.request["messages"][1]
+        self.assertIn("research notes", prepared["content"])
+        self.assertEqual(response.observations[0].kind, "document_text")
 
     def test_rejects_empty_cloud_response(self):
         main.state["client"] = FakeClient("   ")

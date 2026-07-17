@@ -9,6 +9,10 @@ import { PostgresActorRepository } from "./repositories/actors.js";
 import { PostgresContentRepository } from "./repositories/content.js";
 import { PostgresCredentialRepository } from "./repositories/credentials.js";
 import { PostgresModerationRepository } from "./repositories/moderation.js";
+import {
+  MediaObjectStorage,
+  PostgresMediaRepository,
+} from "./repositories/media.js";
 import { PostgresRoomRepository } from "./repositories/rooms.js";
 import { PostgresSessionRepository } from "./repositories/sessions.js";
 
@@ -20,6 +24,10 @@ const start = async (): Promise<void> => {
   const sessions = new PostgresSessionRepository(
     database,
     config.auth.sessionTtlDays,
+  );
+  const media = new PostgresMediaRepository(
+    database,
+    new MediaObjectStorage(config.objectStorage),
   );
   const app = buildApp({
     accountUrl: config.auth.accountUrl,
@@ -34,6 +42,7 @@ const start = async (): Promise<void> => {
     credentials: new PostgresCredentialRepository(database),
     database,
     moderation: new PostgresModerationRepository(database),
+    media,
     publisher,
     rooms: new PostgresRoomRepository(database),
     sessions,

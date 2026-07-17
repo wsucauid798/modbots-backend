@@ -124,35 +124,69 @@ const contentParts = (body: Record<string, unknown>): ContentPartInput[] => {
   return body.parts.map((raw, index) => {
     const part = asRecord(raw, `parts[${index}]`);
 
-    if (part.kind !== "text") {
-      throw badRequest(
-        "invalid_part_kind",
-        "Only 'text' parts are supported until media assets are implemented",
-      );
-    }
-
-    if (typeof part.text !== "string") {
-      throw badRequest(
-        "invalid_content_parts",
-        `'parts[${index}].text' must be a string`,
-      );
-    }
-
-    const input: ContentPartInput = { kind: "text", text: part.text };
-
-    if (part.language !== undefined) {
-      if (
-        typeof part.language !== "string" ||
-        part.language.length < 2 ||
-        part.language.length > 35
-      ) {
+    if (part.kind === "text") {
+      if (typeof part.text !== "string") {
         throw badRequest(
           "invalid_content_parts",
-          `'parts[${index}].language' must be 2 to 35 characters`,
+          `'parts[${index}].text' must be a string`,
         );
       }
 
-      input.language = part.language;
+      const input: ContentPartInput = { kind: "text", text: part.text };
+
+      if (part.language !== undefined) {
+        if (
+          typeof part.language !== "string" ||
+          part.language.length < 2 ||
+          part.language.length > 35
+        ) {
+          throw badRequest(
+            "invalid_content_parts",
+            `'parts[${index}].language' must be 2 to 35 characters`,
+          );
+        }
+
+        input.language = part.language;
+      }
+
+      if (part.partId !== undefined) {
+        input.partId = identifier(part.partId, `parts[${index}].partId`);
+      }
+
+      return input;
+    }
+
+    if (
+      part.kind !== "image" &&
+      part.kind !== "audio" &&
+      part.kind !== "video" &&
+      part.kind !== "file"
+    ) {
+      throw badRequest(
+        "invalid_part_kind",
+        "Part kind must be text, image, audio, video, or file",
+      );
+    }
+
+    const input: ContentPartInput = {
+      kind: part.kind,
+      mediaAssetId: identifier(
+        part.mediaAssetId,
+        `parts[${index}].mediaAssetId`,
+      ),
+    };
+
+    for (const field of ["caption", "altText"] as const) {
+      if (part[field] !== undefined) {
+        if (typeof part[field] !== "string" || part[field].length > 4_096) {
+          throw badRequest(
+            "invalid_content_parts",
+            `'parts[${index}].${field}' must be a string of at most 4096 characters`,
+          );
+        }
+
+        input[field] = part[field];
+      }
     }
 
     if (part.partId !== undefined) {

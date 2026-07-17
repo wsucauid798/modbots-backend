@@ -8,6 +8,7 @@ import type { ActorRepository } from "./repositories/actors.js";
 import type { ContentRepository } from "./repositories/content.js";
 import type { CredentialRepository } from "./repositories/credentials.js";
 import type { ModerationRepository } from "./repositories/moderation.js";
+import type { MediaRepository } from "./repositories/media.js";
 import type { RoomRepository } from "./repositories/rooms.js";
 import type { SessionRepository } from "./repositories/sessions.js";
 import { actorRoutes } from "./routes/actors.js";
@@ -16,6 +17,7 @@ import { contentRoutes } from "./routes/content.js";
 import { credentialRoutes } from "./routes/credentials.js";
 import { healthRoutes } from "./routes/health.js";
 import { moderationRoutes } from "./routes/moderation.js";
+import { mediaRoutes } from "./routes/media.js";
 import { roomRoutes } from "./routes/rooms.js";
 import { sessionRoutes } from "./routes/sessions.js";
 
@@ -28,6 +30,7 @@ export interface AppDependencies {
   content: ContentRepository;
   credentials: CredentialRepository;
   moderation: ModerationRepository;
+  media: MediaRepository;
   publisher: EventPublisher;
   rooms: RoomRepository;
   sessions: SessionRepository;
@@ -74,6 +77,7 @@ export const buildApp = (dependencies: AppDependencies): FastifyInstance => {
   app.register(roomRoutes(dependencies.rooms, dependencies.publisher));
   app.register(contentRoutes(dependencies.content));
   app.register(moderationRoutes(dependencies.moderation));
+  app.register(mediaRoutes(dependencies.media, dependencies.auth));
   app.register(
     sessionRoutes(
       dependencies.sessions,

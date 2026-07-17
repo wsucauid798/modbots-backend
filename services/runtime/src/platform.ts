@@ -24,6 +24,33 @@ export type ContentAddress =
   | { targetType: "room" }
   | { targetType: "actor"; actorId: string };
 
+export type RoomContentPart =
+  | { partId: string; kind: "text"; text: string; language?: string }
+  | {
+      partId: string;
+      kind: "image" | "audio" | "video" | "file";
+      mediaAssetId: string;
+      caption?: string;
+      altText?: string;
+    };
+
+export type InferencePart =
+  | { kind: "text"; text: string }
+  | {
+      kind: "image" | "audio" | "video" | "file";
+      data: string;
+      mediaType: string;
+      filename: string;
+    };
+
+interface MediaAsset {
+  mediaAssetId: string;
+  originalFilename: string;
+  detectedMediaType?: string;
+  declaredMediaType: string;
+  lifecycleState: string;
+}
+
 export class PlatformError extends Error {
   public constructor(
     public readonly status: number,
@@ -141,6 +168,44 @@ export class PlatformClient {
           : { addressedTo }),
       },
       [201],
+    );
+  }
+
+  public async inferenceParts(
+    parts: RoomContentPart[],
+  ): Promise<InferencePart[]> {
+    return Promise.all(
+      parts.map(async (part): Promise<InferencePart> => {
+        if (part.kind === "text") {
+          return { kind: "text", text: part.text };
+        }
+
+        const path =
+          `/api/rooms/${encodeURIComponent(this.roomId)}/media-assets/` +
+          encodeURIComponent(part.mediaAssetId);
+        const asset = await this.request<MediaAsset>(path);
+
+        if (asset.lifecycleState !== "published") {
+          throw new Error(`Media asset '${part.mediaAssetId}' is not published`);
+        }
+
+        const response = await fetch(
+          new URL(`${path}/data`, this.apiUrl).toString(),
+        );
+
+        if (!response.ok) {
+          throw new Error(
+            `Media asset '${part.mediaAssetId}' returned HTTP ${response.status}`,
+          );
+        }
+
+        return {
+          kind: part.kind,
+          data: Buffer.from(await response.arrayBuffer()).toString("base64"),
+          mediaType: asset.detectedMediaType ?? asset.declaredMediaType,
+          filename: asset.originalFilename,
+        };
+      }),
     );
   }
 

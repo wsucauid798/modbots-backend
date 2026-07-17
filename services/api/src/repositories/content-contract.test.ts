@@ -83,4 +83,35 @@ describe("content item contract", () => {
     ]);
     assert.equal(entity.references[0]?.relationshipType, "context");
   });
+
+  it("emits schema-valid ordered media parts", () => {
+    const entity = contentItemFromRow({
+      ...baseRow,
+      parts: [
+        {
+          partId: "part-text",
+          kind: "text",
+          text: "Look at this",
+        },
+        {
+          partId: "part-image",
+          kind: "image",
+          mediaAssetId: "asset-image",
+          caption: "The room entrance",
+          altText: "A dark entrance with a blue sign",
+        },
+        {
+          partId: "part-video",
+          kind: "video",
+          mediaAssetId: "asset-video",
+        },
+      ],
+    });
+
+    assert.equal(validate(entity), true, JSON.stringify(validate.errors));
+    assert.deepEqual(
+      entity.parts.map((part) => part.kind),
+      ["text", "image", "video"],
+    );
+  });
 });

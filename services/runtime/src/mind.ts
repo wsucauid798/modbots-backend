@@ -1,4 +1,5 @@
 import type { Persona } from "./personas.js";
+import type { InferencePart } from "./platform.js";
 
 // The mind behind a resident: one call to the ML service per turn. The bot
 // sees the recent room conversation and decides for itself whether to speak,
@@ -134,6 +135,32 @@ export class Mind {
     const content = await this.generate(system, user, 60, 0.85);
 
     return this.parse(persona, content);
+  }
+
+  public async observe(parts: InferencePart[]): Promise<string> {
+    const system =
+      `You perceive one ordered multimodal post in a chatroom. Return a ` +
+      `faithful, concise plain-text account of what a participant can ` +
+      `perceive from every part, in order. Preserve the meaning of written ` +
+      `and spoken words. Describe relevant visual details. Do not invent ` +
+      `anything, give advice, or mention processing, models, or prompts.`;
+    const response = await fetch(new URL("/v1/chat", this.mlUrl).toString(), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        system,
+        messages: [{ role: "user", parts }],
+        maxTokens: 300,
+        temperature: 0.1,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`ML service returned HTTP ${response.status}`);
+    }
+
+    const payload = (await response.json()) as { content: string };
+    return payload.content.trim();
   }
 
   private async generate(

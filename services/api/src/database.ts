@@ -313,6 +313,34 @@ const contentAddressingMigration = `
     ADD COLUMN IF NOT EXISTS addressed_to jsonb NOT NULL DEFAULT '[]'::jsonb;
 `;
 
+const mediaAssetsMigration = `
+  CREATE TABLE IF NOT EXISTS media_assets (
+    id text PRIMARY KEY,
+    room_id text NOT NULL REFERENCES rooms(id),
+    owner_actor_id text NOT NULL REFERENCES actors(id),
+    media_kind text NOT NULL
+      CHECK (media_kind IN ('image', 'audio', 'video', 'file')),
+    original_filename text NOT NULL,
+    declared_media_type text NOT NULL,
+    detected_media_type text,
+    byte_length bigint NOT NULL CHECK (byte_length >= 0),
+    sha256 text,
+    storage_object_key text NOT NULL UNIQUE,
+    lifecycle_state text NOT NULL DEFAULT 'initiated'
+      CHECK (lifecycle_state IN (
+        'initiated', 'uploaded', 'quarantined', 'processing', 'published',
+        'rejected', 'deleted'
+      )),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    published_at timestamptz,
+    deleted_at timestamptz
+  );
+
+  CREATE INDEX IF NOT EXISTS media_assets_room_created_idx
+    ON media_assets (room_id, created_at);
+`;
+
 const migrations = [
   { version: 1, sql: initialMigration },
   { version: 2, sql: outboxMigration },
@@ -327,6 +355,7 @@ const migrations = [
   { version: 13, sql: credentialsMigration },
   { version: 14, sql: profilePicturesMigration },
   { version: 15, sql: contentAddressingMigration },
+  { version: 16, sql: mediaAssetsMigration },
 ] as const;
 
 export const createDatabase = (config: PoolConfig): Pool =>

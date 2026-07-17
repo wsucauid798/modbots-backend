@@ -31,7 +31,15 @@ export interface TextContentPart {
   language?: string;
 }
 
-export type ContentPart = TextContentPart;
+export interface AssetContentPart {
+  partId: string;
+  kind: "image" | "audio" | "video" | "file";
+  mediaAssetId: string;
+  caption?: string;
+  altText?: string;
+}
+
+export type ContentPart = TextContentPart | AssetContentPart;
 
 export type ContentLifecycleState = "published" | "edited" | "removed";
 

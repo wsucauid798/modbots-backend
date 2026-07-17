@@ -106,12 +106,20 @@ export interface PostMessageCommand {
   addressedTo?: ContentAddress[];
 }
 
-export interface ContentPartInput {
-  kind: "text";
-  text: string;
-  language?: string;
-  partId?: string;
-}
+export type ContentPartInput =
+  | {
+      kind: "text";
+      text: string;
+      language?: string;
+      partId?: string;
+    }
+  | {
+      kind: "image" | "audio" | "video" | "file";
+      mediaAssetId: string;
+      caption?: string;
+      altText?: string;
+      partId?: string;
+    };
 
 export interface PostContentCommand {
   roomId: string;
@@ -376,6 +384,7 @@ const contentColumns = `
 
 const maxContentParts = 64;
 const maxContentTextLength = 65_536;
+const maxContentCaptionLength = 4_096;
 const maxContentReferences = 64;
 const maxContentAddresses = 16;
 
@@ -431,6 +440,57 @@ const requireAddressedTargets = async (
   return normalized;
 };
 
+const requirePublishedMediaAssets = async (
+  client: PoolClient,
+  roomId: string,
+  inputs: ContentPartInput[],
+): Promise<void> => {
+  const assets = inputs.filter(
+    (input): input is Exclude<ContentPartInput, { kind: "text" }> =>
+      input.kind !== "text",
+  );
+
+  if (assets.length === 0) {
+    return;
+  }
+
+  const identifiers = [...new Set(assets.map((asset) => asset.mediaAssetId))];
+  const result = await client.query<{
+    id: string;
+    media_kind: "image" | "audio" | "video" | "file";
+  }>(
+    `
+      SELECT id, media_kind
+      FROM media_assets
+      WHERE room_id = $1
+        AND id = ANY($2::text[])
+        AND lifecycle_state = 'published'
+    `,
+    [roomId, identifiers],
+  );
+  const found = new Map(
+    result.rows.map((asset) => [asset.id, asset.media_kind]),
+  );
+
+  for (const asset of assets) {
+    const mediaKind = found.get(asset.mediaAssetId);
+
+    if (mediaKind === undefined) {
+      throw notFound(
+        "media_asset_not_found",
+        `Published media asset '${asset.mediaAssetId}' does not exist in this room`,
+      );
+    }
+
+    if (mediaKind !== asset.kind) {
+      throw badRequest(
+        "media_kind_mismatch",
+        `Media asset '${asset.mediaAssetId}' is ${mediaKind}, not ${asset.kind}`,
+      );
+    }
+  }
+};
+
 // Validate part inputs and assign stable part identifiers. On edit,
 // `existingParts` lets an input keep a part identifier from the current
 // revision; identifiers never come from thin air.
@@ -451,17 +511,6 @@ const buildContentParts = (
   const usedIds = new Set<string>();
 
   return inputs.map((input) => {
-    if (
-      typeof input.text !== "string" ||
-      input.text.trim().length === 0 ||
-      input.text.length > maxContentTextLength
-    ) {
-      throw badRequest(
-        "invalid_content_parts",
-        `Each text part must contain 1 to ${maxContentTextLength} characters`,
-      );
-    }
-
     let partId: string;
 
     if (input.partId !== undefined) {
@@ -486,11 +535,54 @@ const buildContentParts = (
 
     usedIds.add(partId);
 
+    if (input.kind === "text") {
+      if (
+        typeof input.text !== "string" ||
+        input.text.trim().length === 0 ||
+        input.text.length > maxContentTextLength
+      ) {
+        throw badRequest(
+          "invalid_content_parts",
+          `Each text part must contain 1 to ${maxContentTextLength} characters`,
+        );
+      }
+
+      return {
+        partId,
+        kind: "text" as const,
+        text: input.text,
+        ...(input.language === undefined ? {} : { language: input.language }),
+      };
+    }
+
+    if (
+      input.caption !== undefined &&
+      input.caption.length > maxContentCaptionLength
+    ) {
+      throw badRequest(
+        "invalid_content_parts",
+        `Asset captions must not exceed ${maxContentCaptionLength} characters`,
+      );
+    }
+
+    if (
+      input.altText !== undefined &&
+      input.altText.length > maxContentCaptionLength
+    ) {
+      throw badRequest(
+        "invalid_content_parts",
+        `Image alt text must not exceed ${maxContentCaptionLength} characters`,
+      );
+    }
+
     return {
       partId,
-      kind: "text" as const,
-      text: input.text,
-      ...(input.language === undefined ? {} : { language: input.language }),
+      kind: input.kind,
+      mediaAssetId: input.mediaAssetId,
+      ...(input.caption === undefined ? {} : { caption: input.caption }),
+      ...(input.kind !== "image" || input.altText === undefined
+        ? {}
+        : { altText: input.altText }),
     };
   });
 };
@@ -1082,6 +1174,8 @@ export class CommandService implements CommandHandler {
       await requireOnline(client, command.roomId, command.actorId);
       await requireNotMuted(client, command.roomId, command.actorId);
 
+      await requirePublishedMediaAssets(client, command.roomId, command.parts);
+
       const parts = buildContentParts(command.parts, null);
       const references = command.references ?? [];
 
@@ -1191,6 +1285,7 @@ export class CommandService implements CommandHandler {
       }
 
       const parts = buildContentParts(command.parts, row.parts);
+      await requirePublishedMediaAssets(client, command.roomId, command.parts);
       const revision = row.revision + 1;
       const event = await appendEvent(client, {
         roomId: command.roomId,

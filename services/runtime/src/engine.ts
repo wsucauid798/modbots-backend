@@ -2,6 +2,7 @@ import type { Mind } from "./mind.js";
 import type { Persona } from "./personas.js";
 import { PlatformClient, PlatformError } from "./platform.js";
 import type { ContentAddress, RoomEvent } from "./platform.js";
+import type { RoomContentPart } from "./platform.js";
 import type { AgentExperience } from "./experience.js";
 
 interface BotState {
@@ -194,6 +195,50 @@ export class ConversationEngine {
     while (this.transcriptEntries.length > 24) {
       this.transcriptEntries.shift();
     }
+  }
+
+  private contentParts(payload: Record<string, unknown>): RoomContentPart[] {
+    if (!Array.isArray(payload.parts)) {
+      return [];
+    }
+
+    return payload.parts.flatMap((raw): RoomContentPart[] => {
+      if (typeof raw !== "object" || raw === null) {
+        return [];
+      }
+
+      const part = raw as Record<string, unknown>;
+
+      if (
+        typeof part.partId !== "string" ||
+        typeof part.kind !== "string"
+      ) {
+        return [];
+      }
+
+      if (part.kind === "text" && typeof part.text === "string") {
+        return [{ partId: part.partId, kind: "text", text: part.text }];
+      }
+
+      if (
+        (part.kind === "image" ||
+          part.kind === "audio" ||
+          part.kind === "video" ||
+          part.kind === "file") &&
+        typeof part.mediaAssetId === "string"
+      ) {
+        return [{
+          partId: part.partId,
+          kind: part.kind,
+          mediaAssetId: part.mediaAssetId,
+          ...(typeof part.caption === "string"
+            ? { caption: part.caption }
+            : {}),
+        }];
+      }
+
+      return [];
+    });
   }
 
   private static normalizedWords(text: string): string[] {
@@ -710,6 +755,64 @@ export class ConversationEngine {
           await this.replyToHuman(
             info.display,
             event.payload.content,
+            typeof event.payload.contentItemId === "string"
+              ? { contentItemId: event.payload.contentItemId }
+              : undefined,
+            event.actorId,
+          );
+        } finally {
+          this.humanReplyPending = false;
+        }
+      }
+    }
+
+    if (event.type === "content_posted") {
+      const parts = this.contentParts(event.payload);
+
+      if (parts.length === 0) {
+        return;
+      }
+
+      const hasMedia = parts.some((part) => part.kind !== "text");
+      let content: string;
+
+      try {
+        content = hasMedia && options.react
+          ? await this.mind.observe(await this.client.inferenceParts(parts))
+          : parts
+              .map((part) =>
+                part.kind === "text"
+                  ? part.text
+                  : `[${part.kind}: ${part.caption ?? "shared media"}]`,
+              )
+              .join("\n");
+      } catch (error) {
+        console.error(
+          `Could not perceive multimodal content: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+        return;
+      }
+
+      this.remember(
+        info.display,
+        info.type,
+        content,
+        this.addressesFromEvent(event.payload, content),
+      );
+
+      if (info.type === "human" && options.react) {
+        this.humansPresent.add(info.display);
+      }
+
+      if (info.type === "human" && options.react && !this.humanReplyPending) {
+        this.humanReplyPending = true;
+
+        try {
+          await this.replyToHuman(
+            info.display,
+            content,
             typeof event.payload.contentItemId === "string"
               ? { contentItemId: event.payload.contentItemId }
               : undefined,

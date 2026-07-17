@@ -1,16 +1,39 @@
 import os
+import tempfile
+import threading
 from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Literal
 
 from fastapi import FastAPI, HTTPException
 from ollama import Client, RequestError, ResponseError
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+from .media import (
+    MediaProcessingError,
+    decode_base64,
+    encode_base64,
+    process_document,
+    process_video,
+)
 
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "https://ollama.com")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "gemma4:31b-cloud")
 OLLAMA_API_KEY = os.environ.get("OLLAMA_API_KEY", "")
 OLLAMA_TIMEOUT_SECONDS = float(os.environ.get("OLLAMA_TIMEOUT_SECONDS", "120"))
+TRANSCRIPTION_MODEL = os.environ.get("TRANSCRIPTION_MODEL", "small")
+TRANSCRIPTION_DEVICE = os.environ.get("TRANSCRIPTION_DEVICE", "cpu")
+TRANSCRIPTION_COMPUTE_TYPE = os.environ.get(
+    "TRANSCRIPTION_COMPUTE_TYPE",
+    "int8",
+)
+TRANSCRIPTION_CACHE = os.environ.get("TRANSCRIPTION_CACHE", "/data/asr")
 
-state: dict[str, object | None] = {"client": None}
+state: dict[str, object | None] = {
+    "client": None,
+    "transcriber": None,
+}
+transcriber_lock = threading.Lock()
 
 
 @asynccontextmanager
@@ -30,15 +53,40 @@ async def lifespan(_: FastAPI):
     )
     yield
     state["client"] = None
+    state["transcriber"] = None
 
 
 app = FastAPI(lifespan=lifespan)
 
 
+class ChatPart(BaseModel):
+    kind: Literal["text", "image", "audio", "video", "file"]
+    text: str | None = None
+    data: str | None = None
+    mediaType: str | None = None
+    filename: str | None = None
+
+    @model_validator(mode="after")
+    def validate_content(self):
+        if self.kind == "text":
+            if self.text is None or not self.text.strip():
+                raise ValueError("Text parts require non-empty text")
+            return self
+
+        if self.data is None or not self.data:
+            raise ValueError(f"{self.kind} parts require base64 data")
+
+        if self.mediaType is None or not self.mediaType:
+            raise ValueError(f"{self.kind} parts require mediaType")
+
+        return self
+
+
 class ChatMessage(BaseModel):
     role: str
-    content: str
+    content: str = ""
     images: list[str] = Field(default_factory=list)
+    parts: list[ChatPart] = Field(default_factory=list)
 
 
 class ChatRequest(BaseModel):
@@ -48,8 +96,193 @@ class ChatRequest(BaseModel):
     temperature: float = 0.9
 
 
+class DerivedObservation(BaseModel):
+    kind: Literal["image", "transcript", "video_frame", "document_text"]
+    sourcePart: int
+    processor: str
+    model: str | None = None
+    text: str | None = None
+    startMs: int | None = None
+    endMs: int | None = None
+
+
 class ChatResponse(BaseModel):
     content: str
+    model: str
+    observations: list[DerivedObservation]
+
+
+def _transcriber():
+    existing = state["transcriber"]
+    if existing is not None:
+        return existing
+
+    with transcriber_lock:
+        existing = state["transcriber"]
+        if existing is not None:
+            return existing
+
+        from faster_whisper import WhisperModel
+
+        model = WhisperModel(
+            TRANSCRIPTION_MODEL,
+            device=TRANSCRIPTION_DEVICE,
+            compute_type=TRANSCRIPTION_COMPUTE_TYPE,
+            download_root=TRANSCRIPTION_CACHE,
+        )
+        state["transcriber"] = model
+        return model
+
+
+def _transcribe(
+    audio: bytes,
+    filename: str,
+    source_part: int,
+) -> tuple[str, list[DerivedObservation]]:
+    suffix = Path(filename).suffix or ".audio"
+
+    with tempfile.NamedTemporaryFile(suffix=suffix) as source:
+        source.write(audio)
+        source.flush()
+        segments, _ = _transcriber().transcribe(
+            source.name,
+            vad_filter=True,
+            word_timestamps=False,
+        )
+        observations = [
+            DerivedObservation(
+                kind="transcript",
+                sourcePart=source_part,
+                processor="faster-whisper",
+                model=TRANSCRIPTION_MODEL,
+                text=segment.text.strip(),
+                startMs=round(segment.start * 1000),
+                endMs=round(segment.end * 1000),
+            )
+            for segment in segments
+            if segment.text.strip()
+        ]
+
+    return " ".join(
+        observation.text or "" for observation in observations
+    ).strip(), observations
+
+
+def _prepare_message(
+    message: ChatMessage,
+) -> tuple[dict, list[DerivedObservation]]:
+    fragments = [message.content] if message.content.strip() else []
+    images = [encode_base64(decode_base64(image)) for image in message.images]
+    observations: list[DerivedObservation] = []
+
+    for source_part, part in enumerate(message.parts):
+        if part.kind == "text":
+            fragments.append(part.text or "")
+            continue
+
+        data = decode_base64(part.data or "")
+        media_type = part.mediaType or "application/octet-stream"
+        filename = part.filename or f"part-{source_part}"
+
+        if part.kind == "image":
+            images.append(encode_base64(data))
+            image_number = len(images)
+            fragments.append(
+                f"[Image {image_number}, ordered content part {source_part}]"
+            )
+            observations.append(
+                DerivedObservation(
+                    kind="image",
+                    sourcePart=source_part,
+                    processor="ollama-vision",
+                    model=OLLAMA_MODEL,
+                )
+            )
+            continue
+
+        if part.kind == "audio":
+            transcript, derived = _transcribe(data, filename, source_part)
+            fragments.append(
+                f"[Audio transcript for ordered content part {source_part}]\n"
+                f"{transcript or '(no speech detected)'}"
+            )
+            observations.extend(derived)
+            continue
+
+        if part.kind == "video":
+            processed = process_video(data, filename)
+            frame_labels: list[str] = []
+
+            for timestamp, frame in zip(
+                processed.image_timestamps_ms,
+                processed.images,
+                strict=True,
+            ):
+                images.append(encode_base64(frame))
+                frame_labels.append(
+                    f"Image {len(images)} is the frame at {timestamp} ms"
+                )
+                observations.append(
+                    DerivedObservation(
+                        kind="video_frame",
+                        sourcePart=source_part,
+                        processor="ffmpeg",
+                        model=OLLAMA_MODEL,
+                        startMs=timestamp,
+                        endMs=timestamp,
+                    )
+                )
+
+            transcript = ""
+            if processed.audio is not None:
+                transcript, derived = _transcribe(
+                    processed.audio,
+                    "video-audio.wav",
+                    source_part,
+                )
+                observations.extend(derived)
+
+            fragments.append(
+                f"[Video ordered content part {source_part}]\n"
+                f"{'; '.join(frame_labels)}\n"
+                f"Audio transcript: {transcript or '(no speech detected)'}"
+            )
+            continue
+
+        processed = process_document(data, media_type, filename)
+        fragments.append(
+            f"[Document ordered content part {source_part}: {filename}]\n"
+            f"{processed.text or '(no extractable text)'}"
+        )
+        observations.append(
+            DerivedObservation(
+                kind="document_text",
+                sourcePart=source_part,
+                processor="format-specific-extractor",
+                text=processed.text,
+            )
+        )
+
+        for page, image in enumerate(processed.images, start=1):
+            images.append(encode_base64(image))
+            fragments.append(
+                f"[Image {len(images)} is page {page} of {filename}]"
+            )
+            observations.append(
+                DerivedObservation(
+                    kind="image",
+                    sourcePart=source_part,
+                    processor="pdftoppm",
+                    model=OLLAMA_MODEL,
+                )
+            )
+
+    prepared = {
+        "role": message.role,
+        "content": "\n\n".join(fragment for fragment in fragments if fragment),
+        **({"images": images} if images else {}),
+    }
+    return prepared, observations
 
 
 @app.get("/health")
@@ -59,6 +292,8 @@ def health() -> dict:
         "service": "ml",
         "provider": "ollama-cloud",
         "model": OLLAMA_MODEL,
+        "inputModalities": ["text", "image", "audio", "video", "file"],
+        "transcriptionModel": TRANSCRIPTION_MODEL,
     }
 
 
@@ -69,14 +304,20 @@ def chat(request: ChatRequest) -> ChatResponse:
         raise HTTPException(status_code=503, detail="ML client is not ready")
 
     messages = [{"role": "system", "content": request.system}]
-    messages.extend(
-        {
-            "role": message.role,
-            "content": message.content,
-            **({"images": message.images} if message.images else {}),
-        }
-        for message in request.messages
-    )
+    observations: list[DerivedObservation] = []
+
+    try:
+        for message in request.messages:
+            prepared, derived = _prepare_message(message)
+            messages.append(prepared)
+            observations.extend(derived)
+    except MediaProcessingError as exception:
+        raise HTTPException(status_code=422, detail=str(exception)) from exception
+    except Exception as exception:
+        raise HTTPException(
+            status_code=502,
+            detail="A modality processor failed",
+        ) from exception
 
     try:
         response = client.chat(
@@ -112,4 +353,8 @@ def chat(request: ChatRequest) -> ChatResponse:
             detail="Ollama Cloud returned an empty response",
         )
 
-    return ChatResponse(content=content)
+    return ChatResponse(
+        content=content,
+        model=OLLAMA_MODEL,
+        observations=observations,
+    )

@@ -1,7 +1,11 @@
 FROM python:3.12-slim
 WORKDIR /app
 
-RUN pip install --no-cache-dir fastapi "uvicorn[standard]" ollama
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y ffmpeg poppler-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir fastapi "uvicorn[standard]" ollama faster-whisper
 
 COPY app ./app
 

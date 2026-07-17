@@ -84,7 +84,11 @@ describe("replayContentItems", () => {
     assert.ok(item);
     assert.equal(item.revision, 2);
     assert.equal(item.lifecycleState, "removed");
-    assert.equal(item.parts[0]?.text, "First, edited");
+    assert.equal(item.parts[0]?.kind, "text");
+    assert.equal(
+      item.parts[0]?.kind === "text" ? item.parts[0].text : null,
+      "First, edited",
+    );
     assert.deepEqual(item.addressedTo, [{ targetType: "room" }]);
     assert.equal(item.updatedAt, "2026-01-01T00:02:00.000Z");
     assert.equal(item.createdAt, "2026-01-01T00:00:00.000Z");
@@ -120,6 +124,10 @@ describe("replayContentItems", () => {
     const item = items.get("content-c");
     assert.ok(item);
     assert.equal(item.lifecycleState, "removed");
-    assert.equal(item.parts[0]?.text, "Text");
+    assert.equal(item.parts[0]?.kind, "text");
+    assert.equal(
+      item.parts[0]?.kind === "text" ? item.parts[0].text : null,
+      "Text",
+    );
   });
 });
