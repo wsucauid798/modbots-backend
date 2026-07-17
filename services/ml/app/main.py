@@ -10,7 +10,6 @@ from .media import (
     MediaProcessingError,
     decode_base64,
     encode_base64,
-    process_audio,
     process_document,
     process_video,
 )
@@ -19,14 +18,8 @@ OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "https://ollama.com")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "gemma4:31b-cloud")
 OLLAMA_API_KEY = os.environ.get("OLLAMA_API_KEY", "")
 OLLAMA_TIMEOUT_SECONDS = float(os.environ.get("OLLAMA_TIMEOUT_SECONDS", "120"))
-OLLAMA_AUDIO_HOST = os.environ.get("OLLAMA_AUDIO_HOST", "").strip()
-OLLAMA_AUDIO_MODEL = os.environ.get("OLLAMA_AUDIO_MODEL", "gemma4:e4b")
-OLLAMA_AUDIO_API_KEY = os.environ.get("OLLAMA_AUDIO_API_KEY", "")
 
-state: dict[str, object | None] = {
-    "client": None,
-    "audio_client": None,
-}
+state: dict[str, object | None] = {"client": None}
 
 
 def _client(host: str, api_key: str) -> Client:
@@ -44,14 +37,8 @@ async def lifespan(_: FastAPI):
         raise RuntimeError("OLLAMA_API_KEY is required for Ollama Cloud")
 
     state["client"] = _client(OLLAMA_HOST, OLLAMA_API_KEY)
-    state["audio_client"] = (
-        _client(OLLAMA_AUDIO_HOST, OLLAMA_AUDIO_API_KEY)
-        if OLLAMA_AUDIO_HOST
-        else None
-    )
     yield
     state["client"] = None
-    state["audio_client"] = None
 
 
 app = FastAPI(lifespan=lifespan)
@@ -110,73 +97,6 @@ class ChatResponse(BaseModel):
     observations: list[DerivedObservation]
 
 
-def _perceive_audio(
-    audio: bytes,
-    filename: str,
-    source_part: int,
-) -> tuple[str, list[DerivedObservation]]:
-    client = state["audio_client"]
-    if client is None:
-        raise HTTPException(
-            status_code=503,
-            detail="The remote Ollama audio route is not configured",
-        )
-
-    normalized = process_audio(audio, filename)
-
-    try:
-        response = client.chat(
-            model=OLLAMA_AUDIO_MODEL,
-            messages=[
-                {
-                    "role": "user",
-                    "content": (
-                        "Transcribe every spoken word accurately, then describe "
-                        "other audible content that affects the meaning. Return "
-                        "concise plain text only. If there is no speech, describe "
-                        "the audible content."
-                    ),
-                    # Ollama currently routes WAV input through the multimodal
-                    # images field. Gemma 4 identifies the content from its WAV
-                    # header and sends it to the audio encoder.
-                    "images": [encode_base64(normalized)],
-                }
-            ],
-            stream=False,
-            think=False,
-            options={"num_predict": 500, "temperature": 0.1},
-        )
-    except ResponseError as exception:
-        raise HTTPException(
-            status_code=502,
-            detail=(
-                "The remote Ollama audio model rejected the request with HTTP "
-                f"{exception.status_code}"
-            ),
-        ) from exception
-    except RequestError as exception:
-        raise HTTPException(
-            status_code=502,
-            detail="The remote Ollama audio host could not be reached",
-        ) from exception
-
-    account = response.message.content.strip()
-    if not account:
-        raise HTTPException(
-            status_code=502,
-            detail="The remote Ollama audio model returned an empty response",
-        )
-
-    observation = DerivedObservation(
-        kind="transcript",
-        sourcePart=source_part,
-        processor="ollama-audio",
-        model=OLLAMA_AUDIO_MODEL,
-        text=account,
-    )
-    return account, [observation]
-
-
 def _prepare_message(
     message: ChatMessage,
 ) -> tuple[dict, list[DerivedObservation]]:
@@ -210,16 +130,23 @@ def _prepare_message(
             continue
 
         if part.kind == "audio":
-            account, derived = _perceive_audio(data, filename, source_part)
-            fragments.append(
-                f"[Audio account for ordered content part {source_part}]\n"
-                f"{account}"
+            raise HTTPException(
+                status_code=422,
+                detail="No audio-capable model is available through Ollama Cloud",
             )
-            observations.extend(derived)
-            continue
 
         if part.kind == "video":
             processed = process_video(data, filename)
+
+            if processed.audio is not None:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "Video audio cannot be processed because no audio-capable "
+                        "model is available through Ollama Cloud"
+                    ),
+                )
+
             frame_labels: list[str] = []
 
             for timestamp, frame in zip(
@@ -242,19 +169,9 @@ def _prepare_message(
                     )
                 )
 
-            audio_account = ""
-            if processed.audio is not None:
-                audio_account, derived = _perceive_audio(
-                    processed.audio,
-                    "video-audio.wav",
-                    source_part,
-                )
-                observations.extend(derived)
-
             fragments.append(
                 f"[Video ordered content part {source_part}]\n"
-                f"{'; '.join(frame_labels)}\n"
-                f"Audio account: {audio_account or '(no audio track)'}"
+                f"{'; '.join(frame_labels)}"
             )
             continue
 
@@ -301,9 +218,9 @@ def health() -> dict:
         "service": "ml",
         "provider": "ollama",
         "model": OLLAMA_MODEL,
-        "inputModalities": ["text", "image", "audio", "video", "file"],
-        "audioModel": OLLAMA_AUDIO_MODEL,
-        "audioRouteConfigured": state["audio_client"] is not None,
+        "inputModalities": ["text", "image", "video", "file"],
+        "unsupportedInputModalities": ["audio"],
+        "videoAudioSupported": False,
     }
 
 
