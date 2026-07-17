@@ -123,7 +123,7 @@ def _prepare_message(
                 DerivedObservation(
                     kind="image",
                     sourcePart=source_part,
-                    processor="ollama-vision",
+                    processor="ollama-cloud-multimodal",
                     model=OLLAMA_MODEL,
                 )
             )
@@ -216,7 +216,7 @@ def health() -> dict:
     return {
         "status": "ok",
         "service": "ml",
-        "provider": "ollama",
+        "provider": "ollama-cloud",
         "model": OLLAMA_MODEL,
         "inputModalities": ["text", "image", "video", "file"],
         "unsupportedInputModalities": ["audio"],

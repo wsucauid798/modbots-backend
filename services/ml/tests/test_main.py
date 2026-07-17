@@ -1,6 +1,5 @@
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
 
 from fastapi import HTTPException
 
@@ -104,6 +103,7 @@ class ChatTests(unittest.TestCase):
         self.assertEqual(prepared["images"], ["aW1hZ2UtYnl0ZXM="])
         self.assertEqual(response.observations[0].kind, "image")
         self.assertEqual(response.observations[0].sourcePart, 1)
+        self.assertEqual(response.observations[0].model, "gemma4:31b-cloud")
 
     def test_rejects_audio_without_an_ollama_cloud_audio_model(self):
         main.state["client"] = FakeClient()
