@@ -8,6 +8,7 @@ from pathlib import Path
 from app.media import (
     MediaProcessingError,
     decode_base64,
+    process_audio,
     process_document,
     process_video,
 )
@@ -38,6 +39,33 @@ class MediaTests(unittest.TestCase):
         )
 
         self.assertEqual(processed.text, "Multimodal room note")
+
+    def test_normalizes_audio_for_remote_gemma(self):
+        with tempfile.TemporaryDirectory(prefix="modbots-media-test-") as directory:
+            source = Path(directory) / "sample.mp3"
+            subprocess.run(
+                [
+                    "ffmpeg",
+                    "-v",
+                    "error",
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    "sine=frequency=440:duration=1",
+                    "-ac",
+                    "2",
+                    "-ar",
+                    "44100",
+                    "-y",
+                    str(source),
+                ],
+                check=True,
+            )
+
+            normalized = process_audio(source.read_bytes(), "sample.mp3")
+
+        self.assertEqual(normalized[:4], b"RIFF")
+        self.assertGreater(len(normalized), 44)
 
     def test_extracts_video_frames_and_audio(self):
         with tempfile.TemporaryDirectory(prefix="modbots-media-test-") as directory:

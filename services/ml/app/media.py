@@ -161,6 +161,39 @@ def process_document(data: bytes, media_type: str, filename: str) -> ProcessedMe
     return ProcessedMedia(text=_archive_text(data, filename))
 
 
+def process_audio(data: bytes, filename: str) -> bytes:
+    suffix = Path(filename).suffix.lower() or ".audio"
+
+    with tempfile.TemporaryDirectory(prefix="modbots-audio-") as directory:
+        root = Path(directory)
+        source = root / f"source{suffix}"
+        output = root / "audio.wav"
+        source.write_bytes(data)
+        _run(
+            [
+                "ffmpeg",
+                "-v",
+                "error",
+                "-i",
+                str(source),
+                "-vn",
+                "-ac",
+                "1",
+                "-ar",
+                "16000",
+                "-c:a",
+                "pcm_s16le",
+                "-y",
+                str(output),
+            ]
+        )
+
+        if not output.exists() or output.stat().st_size <= 44:
+            raise MediaProcessingError("Audio does not contain a readable track")
+
+        return output.read_bytes()
+
+
 def process_video(data: bytes, filename: str) -> ProcessedMedia:
     suffix = Path(filename).suffix.lower() or ".video"
 

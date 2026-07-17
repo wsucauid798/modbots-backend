@@ -22,7 +22,7 @@ class FakeClient:
 class ChatTests(unittest.TestCase):
     def tearDown(self):
         main.state["client"] = None
-        main.state["transcriber"] = None
+        main.state["audio_client"] = None
 
     def test_maps_text_request_to_ollama_chat(self):
         client = FakeClient()
@@ -106,24 +106,13 @@ class ChatTests(unittest.TestCase):
         self.assertEqual(response.observations[0].kind, "image")
         self.assertEqual(response.observations[0].sourcePart, 1)
 
-    def test_routes_audio_transcript_to_gemma(self):
-        client = FakeClient()
-        main.state["client"] = client
-        observation = main.DerivedObservation(
-            kind="transcript",
-            sourcePart=0,
-            processor="faster-whisper",
-            model="small",
-            text="hello room",
-            startMs=0,
-            endMs=900,
-        )
+    def test_routes_audio_through_remote_gemma_then_primary_gemma(self):
+        primary_client = FakeClient("Combined multimodal account")
+        audio_client = FakeClient("A speaker says hello room")
+        main.state["client"] = primary_client
+        main.state["audio_client"] = audio_client
 
-        with patch.object(
-            main,
-            "_transcribe",
-            return_value=("hello room", [observation]),
-        ):
+        with patch.object(main, "process_audio", return_value=b"RIFFwav-data"):
             response = main.chat(
                 main.ChatRequest(
                     system="Observe the room.",
@@ -143,10 +132,43 @@ class ChatTests(unittest.TestCase):
                 )
             )
 
-        prepared = client.request["messages"][1]
-        self.assertIn("Audio transcript", prepared["content"])
-        self.assertIn("hello room", prepared["content"])
-        self.assertEqual(response.observations, [observation])
+        self.assertEqual(audio_client.request["model"], "gemma4:e4b")
+        self.assertEqual(
+            audio_client.request["messages"][0]["images"],
+            ["UklGRndhdi1kYXRh"],
+        )
+        prepared = primary_client.request["messages"][1]
+        self.assertIn("Audio account", prepared["content"])
+        self.assertIn("A speaker says hello room", prepared["content"])
+        self.assertEqual(response.content, "Combined multimodal account")
+        self.assertEqual(response.observations[0].kind, "transcript")
+        self.assertEqual(response.observations[0].processor, "ollama-audio")
+        self.assertEqual(response.observations[0].model, "gemma4:e4b")
+
+    def test_rejects_audio_when_remote_audio_route_is_not_configured(self):
+        main.state["client"] = FakeClient()
+
+        with self.assertRaises(HTTPException) as captured:
+            main.chat(
+                main.ChatRequest(
+                    system="Observe the room.",
+                    messages=[
+                        main.ChatMessage(
+                            role="user",
+                            parts=[
+                                main.ChatPart(
+                                    kind="audio",
+                                    data="YXVkaW8tYnl0ZXM=",
+                                    mediaType="audio/wav",
+                                    filename="voice.wav",
+                                )
+                            ],
+                        )
+                    ],
+                )
+            )
+
+        self.assertEqual(captured.exception.status_code, 503)
 
     def test_extracts_text_document_before_gemma(self):
         client = FakeClient()
