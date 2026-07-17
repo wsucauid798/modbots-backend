@@ -6,10 +6,36 @@
 {% block content %}
   <form method="post" action="/login" novalidate>
     {% if uid %}<input type="hidden" name="uid" value="{{ uid }}" />{% endif %}
+    <input type="hidden" name="screen" value="login" />
 
-    <label class="block text-sm font-medium text-zinc-300" for="username">Username</label>
+    <label class="flex cursor-pointer items-start gap-3" for="acceptPolicy">
+      <input
+        class="peer sr-only"
+        id="acceptPolicy"
+        type="checkbox"
+        name="acceptPolicy"
+        required
+        {% if values.acceptPolicy %}checked{% endif %} />
+      <span class="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border border-zinc-600 text-transparent transition-colors hover:border-zinc-400 peer-checked:border-white peer-checked:bg-white peer-checked:text-black peer-focus-visible:ring-2 peer-focus-visible:ring-white/40 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-[#141414]">
+        <svg class="h-3 w-3" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+          <path d="M2.5 6.25 4.75 8.5 9.5 3.5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"></path>
+        </svg>
+      </span>
+      <span class="text-[13px] leading-5 text-zinc-400">
+        I accept the <a class="font-medium text-zinc-200 underline decoration-zinc-600 underline-offset-2 transition-colors hover:text-white hover:decoration-zinc-400" href="/policy" target="_blank">Participation Policy</a>
+      </span>
+    </label>
+    {% if errors.acceptPolicy %}
+      <p class="mt-2 text-xs text-zinc-200">{{ errors.acceptPolicy }}</p>
+    {% endif %}
+
+    <h2 class="mt-5 text-sm font-semibold text-zinc-100">Log in as user</h2>
+
+    <label class="mt-3 block" for="username">
+      <span class="text-xs font-medium text-zinc-400">Username</span>
+    </label>
     <input
-      class="mt-1.5 w-full rounded-xl border {% if errors.username %}border-white/40{% else %}border-white/10{% endif %} bg-[#0f0f0f] px-3 py-2.5 text-[15px] text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-white/25"
+      class="mt-1.5 h-10 w-full rounded-md border {% if errors.username %}border-white/40{% else %}border-white/10{% endif %} bg-[#181818] px-3 text-sm text-zinc-200 outline-none placeholder:text-zinc-600 focus:border-white/25"
       id="username" name="username" type="text" autocomplete="username" autofocus
       aria-invalid="{{ 'true' if errors.username else 'false' }}"
       value="{{ values.username or '' }}" />
@@ -17,34 +43,58 @@
       <p class="mt-1 text-xs text-zinc-200">{{ errors.username }}</p>
     {% endif %}
 
-    <label class="mt-4 block text-sm font-medium text-zinc-300" for="password">Password</label>
+    <label class="mt-3 block" for="password">
+      <span class="text-xs font-medium text-zinc-400">Password</span>
+    </label>
     <input
-      class="mt-1.5 w-full rounded-xl border {% if errors.password %}border-white/40{% else %}border-white/10{% endif %} bg-[#0f0f0f] px-3 py-2.5 text-[15px] text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-white/25"
+      class="mt-1.5 h-10 w-full rounded-md border {% if errors.password %}border-white/40{% else %}border-white/10{% endif %} bg-[#181818] px-3 text-sm text-zinc-200 outline-none placeholder:text-zinc-600 focus:border-white/25"
       id="password" name="password" type="password" autocomplete="current-password"
       aria-invalid="{{ 'true' if errors.password else 'false' }}" />
     {% if errors.password %}
       <p class="mt-1 text-xs text-zinc-200">{{ errors.password }}</p>
     {% endif %}
 
-    <label class="mt-5 flex items-start gap-2.5 text-sm text-zinc-400">
-      <input class="mt-0.5 h-4 w-4 rounded border-white/20 bg-[#0f0f0f]" type="checkbox" name="acceptPolicy" {% if values.acceptPolicy %}checked{% endif %} />
-      <span>I accept the <a class="font-medium text-zinc-200 underline decoration-zinc-600 underline-offset-2 hover:text-white" href="/policy" target="_blank">Participation Policy</a></span>
-    </label>
-    {% if errors.acceptPolicy %}
-      <p class="mt-1 text-xs text-zinc-200">{{ errors.acceptPolicy }}</p>
-    {% endif %}
-
     {% if errors.form %}
-      <p class="mt-4 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-zinc-300">{{ errors.form }}</p>
+      <p class="mt-3 rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-zinc-300">{{ errors.form }}</p>
     {% endif %}
 
     <button
-      class="mt-6 w-full rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-black transition hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+      class="mt-4 flex h-11 w-full items-center justify-center rounded-md bg-white px-4 text-sm font-semibold text-black transition hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#141414]"
       type="submit">Log in</button>
+
+    <div class="my-5 flex items-center gap-3">
+      <span class="h-px flex-1 bg-white/[0.08]"></span>
+      <span class="text-[11px] font-medium uppercase tracking-[0.1em] text-zinc-600">OR</span>
+      <span class="h-px flex-1 bg-white/[0.08]"></span>
+    </div>
+
+    <h2 class="text-sm font-semibold text-zinc-100">Log in as guest</h2>
+
+    <label class="mt-3 block" for="displayName">
+      <span class="text-xs font-medium text-zinc-400">
+        Display name <span class="font-normal text-zinc-600">(optional)</span>
+      </span>
+      <input
+        class="mt-1.5 h-10 w-full rounded-md border border-white/10 bg-[#181818] px-3 text-sm text-zinc-200 outline-none placeholder:text-zinc-600 focus:border-white/25"
+        id="displayName" name="displayName" type="text" autocomplete="nickname"
+        placeholder="How the room sees you"
+        value="{{ values.displayName or '' }}" />
+    </label>
+
+    <button
+      class="mt-4 flex h-11 w-full items-center justify-center rounded-md border border-white/15 px-4 text-sm font-semibold text-zinc-200 transition hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
+      type="submit"
+      formaction="/guest-login">Log in</button>
   </form>
 {% endblock %}
 
 {% block below %}
+  {% if uid %}
+    <form method="post" action="/login/cancel" class="mt-5 text-center">
+      <input type="hidden" name="uid" value="{{ uid }}" />
+      <button class="text-sm text-zinc-500 transition hover:text-zinc-300" type="submit">Cancel and return to the app</button>
+    </form>
+  {% endif %}
   <p class="mt-5 text-center text-sm text-zinc-500">
     New here?
     <a class="font-medium text-zinc-300 hover:text-white" href="/login?screen=register{% if uid %}&uid={{ uid }}{% endif %}">Create an account</a>

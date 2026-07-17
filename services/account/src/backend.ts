@@ -6,6 +6,8 @@ export interface Actor {
   handle: string | null;
   displayName: string;
   display: string;
+  profilePictureId: string | null;
+  profilePictureUrl: string | null;
   type: string;
   registered: boolean;
   retiredAt: string | null;
@@ -72,6 +74,7 @@ export class BackendClient {
   public async verifyCredentials(
     username: string,
     password: string,
+    acceptPolicy: boolean,
   ): Promise<Actor | null> {
     try {
       const result = await this.request<{ actor: Actor }>(
@@ -79,7 +82,7 @@ export class BackendClient {
         {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ username, password }),
+          body: JSON.stringify({ username, password, acceptPolicy }),
         },
       );
 
@@ -91,6 +94,17 @@ export class BackendClient {
 
       throw error;
     }
+  }
+
+  public createGuest(displayName: string | null): Promise<{ actor: Actor }> {
+    return this.request("/api/guests", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        acceptPolicy: true,
+        ...(displayName === null ? {} : { displayName }),
+      }),
+    });
   }
 
   // The backend records the accepted policy version itself; acceptance is

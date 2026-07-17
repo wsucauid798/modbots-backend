@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import fastifyCookie from "@fastify/cookie";
@@ -5,7 +6,12 @@ import fastifyFormbody from "@fastify/formbody";
 import fastifyMiddie from "@fastify/middie";
 import fastifyStatic from "@fastify/static";
 import fastifyView from "@fastify/view";
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, {
+  type FastifyInstance,
+  type FastifyReply,
+  type FastifyRequest,
+} from "fastify";
+import { Redis } from "ioredis";
 import nunjucks from "nunjucks";
 import type Provider from "oidc-provider";
 import { BackendClient, BackendError } from "./backend.js";
@@ -18,14 +24,29 @@ const here = dirname(fileURLToPath(import.meta.url));
 // for the sign-in hand-off.
 const sessionCookie = "modbots_account";
 const sessionMaxAgeSeconds = 30 * 24 * 60 * 60;
+const recoveryCodeTtlSeconds = 10 * 60;
+const recoveryCodePrefix = "MBR-";
 
 interface PageError {
   field: string;
   message: string;
 }
 
+type ScreenMode = "login" | "register";
+
+interface PageValues {
+  username?: string;
+  displayName?: string;
+  acceptPolicy?: boolean;
+}
+
 const isExpiredInteraction = (error: unknown): boolean =>
   error instanceof Error && error.name === "SessionNotFound";
+
+const interactionFailureReason = (error: unknown): string =>
+  error instanceof Error && error.message.length > 0
+    ? error.message
+    : "interaction session unavailable";
 
 // Errors render inline at the field they belong to; "form" is the one
 // form-level slot (a failure not attributable to a single field).
@@ -41,12 +62,22 @@ const byField = (errors: PageError[]): Record<string, string> => {
   return map;
 };
 
+const screenMode = (value: string | undefined): ScreenMode =>
+  value === "register" ? "register" : "login";
+
+const recoveryCodeKey = (code: string): string =>
+  `account:desktop-recovery:${code}`;
+
+const createRecoveryCode = (): string =>
+  `${recoveryCodePrefix}${randomBytes(5).toString("hex").toUpperCase()}`;
+
 export const buildApp = async (
   config: AccountConfig,
   backend: BackendClient,
   provider: Provider,
 ): Promise<FastifyInstance> => {
   const app = Fastify({ logger: true });
+  const redis = new Redis(config.redisUrl);
 
   // The provider is mounted as middleware ahead of Fastify's body parsing:
   // its endpoints read the raw request stream themselves, and a parsed
@@ -104,6 +135,79 @@ export const buildApp = async (
     return unsigned.valid ? unsigned.value : null;
   };
 
+  const renderAuthView = (
+    reply: { view: Function; code: (statusCode: number) => { view: Function } },
+    screen: ScreenMode,
+    model: {
+      uid: string | null;
+      errors: Record<string, string>;
+      values: PageValues;
+    },
+    statusCode?: number,
+  ) => {
+    const viewName = screen === "register" ? "register.njk" : "login.njk";
+
+    if (statusCode === undefined) {
+      return reply.view(viewName, model);
+    }
+
+    return reply.code(statusCode).view(viewName, model);
+  };
+
+  const beginDesktopHandoff = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+    actorId: string,
+  ) => {
+    const interaction = await provider.interactionDetails(request.raw, reply.raw);
+    const clientId = String(interaction.params.client_id ?? "");
+    const client = await provider.Client.find(clientId);
+
+    if (client === undefined) {
+      throw new Error(`OIDC client '${clientId}' was not found`);
+    }
+
+    let grantId = interaction.grantId;
+
+    if (grantId === undefined) {
+      const grant = new provider.Grant({ clientId, accountId: actorId });
+      grant.addOIDCScope("openid profile");
+      grantId = await grant.save();
+    }
+
+    const accessToken = new provider.AccessToken({
+      accountId: actorId,
+      client,
+      grantId,
+      gty: "authorization_code",
+      scope: "openid profile",
+    });
+
+    const recoveryCode = createRecoveryCode();
+    const accessTokenValue = await accessToken.save();
+
+    await redis.set(
+      recoveryCodeKey(recoveryCode),
+      accessTokenValue,
+      "EX",
+      recoveryCodeTtlSeconds,
+    );
+
+    const resumeUrl = await provider.interactionResult(
+      request.raw,
+      reply.raw,
+      { login: { accountId: actorId } },
+      { mergeWithLastSubmission: false },
+    );
+
+    return reply.view("continue.njk", {
+      clientName: clientId === "modbots-desktop" ? "Mod Bots Desktop" : clientId,
+      recoveryCode,
+      recoveryMinutes: Math.floor(recoveryCodeTtlSeconds / 60),
+      resumeUrl,
+    });
+  };
+
   app.get("/health", async () => ({ status: "ok", service: "account" }));
 
   // The one canonical, linkable home of the participation policy. Clients
@@ -112,10 +216,6 @@ export const buildApp = async (
     const policy = await backend.policy();
     return reply.view("policy.njk", { policy });
   });
-
-  const clientNames: Record<string, string> = {
-    "modbots-desktop": "Mod Bots Desktop",
-  };
 
   interface LoginQuery {
     uid?: string;
@@ -140,19 +240,37 @@ export const buildApp = async (
           interaction.prompt.name === "consent" &&
           typeof interaction.session?.accountId === "string"
         ) {
-          const actor = await backend.getActor(interaction.session.accountId);
-          const clientId = String(interaction.params.client_id ?? "");
+          let grantId = interaction.grantId;
 
-          return reply.view("continue.njk", {
-            uid: interaction.uid,
-            actor,
-            clientName: clientNames[clientId] ?? clientId,
-          });
+          if (grantId === undefined) {
+            const grant = new provider.Grant({
+              clientId: String(interaction.params.client_id ?? ""),
+              accountId: interaction.session.accountId,
+            });
+            grant.addOIDCScope("openid profile");
+            grantId = await grant.save();
+          }
+
+          await provider.interactionFinished(
+            request.raw,
+            reply.raw,
+            { consent: { grantId } },
+            { mergeWithLastSubmission: true },
+          );
+          return reply;
         }
       } catch (error) {
         if (!isExpiredInteraction(error)) {
           throw error;
         }
+
+        request.log.warn(
+          {
+            uid,
+            reason: interactionFailureReason(error),
+          },
+          "OIDC login interaction expired before the account page could resume it",
+        );
 
         // Never silently turn an app log-in into a site-only log-in: the
         // person would end up logged in here while their app waits for a
@@ -165,59 +283,16 @@ export const buildApp = async (
       }
     }
 
-    return reply.view(screen === "register" ? "register.njk" : "login.njk", {
+    return renderAuthView(reply, screenMode(screen), {
       uid: uid ?? null,
       errors: {},
       values: {},
     });
   });
 
-  interface ContinueBody {
-    uid?: string;
-  }
-
-  // The consent step for native clients: the user consciously hands the
-  // log-in back to the app. First-party grants already carry the scopes.
-  app.post<{ Body: ContinueBody }>("/continue", async (request, reply) => {
-    try {
-      const interaction = await provider.interactionDetails(
-        request.raw,
-        reply.raw,
-      );
-
-      let grantId = interaction.grantId;
-
-      if (grantId === undefined) {
-        const grant = new provider.Grant({
-          clientId: String(interaction.params.client_id ?? ""),
-          accountId: interaction.session?.accountId,
-        });
-        grant.addOIDCScope("openid profile");
-        grantId = await grant.save();
-      }
-
-      await provider.interactionFinished(
-        request.raw,
-        reply.raw,
-        { consent: { grantId } },
-        { mergeWithLastSubmission: true },
-      );
-      return reply;
-    } catch (error) {
-      if (!isExpiredInteraction(error)) {
-        throw error;
-      }
-
-      return reply.code(400).view("error.njk", {
-        heading: "This log-in request has expired",
-        message:
-          "The request from your app timed out. Go back to Mod Bots and try logging in again.",
-      });
-    }
-  });
-
   interface LoginBody {
     uid?: string;
+    screen?: string;
     username?: string;
     password?: string;
     acceptPolicy?: string;
@@ -225,6 +300,7 @@ export const buildApp = async (
 
   app.post<{ Body: LoginBody }>("/login", async (request, reply) => {
     const uid = request.body.uid ?? null;
+    const screen = screenMode(request.body.screen);
     const username = (request.body.username ?? "").trim();
     const password = request.body.password ?? "";
     const accepted = request.body.acceptPolicy === "on";
@@ -248,7 +324,7 @@ export const buildApp = async (
     const actor =
       errors.length > 0
         ? null
-        : await backend.verifyCredentials(username, password);
+        : await backend.verifyCredentials(username, password, accepted);
 
     if (errors.length === 0 && actor === null) {
       errors.push({
@@ -258,28 +334,36 @@ export const buildApp = async (
     }
 
     if (actor === null) {
-      return reply.code(401).view("login.njk", {
-        uid,
-        errors: byField(errors),
-        values: { username, acceptPolicy: accepted },
-      });
+      return renderAuthView(
+        reply,
+        screen,
+        {
+          uid,
+          errors: byField(errors),
+          values: { username, acceptPolicy: accepted },
+        },
+        errors.some((error) => error.field === "form") ? 401 : 400,
+      );
     }
 
     setSession(reply, actor.id);
 
     if (uid !== null) {
       try {
-        await provider.interactionFinished(
-          request.raw,
-          reply.raw,
-          { login: { accountId: actor.id } },
-          { mergeWithLastSubmission: false },
-        );
-        return reply;
+        return await beginDesktopHandoff(request, reply, actor.id);
       } catch (error) {
         if (!isExpiredInteraction(error)) {
           throw error;
         }
+
+        request.log.warn(
+          {
+            uid,
+            actorId: actor.id,
+            reason: interactionFailureReason(error),
+          },
+          "OIDC login interaction expired after credentials were accepted",
+        );
 
         // The credentials were fine; only the app's log-in request went
         // stale. Say so instead of pretending something broke.
@@ -293,6 +377,144 @@ export const buildApp = async (
 
     return reply.redirect("/account");
   });
+
+  interface GuestLoginBody {
+    uid?: string;
+    screen?: string;
+    displayName?: string;
+    acceptPolicy?: string;
+  }
+
+  app.post<{ Body: GuestLoginBody }>("/guest-login", async (request, reply) => {
+    const uid = request.body.uid ?? null;
+    const screen = screenMode(request.body.screen);
+    const displayName = (request.body.displayName ?? "").trim();
+    const accepted = request.body.acceptPolicy === "on";
+    const errors: PageError[] = [];
+
+    if (!accepted) {
+      errors.push({
+        field: "acceptPolicy",
+        message: "Guest entry requires accepting the Participation Policy.",
+      });
+    }
+
+    if (errors.length > 0) {
+      return renderAuthView(reply, screen, {
+        uid,
+        errors: byField(errors),
+        values: { displayName, acceptPolicy: accepted },
+      });
+    }
+
+    const outcome = await backend.createGuest(
+      displayName.length === 0 ? null : displayName,
+    );
+    setSession(reply, outcome.actor.id);
+
+    if (uid !== null) {
+      try {
+        return await beginDesktopHandoff(request, reply, outcome.actor.id);
+      } catch (error) {
+        if (!isExpiredInteraction(error)) {
+          throw error;
+        }
+
+        request.log.warn(
+          {
+            uid,
+            actorId: outcome.actor.id,
+            reason: interactionFailureReason(error),
+          },
+          "OIDC login interaction expired after guest entry was accepted",
+        );
+
+        // The guest entry succeeded here; only the app's request went stale.
+        return reply.code(400).view("error.njk", {
+          heading: "This log-in request has expired",
+          message:
+            "You entered here as a guest, but the request from your app timed out. Go back to Mod Bots and try again.",
+        });
+      }
+    }
+
+    return reply.redirect("/account");
+  });
+
+  interface CancelBody {
+    uid?: string;
+  }
+
+  app.post<{ Body: CancelBody }>("/login/cancel", async (request, reply) => {
+    const uid = request.body.uid ?? null;
+
+    if (uid === null) {
+      return reply.redirect("/login");
+    }
+
+    try {
+      await provider.interactionFinished(
+        request.raw,
+        reply.raw,
+        {
+          error: "access_denied",
+          error_description: "Sign-in was canceled.",
+        },
+        { mergeWithLastSubmission: false },
+      );
+      return reply;
+    } catch (error) {
+      if (!isExpiredInteraction(error)) {
+        throw error;
+      }
+
+      request.log.warn(
+        {
+          uid,
+          reason: interactionFailureReason(error),
+        },
+        "OIDC login interaction expired before cancellation could return to the app",
+      );
+
+      return reply.code(400).view("error.njk", {
+        heading: "This log-in request has expired",
+        message:
+          "The request from your app already expired. Go back to Mod Bots and try logging in again.",
+      });
+    }
+  });
+
+  interface RecoveryRedeemBody {
+    code?: string;
+  }
+
+  app.post<{ Body: RecoveryRedeemBody }>(
+    "/login/recovery/redeem",
+    async (request, reply) => {
+      const code = (request.body.code ?? "").trim().toUpperCase();
+
+      if (!code.startsWith(recoveryCodePrefix)) {
+        return reply.code(400).send({
+          error: "invalid_recovery_code",
+          message: "The recovery code format is invalid.",
+        });
+      }
+
+      const key = recoveryCodeKey(code);
+      const accessToken = await redis.get(key);
+
+      if (accessToken === null) {
+        return reply.code(404).send({
+          error: "recovery_code_not_found",
+          message: "That recovery code is missing or expired.",
+        });
+      }
+
+      await redis.del(key);
+
+      return reply.code(200).send({ accessToken });
+    },
+  );
 
   interface RegisterBody {
     uid?: string;
@@ -336,7 +558,7 @@ export const buildApp = async (
       reply.code(code).view("register.njk", {
         uid,
         errors: byField(errors),
-        values: { username, displayName },
+        values: { username, displayName, acceptPolicy: accepted },
       });
 
     if (errors.length > 0) {
@@ -370,17 +592,20 @@ export const buildApp = async (
 
     if (uid !== null) {
       try {
-        await provider.interactionFinished(
-          request.raw,
-          reply.raw,
-          { login: { accountId: actorId } },
-          { mergeWithLastSubmission: false },
-        );
-        return reply;
+        return await beginDesktopHandoff(request, reply, actorId);
       } catch (error) {
         if (!isExpiredInteraction(error)) {
           throw error;
         }
+
+        request.log.warn(
+          {
+            uid,
+            actorId,
+            reason: interactionFailureReason(error),
+          },
+          "OIDC login interaction expired after account creation",
+        );
 
         // The account exists and they are logged in here; only the app's
         // request went stale.

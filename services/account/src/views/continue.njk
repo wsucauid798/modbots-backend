@@ -1,15 +1,25 @@
 {% extends "layout.njk" %}
 
-{% block title %}Continue - Mod Bots{% endblock %}
-{% block tagline %}Almost there{% endblock %}
+{% block title %}Return to Mod Bots{% endblock %}
+{% block tagline %}Finish desktop sign-in{% endblock %}
 
 {% block content %}
-  <p class="text-sm text-zinc-400">Logged in as</p>
-  <p class="mt-1 text-lg font-semibold text-white">{{ actor.display }}</p>
-  <form class="mt-6" method="post" action="/continue">
-    <input type="hidden" name="uid" value="{{ uid }}" />
-    <button
-      class="w-full rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-black transition hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
-      type="submit">Continue to {{ clientName }}</button>
-  </form>
+  <p class="text-sm leading-6 text-zinc-300">
+    You are signed in for {{ clientName }}. Keep this page open while you return to the desktop app.
+  </p>
+
+  <a
+    class="mt-5 flex w-full items-center justify-center rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-black transition hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+    href="{{ resumeUrl }}"
+    target="_blank"
+    rel="noreferrer"
+  >Return to Mod Bots</a>
+
+  <div class="mt-5 rounded-xl border border-white/10 bg-[#0f0f0f] p-4">
+    <p class="text-xs font-medium uppercase tracking-[0.12em] text-zinc-500">Recovery code</p>
+    <p class="mt-2 font-mono text-sm text-zinc-100">{{ recoveryCode }}</p>
+    <p class="mt-2 text-xs leading-5 text-zinc-500">
+      If the desktop app does not finish opening, paste this code into the desktop log-in card. The code expires in about {{ recoveryMinutes }} minutes.
+    </p>
+  </div>
 {% endblock %}

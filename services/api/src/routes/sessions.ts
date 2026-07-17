@@ -68,12 +68,11 @@ export const sessionRoutes = (
         if (
           actor === null ||
           actor.type !== "human" ||
-          !actor.registered ||
           actor.retiredAt !== null
         ) {
           throw unauthorized(
             "invalid_token",
-            "The access token does not belong to an active registered actor",
+            "The access token does not belong to an active human actor",
           );
         }
 

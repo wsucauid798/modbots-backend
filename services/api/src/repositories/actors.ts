@@ -32,6 +32,10 @@ export interface Actor {
 export interface ActorRepository {
   getById(actorId: string): Promise<Actor | null>;
   getByHandle(handle: string): Promise<Actor | null>;
+  recordPolicyAcceptance(
+    actorId: string,
+    policyVersion: string,
+  ): Promise<Actor | null>;
 }
 
 interface ActorRow {
@@ -125,6 +129,24 @@ export class PostgresActorRepository implements ActorRepository {
     const result = await this.database.query<ActorRow>(
       `SELECT ${selectColumns} FROM actors WHERE handle = $1`,
       [handle],
+    );
+    const actor = result.rows[0];
+
+    return actor === undefined ? null : actorFromRow(actor, this.uppsBaseUrl);
+  }
+
+  public async recordPolicyAcceptance(
+    actorId: string,
+    policyVersion: string,
+  ): Promise<Actor | null> {
+    const result = await this.database.query<ActorRow>(
+      `
+        UPDATE actors
+        SET policy_version_accepted = $2, policy_accepted_at = now()
+        WHERE id = $1
+        RETURNING ${selectColumns}
+      `,
+      [actorId, policyVersion],
     );
     const actor = result.rows[0];
 

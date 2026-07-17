@@ -4,7 +4,7 @@
   "version": "0.0.1-alpha",
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/server.ts",
+    "dev": "node scripts/dev.mjs",
     "build": "tsc -p tsconfig.json && npm run build:css && npm run copy:views",
     "copy:views": "node -e \"require('node:fs').cpSync('src/views', 'dist/views', { recursive: true })\"",
     "build:css": "tailwindcss -i src/styles/app.css -o public/assets/app.css --minify",

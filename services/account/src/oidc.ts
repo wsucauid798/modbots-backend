@@ -145,6 +145,29 @@ const createAdapterClass = (redis: Redis) =>
 // First-party clients skip the consent screen: the platform's own apps do
 // not ask the user to grant the platform access to itself.
 const firstPartyClients = new Set(["modbots-desktop"]);
+const desktopCorsOrigins = new Set([
+  "tauri://localhost",
+  "http://tauri.localhost",
+  "http://localhost:1420",
+  "http://127.0.0.1:1420",
+]);
+
+const clientAllowsOrigin = (
+  redirectUris: readonly string[] | undefined,
+  origin: string,
+): boolean => {
+  if (redirectUris === undefined) {
+    return false;
+  }
+
+  return redirectUris.some((uri) => {
+    try {
+      return new URL(uri).origin === origin;
+    } catch {
+      return false;
+    }
+  });
+};
 
 export const createOidcProvider = async (
   config: AccountConfig,
@@ -203,6 +226,20 @@ export const createOidcProvider = async (
     extraParams: ["screen"],
     features: {
       devInteractions: { enabled: false },
+    },
+    clientBasedCORS(ctx, origin, client) {
+      if (
+        client.clientId === "modbots-desktop" &&
+        desktopCorsOrigins.has(origin)
+      ) {
+        return true;
+      }
+
+      if (ctx.oidc.route === "userinfo" || client.clientAuthMethod === "none") {
+        return clientAllowsOrigin(client.redirectUris, origin);
+      }
+
+      return false;
     },
     interactions: {
       url: (ctx, interaction) =>

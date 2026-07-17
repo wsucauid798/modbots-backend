@@ -4,6 +4,7 @@ import {
   verifyPassword,
 } from "../domain/credentials.js";
 import { badRequest } from "../domain/errors.js";
+import { participationPolicy } from "../domain/policy.js";
 import type { ActorRepository } from "../repositories/actors.js";
 import type { CredentialRepository } from "../repositories/credentials.js";
 
@@ -24,7 +25,10 @@ export const credentialRoutes = (
           throw badRequest("invalid_body", "Request body must be a JSON object");
         }
 
-        const { username, password } = body as Record<string, unknown>;
+        const { username, password, acceptPolicy } = body as Record<
+          string,
+          unknown
+        >;
 
         if (typeof username !== "string" || username.trim().length === 0) {
           throw badRequest("invalid_body", "'username' must be a string");
@@ -32,6 +36,13 @@ export const credentialRoutes = (
 
         if (typeof password !== "string" || password.length === 0) {
           throw badRequest("invalid_body", "'password' must be a string");
+        }
+
+        if (acceptPolicy !== true) {
+          throw badRequest(
+            "policy_not_accepted",
+            `Login requires accepting policy version ${participationPolicy.version}`,
+          );
         }
 
         const unauthorized = () =>
@@ -62,7 +73,12 @@ export const credentialRoutes = (
           return unauthorized();
         }
 
-        return { actor };
+        const acceptedActor = await actors.recordPolicyAcceptance(
+          actor.id,
+          participationPolicy.version,
+        );
+
+        return acceptedActor === null ? unauthorized() : { actor: acceptedActor };
       },
     );
   };

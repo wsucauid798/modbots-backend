@@ -6,6 +6,7 @@
 {% block content %}
   <form method="post" action="/register" novalidate>
     {% if uid %}<input type="hidden" name="uid" value="{{ uid }}" />{% endif %}
+    <input type="hidden" name="screen" value="register" />
 
     <label class="block text-sm font-medium text-zinc-300" for="username">Username</label>
     <input
@@ -37,12 +38,10 @@
     {% endif %}
 
     <label class="mt-5 flex items-start gap-2.5 text-sm text-zinc-400">
-      <input class="mt-0.5 h-4 w-4 rounded border-white/20 bg-[#0f0f0f]" type="checkbox" name="acceptPolicy" />
+      <input class="mt-0.5 h-4 w-4 rounded border-white/20 bg-[#0f0f0f]" type="checkbox" name="acceptPolicy" {% if values.acceptPolicy %}checked{% endif %} />
       <span>I accept the <a class="font-medium text-zinc-200 underline decoration-zinc-600 underline-offset-2 hover:text-white" href="/policy" target="_blank">Participation Policy</a></span>
     </label>
-    {% if errors.acceptPolicy %}
-      <p class="mt-1 text-xs text-zinc-200">{{ errors.acceptPolicy }}</p>
-    {% endif %}
+    <p class="mt-1 min-h-[1rem] text-xs text-zinc-200">{{ errors.acceptPolicy or '' }}</p>
 
     <button
       class="mt-6 w-full rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-black transition hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
@@ -51,6 +50,12 @@
 {% endblock %}
 
 {% block below %}
+  {% if uid %}
+    <form method="post" action="/login/cancel" class="mt-5 text-center">
+      <input type="hidden" name="uid" value="{{ uid }}" />
+      <button class="text-sm text-zinc-500 transition hover:text-zinc-300" type="submit">Cancel and return to the app</button>
+    </form>
+  {% endif %}
   <p class="mt-5 text-center text-sm text-zinc-500">
     Already have an account?
     <a class="font-medium text-zinc-300 hover:text-white" href="/login{% if uid %}?uid={{ uid }}{% endif %}">Log in</a>

@@ -56,6 +56,7 @@ const actors: ActorRepository = {
     return null;
   },
   getByHandle: async () => null,
+  recordPolicyAcceptance: async () => null,
 };
 
 const sessions: SessionRepository = {
@@ -486,6 +487,34 @@ describe("command routes", () => {
 });
 
 describe("session authentication", () => {
+  it("exchanges an account token for an active guest actor", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () =>
+      new Response(JSON.stringify({ sub: "human-1" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    const app = Fastify();
+
+    try {
+      await app.register(
+        sessionRoutes(sessions, actors, "http://account.test"),
+      );
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/sessions/exchange",
+        payload: { accessToken: "account-token" },
+      });
+
+      assert.equal(response.statusCode, 201);
+      assert.equal(response.json().actor.registered, false);
+      assert.equal(response.json().session.token, "issued-raw-token");
+    } finally {
+      globalThis.fetch = originalFetch;
+      await app.close();
+    }
+  });
+
   it("accepts a bearer session that matches the acting actor", async () => {
     const app = Fastify();
     await app.register(commandRoutes(commands, sessions, auth, credentials));
