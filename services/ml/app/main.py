@@ -1,34 +1,35 @@
-# The ML service: model inference behind a small HTTP surface. Today it
-# serves the chat bot minds; the same surface later serves mod bot scoring.
-# The model is configurable and cached in HF_HOME, so first boot downloads
-# and later boots are instant.
 import os
-import threading
 from contextlib import asynccontextmanager
 
-import torch
-from fastapi import FastAPI
-from pydantic import BaseModel
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from fastapi import FastAPI, HTTPException
+from ollama import Client, RequestError, ResponseError
+from pydantic import BaseModel, Field
 
-MODEL_ID = os.environ.get("ML_MODEL_ID", "Qwen/Qwen2.5-1.5B-Instruct")
+OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "https://ollama.com")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "gemma4:31b-cloud")
+OLLAMA_API_KEY = os.environ.get("OLLAMA_API_KEY", "")
+OLLAMA_TIMEOUT_SECONDS = float(os.environ.get("OLLAMA_TIMEOUT_SECONDS", "120"))
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
-dtype = torch.float16 if device == "cuda" else torch.float32
-
-state: dict = {"model": None, "tokenizer": None}
-generate_lock = threading.Lock()
+state: dict[str, object | None] = {"client": None}
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
-    model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype=dtype)
-    model.to(device)
-    model.eval()
-    state["tokenizer"] = tokenizer
-    state["model"] = model
+    if OLLAMA_HOST.rstrip("/") == "https://ollama.com" and not OLLAMA_API_KEY:
+        raise RuntimeError("OLLAMA_API_KEY is required for Ollama Cloud")
+
+    headers = (
+        {"Authorization": f"Bearer {OLLAMA_API_KEY}"}
+        if OLLAMA_API_KEY
+        else None
+    )
+    state["client"] = Client(
+        host=OLLAMA_HOST,
+        headers=headers,
+        timeout=OLLAMA_TIMEOUT_SECONDS,
+    )
     yield
+    state["client"] = None
 
 
 app = FastAPI(lifespan=lifespan)
@@ -37,6 +38,7 @@ app = FastAPI(lifespan=lifespan)
 class ChatMessage(BaseModel):
     role: str
     content: str
+    images: list[str] = Field(default_factory=list)
 
 
 class ChatRequest(BaseModel):
@@ -55,38 +57,59 @@ def health() -> dict:
     return {
         "status": "ok",
         "service": "ml",
-        "model": MODEL_ID,
-        "device": device,
+        "provider": "ollama-cloud",
+        "model": OLLAMA_MODEL,
     }
 
 
 @app.post("/v1/chat", response_model=ChatResponse)
 def chat(request: ChatRequest) -> ChatResponse:
-    tokenizer = state["tokenizer"]
-    model = state["model"]
+    client = state["client"]
+    if client is None:
+        raise HTTPException(status_code=503, detail="ML client is not ready")
 
-    conversation = [{"role": "system", "content": request.system}] + [
-        {"role": message.role, "content": message.content}
+    messages = [{"role": "system", "content": request.system}]
+    messages.extend(
+        {
+            "role": message.role,
+            "content": message.content,
+            **({"images": message.images} if message.images else {}),
+        }
         for message in request.messages
-    ]
-    text = tokenizer.apply_chat_template(
-        conversation, tokenize=False, add_generation_prompt=True
     )
-    inputs = tokenizer(text, return_tensors="pt").to(device)
 
-    with generate_lock, torch.no_grad():
-        output = model.generate(
-            **inputs,
-            max_new_tokens=request.maxTokens,
-            do_sample=True,
-            temperature=request.temperature,
-            top_p=0.95,
-            repetition_penalty=1.1,
-            pad_token_id=tokenizer.eos_token_id,
+    try:
+        response = client.chat(
+            model=OLLAMA_MODEL,
+            messages=messages,
+            stream=False,
+            think=False,
+            options={
+                "num_predict": request.maxTokens,
+                "temperature": request.temperature,
+                "top_p": 0.95,
+                "repeat_penalty": 1.1,
+            },
         )
+    except ResponseError as exception:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "Ollama Cloud rejected the inference request with HTTP "
+                f"{exception.status_code}"
+            ),
+        ) from exception
+    except RequestError as exception:
+        raise HTTPException(
+            status_code=502,
+            detail="Ollama Cloud could not be reached",
+        ) from exception
 
-    content = tokenizer.decode(
-        output[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True
-    ).strip()
+    content = response.message.content.strip()
+    if not content:
+        raise HTTPException(
+            status_code=502,
+            detail="Ollama Cloud returned an empty response",
+        )
 
     return ChatResponse(content=content)
