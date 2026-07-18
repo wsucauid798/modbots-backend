@@ -57,6 +57,7 @@ class FakePlatform {
 
 class FakeMind {
   public readonly considered: string[] = [];
+  public readonly roomTimesUtc: string[] = [];
 
   public constructor(
     private readonly decisions: Decision[],
@@ -74,13 +75,18 @@ class FakeMind {
 
   public async consider(
     persona: Persona,
-    _roster: { residents: string[]; humans: string[] },
+    _roster: {
+      residents: string[];
+      humans: string[];
+      roomTimeUtc: string;
+    },
     _transcript: string[],
     _experience: string,
     _hint: string | null,
     _allowPass = true,
   ): Promise<Decision> {
     this.considered.push(persona.displayName);
+    this.roomTimesUtc.push(_roster.roomTimeUtc);
 
     if (this.considered.length === 1 && this.firstDecisionDelayMs > 0) {
       await new Promise((resolve) =>
@@ -107,8 +113,10 @@ const makeActor = (id: string, display: string): Actor => ({
   retiredAt: null,
 });
 
-const makeExperience = () => ({
-  perceive(_message: PerceivedMessage): void {},
+const makeExperience = (perceived: PerceivedMessage[] = []) => ({
+  perceive(message: PerceivedMessage): void {
+    perceived.push(message);
+  },
   view(): string {
     return "No established experience yet.";
   },
@@ -121,12 +129,16 @@ const arwen: Persona = {
   handle: "arwen",
   displayName: "Arwen",
   card: "Warm and curious.",
+  activity: { startHourUtc: 4, endHourUtc: 14 },
 };
 const jacob: Persona = {
   handle: "jacob",
   displayName: "Jacob",
   card: "Friendly and opinionated.",
+  activity: { startHourUtc: 10, endHourUtc: 20 },
 };
+
+const noonUtc = () => new Date("2026-07-18T12:00:00.000Z");
 
 const makeBots = () => [
   { persona: arwen, actorId: "bot-arwen", experience: makeExperience() },
@@ -165,7 +177,7 @@ test("queues overlapping human messages without losing a response", async () => 
     ],
     10,
   );
-  const engine = new ConversationEngine(platform, mind, 0, makeBots());
+  const engine = new ConversationEngine(platform, mind, 0, makeBots(), noonUtc);
 
   const first = engine.enqueueRoomEvent(
     humanMessage("1", "human-one", "Which option should I try first?"),
@@ -196,7 +208,13 @@ test("routes a structural address to the intended resident", async () => {
   const mind = new FakeMind([
     { speak: true, message: "I would pick the charcoal version." },
   ]);
-  const engine = new ConversationEngine(platform, mind, 0, makeBots());
+  const engine = new ConversationEngine(
+    platform,
+    mind,
+    0,
+    makeBots(),
+    () => new Date("2026-07-18T02:00:00.000Z"),
+  );
 
   await engine.enqueueRoomEvent(
     humanMessage("3", "human-one", "Which color do you prefer?", {
@@ -219,7 +237,7 @@ test("uses one fallback resident when the first resident passes", async () => {
     { speak: false },
     { speak: true, message: "I can take that one." },
   ]);
-  const engine = new ConversationEngine(platform, mind, 0, makeBots());
+  const engine = new ConversationEngine(platform, mind, 0, makeBots(), noonUtc);
 
   await engine.enqueueRoomEvent(
     humanMessage("4", "human-one", "Can someone help me decide?"),
@@ -229,4 +247,67 @@ test("uses one fallback resident when the first resident passes", async () => {
   assert.notEqual(mind.considered[0], mind.considered[1]);
   assert.equal(platform.posts.length, 1);
   assert.equal(platform.posts[0]?.content, "I can take that one.");
+});
+
+test("uses an active resident for an unaddressed human message", async () => {
+  const platform = new FakePlatform({
+    "human-one": makeActor("human-one", "Mina"),
+  });
+  const mind = new FakeMind([
+    { speak: true, message: "I am around, what happened?" },
+  ]);
+  const engine = new ConversationEngine(
+    platform,
+    mind,
+    0,
+    makeBots(),
+    () => new Date("2026-07-18T05:00:00.000Z"),
+  );
+
+  await engine.enqueueRoomEvent(
+    humanMessage("5", "human-one", "Anyone want to hear a strange story?"),
+  );
+
+  assert.deepEqual(mind.considered, ["Arwen"]);
+  assert.deepEqual(mind.roomTimesUtc, ["2026-07-18T05:00:00.000Z"]);
+  assert.equal(platform.posts.length, 1);
+});
+
+test("perceives the authoritative UTC event time", async () => {
+  const platform = new FakePlatform({
+    "human-one": makeActor("human-one", "Mina"),
+  });
+  const mind = new FakeMind([]);
+  const arwenPerceptions: PerceivedMessage[] = [];
+  const engine = new ConversationEngine(
+    platform,
+    mind,
+    0,
+    [
+      {
+        persona: arwen,
+        actorId: "bot-arwen",
+        experience: makeExperience(arwenPerceptions),
+      },
+      {
+        persona: jacob,
+        actorId: "bot-jacob",
+        experience: makeExperience(),
+      },
+    ],
+    noonUtc,
+  );
+  const event = humanMessage(
+    "6",
+    "human-one",
+    "This happened earlier.",
+  );
+  event.occurredAt = "2026-07-17T21:14:00.000Z";
+
+  await engine.enqueueRoomEvent(event, { react: false });
+
+  assert.equal(
+    arwenPerceptions[0]?.occurredAt,
+    "2026-07-17T21:14:00.000Z",
+  );
 });

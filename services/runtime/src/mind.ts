@@ -71,7 +71,11 @@ export class Mind {
 
   public async consider(
     persona: Persona,
-    roster: { residents: string[]; humans: string[] },
+    roster: {
+      residents: string[];
+      humans: string[];
+      roomTimeUtc: string;
+    },
     transcript: string[],
     experience: string,
     hint: string | null,
@@ -94,7 +98,8 @@ export class Mind {
         : `Humans in the room right now: ${roster.humans.join(", ")}. `) +
       `These are the only people here. Never speak to or mention a ` +
       `person who is not in the room or in the conversation, and never ` +
-      `invent one.`;
+      `invent one. The room's standard clock is UTC. The current room ` +
+      `time is ${roster.roomTimeUtc}.`;
     const system =
       `You are ${persona.displayName}, a chat bot who lives in a small ` +
       `chatroom. When you mention the room, call it this room or this ` +

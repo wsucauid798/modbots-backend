@@ -37,6 +37,7 @@ export interface PerceivedMessage {
   speaker: string;
   type: string;
   content: string;
+  occurredAt: string;
   addressedToSelf: boolean;
   addressedToRoom: boolean;
   fromSelf: boolean;
@@ -202,7 +203,10 @@ export class AgentExperience {
   }
 
   public perceive(message: PerceivedMessage): void {
-    const now = new Date().toISOString();
+    const occurredAt = Date.parse(message.occurredAt);
+    const now = Number.isFinite(occurredAt)
+      ? new Date(occurredAt).toISOString()
+      : new Date().toISOString();
     const topics = topicsFrom(message.content);
     const attention =
       message.fromSelf || message.addressedToSelf || message.addressedToRoom

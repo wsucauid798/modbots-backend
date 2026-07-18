@@ -1,5 +1,10 @@
 import type { Mind } from "./mind.js";
 import type { Persona } from "./personas.js";
+import {
+  autonomousDelayRange,
+  isActiveAtUtc,
+  maximumAutonomousSilenceMs,
+} from "./activity.js";
 import { PlatformError } from "./platform.js";
 import type { PlatformClient } from "./platform.js";
 import type { ContentAddress, RoomEvent } from "./platform.js";
@@ -68,6 +73,7 @@ export class ConversationEngine {
       actorId: string;
       experience: ConversationExperience;
     }>,
+    private readonly now: () => Date = () => new Date(),
   ) {
     this.bots = bots.map((bot) => ({ ...bot, muted: false, lastSpokeAt: 0 }));
 
@@ -108,8 +114,14 @@ export class ConversationEngine {
     return new Promise((resolve) => setTimeout(resolve, scaled));
   }
 
-  private activeBots(): BotState[] {
+  private availableBots(): BotState[] {
     return this.bots.filter((bot) => !bot.muted);
+  }
+
+  private scheduledBots(at: Date = this.now()): BotState[] {
+    return this.availableBots().filter((bot) =>
+      isActiveAtUtc(bot.persona.activity, at),
+    );
   }
 
   private addressesIn(content: string): {
@@ -193,15 +205,20 @@ export class ConversationEngine {
     display: string,
     type: string,
     content: string,
+    occurredAt: string,
     addresses?: { addressedTo: string[]; addressedToRoom: boolean },
   ): void {
     const resolvedAddresses = addresses ?? this.addressesIn(content);
+    const parsedTime = Date.parse(occurredAt);
+    const standardizedTime = Number.isFinite(parsedTime)
+      ? new Date(parsedTime).toISOString()
+      : this.now().toISOString();
     this.transcript.push(`${display}: ${content}`);
     this.transcriptEntries.push({
       speaker: display,
       type,
       content,
-      occurredAt: Date.now(),
+      occurredAt: Date.parse(standardizedTime),
       ...resolvedAddresses,
     });
 
@@ -210,6 +227,7 @@ export class ConversationEngine {
         speaker: display,
         type,
         content,
+        occurredAt: standardizedTime,
         fromSelf: bot.persona.displayName === display,
         addressedToSelf: resolvedAddresses.addressedTo.includes(
           bot.persona.displayName,
@@ -393,7 +411,7 @@ export class ConversationEngine {
 
     if (
       unanswered !== undefined &&
-      Date.now() - unanswered.occurredAt < 90_000
+      this.now().getTime() - unanswered.occurredAt < 90_000
     ) {
       return (
         `${unanswered.speaker} asked a question and no resident has answered ` +
@@ -411,7 +429,10 @@ export class ConversationEngine {
 
     const last = this.transcriptEntries.at(-1);
 
-    if (last?.type === "chat_bot" && Date.now() - last.occurredAt < 45_000) {
+    if (
+      last?.type === "chat_bot" &&
+      this.now().getTime() - last.occurredAt < 45_000
+    ) {
       return (
         `${last.speaker} just spoke. Do not simply agree with them. Add a ` +
         `different angle, ask a useful follow-up, or pass.`
@@ -428,7 +449,7 @@ export class ConversationEngine {
       return undefined;
     }
 
-    return this.activeBots().find((bot) =>
+    return this.availableBots().find((bot) =>
       addresses.addressedTo.includes(bot.persona.displayName),
     );
   }
@@ -524,9 +545,13 @@ export class ConversationEngine {
 
   public async run(): Promise<void> {
     while (!this.stopped) {
-      await this.sleep(25_000, 70_000);
+      const scheduledBeforeWait = this.scheduledBots();
+      const [minimumWait, maximumWait] = autonomousDelayRange(
+        scheduledBeforeWait.length,
+      );
+      await this.sleep(minimumWait, maximumWait);
 
-      const candidates = this.activeBots();
+      const candidates = this.scheduledBots();
 
       if (candidates.length === 0) {
         continue;
@@ -535,8 +560,11 @@ export class ConversationEngine {
       // The quietest residents get their turn first, with some chance.
       candidates.sort((a, b) => a.lastSpokeAt - b.lastSpokeAt);
       const bot = Math.random() < 0.7 ? candidates[0] : pick(candidates);
+      const mustSpeak =
+        this.now().getTime() - this.lastBotMessageAt >=
+        maximumAutonomousSilenceMs(candidates.length);
 
-      await this.takeTurn(bot, this.guidanceForOpenTurn(bot));
+      await this.takeTurn(bot, this.guidanceForOpenTurn(bot), mustSpeak);
     }
   }
 
@@ -557,6 +585,7 @@ export class ConversationEngine {
         {
           residents: this.bots.map((entry) => entry.persona.displayName),
           humans: [...this.humansPresent],
+          roomTimeUtc: this.now().toISOString(),
         },
         [...this.transcript],
         bot.experience.view(),
@@ -631,7 +660,7 @@ export class ConversationEngine {
     }
 
     // Never talk over another resident.
-    const sinceLast = Date.now() - this.lastBotMessageAt;
+    const sinceLast = this.now().getTime() - this.lastBotMessageAt;
     const minimumGap = 6_000 * this.tempo;
 
     if (sinceLast < minimumGap) {
@@ -642,8 +671,8 @@ export class ConversationEngine {
 
     try {
       await this.client.postMessage(bot.actorId, content, replyTo, addressedTo);
-      this.lastBotMessageAt = Date.now();
-      bot.lastSpokeAt = Date.now();
+      this.lastBotMessageAt = this.now().getTime();
+      bot.lastSpokeAt = this.now().getTime();
     } catch (error) {
       if (error instanceof PlatformError) {
         if (error.code === "actor_muted") {
@@ -659,8 +688,8 @@ export class ConversationEngine {
             replyTo,
             addressedTo,
           );
-          this.lastBotMessageAt = Date.now();
-          bot.lastSpokeAt = Date.now();
+          this.lastBotMessageAt = this.now().getTime();
+          bot.lastSpokeAt = this.now().getTime();
           return;
         }
       }
@@ -703,6 +732,7 @@ export class ConversationEngine {
           bot.persona.displayName,
           "chat_bot",
           event.payload.content,
+          event.occurredAt,
           this.addressesFromEvent(event.payload, event.payload.content),
         );
       }
@@ -731,7 +761,10 @@ export class ConversationEngine {
         return;
       }
 
-      const greeter = pick(this.activeBots());
+      const scheduled = this.scheduledBots();
+      const greetingPool =
+        scheduled.length > 0 ? scheduled : this.availableBots();
+      const greeter = pick(greetingPool);
 
       if (greeter !== undefined) {
         const hint = `A human named ${info.display} just walked into the room. Greet them.`;
@@ -750,7 +783,7 @@ export class ConversationEngine {
 
         if (!spoke) {
           const second = pick(
-            this.activeBots().filter((entry) => entry !== greeter),
+            greetingPool.filter((entry) => entry !== greeter),
           );
 
           if (second !== undefined) {
@@ -770,6 +803,7 @@ export class ConversationEngine {
         info.display,
         info.type,
         event.payload.content,
+        event.occurredAt,
         this.addressesFromEvent(event.payload, event.payload.content),
       );
 
@@ -823,6 +857,7 @@ export class ConversationEngine {
         info.display,
         info.type,
         content,
+        event.occurredAt,
         this.addressesFromEvent(event.payload, content),
       );
 
@@ -855,21 +890,24 @@ export class ConversationEngine {
     replyTo?: { contentItemId: string },
     humanActorId?: string,
   ): Promise<void> {
-    const active = this.activeBots();
+    const available = this.availableBots();
 
-    if (active.length === 0) {
+    if (available.length === 0) {
       return;
     }
 
+    const scheduled = this.scheduledBots();
+    const responsePool = scheduled.length > 0 ? scheduled : available;
+
     const lower = content.toLowerCase();
     const latest = this.transcriptEntries.at(-1);
-    let target = active.find(
+    let target = available.find(
       (entry) =>
         latest?.speaker === display &&
         latest.content === content &&
         latest.addressedTo.includes(entry.persona.displayName),
     );
-    target ??= active.find((entry) =>
+    target ??= available.find((entry) =>
       lower.includes(entry.persona.displayName.toLowerCase()),
     );
     target = target ?? this.addressedBot(content);
@@ -877,19 +915,21 @@ export class ConversationEngine {
     if (target === undefined) {
       try {
         const name = await this.mind.addressee(
-          active.map((entry) => entry.persona.displayName),
+          responsePool.map((entry) => entry.persona.displayName),
           [...this.transcript],
           display,
           content,
         );
-        target = active.find((entry) => entry.persona.displayName === name);
+        target = responsePool.find(
+          (entry) => entry.persona.displayName === name,
+        );
       } catch {
         // Routing failure falls back to an open reply.
       }
     }
 
     await this.sleep(3_000, 9_000);
-    const first = target ?? pick(active);
+    const first = target ?? pick(responsePool);
     const directQuestion = ConversationEngine.asksQuestion(content);
     const addressedTo =
       humanActorId === undefined
@@ -909,7 +949,7 @@ export class ConversationEngine {
     );
 
     if (!spoke) {
-      const second = pick(active.filter((entry) => entry !== first));
+      const second = pick(responsePool.filter((entry) => entry !== first));
 
       if (second !== undefined) {
         await this.takeTurn(
