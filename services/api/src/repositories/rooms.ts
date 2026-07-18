@@ -1,4 +1,9 @@
 import type { Pool } from "pg";
+import {
+  actorFromRow,
+  selectColumns as actorColumns,
+} from "./actors.js";
+import type { Actor, ActorRow } from "./actors.js";
 
 export interface RoomOverview {
   room: {
@@ -25,6 +30,7 @@ export interface RoomEvent {
 
 export interface RoomRepository {
   getOverview(roomId: string): Promise<RoomOverview | null>;
+  listRoster(roomId: string): Promise<Actor[] | null>;
   listEvents(
     roomId: string,
     options: { after: number; limit: number },
@@ -51,7 +57,10 @@ interface EventRow {
 }
 
 export class PostgresRoomRepository implements RoomRepository {
-  public constructor(private readonly database: Pool) {}
+  public constructor(
+    private readonly database: Pool,
+    private readonly uppsBaseUrl: string,
+  ) {}
 
   public async getOverview(roomId: string): Promise<RoomOverview | null> {
     const result = await this.database.query<OverviewRow>(
@@ -124,6 +133,49 @@ export class PostgresRoomRepository implements RoomRepository {
         proposalsRejected: Number(row.proposals_rejected),
       },
     };
+  }
+
+  public async listRoster(roomId: string): Promise<Actor[] | null> {
+    const room = await this.database.query<{ exists: boolean }>(
+      "SELECT EXISTS (SELECT 1 FROM rooms WHERE id = $1) AS exists",
+      [roomId],
+    );
+
+    if (!room.rows[0]?.exists) {
+      return null;
+    }
+
+    const result = await this.database.query<ActorRow>(
+      `
+        WITH latest_presence AS (
+          SELECT DISTINCT ON (actor_id)
+            actor_id,
+            event_type
+          FROM room_events
+          WHERE room_id = $1
+            AND actor_id IS NOT NULL
+            AND event_type IN ('actor_joined', 'actor_left')
+          ORDER BY actor_id, sequence DESC
+        )
+        SELECT ${actorColumns}
+        FROM latest_presence
+        JOIN actors ON actors.id = latest_presence.actor_id
+        WHERE latest_presence.event_type = 'actor_joined'
+          AND actors.retired_at IS NULL
+        ORDER BY
+          CASE actors.actor_type
+            WHEN 'mod_bot' THEN 0
+            WHEN 'chat_bot' THEN 1
+            ELSE 2
+          END,
+          actors.display_name
+      `,
+      [roomId],
+    );
+
+    return result.rows.map((actor) =>
+      actorFromRow(actor, this.uppsBaseUrl),
+    );
   }
 
   public async listEvents(

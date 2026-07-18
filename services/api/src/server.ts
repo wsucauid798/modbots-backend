@@ -44,7 +44,7 @@ const start = async (): Promise<void> => {
     moderation: new PostgresModerationRepository(database),
     media,
     publisher,
-    rooms: new PostgresRoomRepository(database),
+    rooms: new PostgresRoomRepository(database, config.upps.publicUrl),
     sessions,
   });
 

@@ -99,6 +99,26 @@ const rooms: RoomRepository = {
           },
         }
       : null,
+  listRoster: async (roomId) =>
+    roomId === "global-lobby"
+      ? [
+          {
+            id: "chat-bot-1",
+            handle: null,
+            displayName: "Helper",
+            discriminator: null,
+            registered: false,
+            display: "Helper",
+            profilePictureId: null,
+            profilePictureUrl: null,
+            type: "chat_bot",
+            policyVersionAccepted: null,
+            policyAcceptedAt: null,
+            retiredAt: null,
+            createdAt: "2026-01-01T00:00:00.000Z",
+          },
+        ]
+      : null,
   listEvents: async (roomId) => (roomId === "global-lobby" ? [] : null),
 };
 
@@ -293,6 +313,20 @@ describe("room routes", () => {
     assert.equal(response.statusCode, 200);
     assert.equal(response.json().room.actorsOnline, 0);
     assert.equal(response.json().runtime.persistence, "healthy");
+    await app.close();
+  });
+
+  it("returns the current room roster", async () => {
+    const app = Fastify();
+    await app.register(roomRoutes(rooms, publisher));
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/rooms/global-lobby/roster",
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.json().actors[0].id, "chat-bot-1");
     await app.close();
   });
 

@@ -38,7 +38,7 @@ export interface ActorRepository {
   ): Promise<Actor | null>;
 }
 
-interface ActorRow {
+export interface ActorRow {
   id: string;
   handle: string | null;
   display_name: string;
@@ -88,7 +88,7 @@ export const renderActorProfilePictureUrl = (
         uppsBaseUrl,
       ).toString();
 
-const actorFromRow = (actor: ActorRow, uppsBaseUrl: string): Actor => ({
+export const actorFromRow = (actor: ActorRow, uppsBaseUrl: string): Actor => ({
   id: actor.id,
   handle: actor.handle,
   displayName: actor.display_name,
@@ -107,7 +107,7 @@ const actorFromRow = (actor: ActorRow, uppsBaseUrl: string): Actor => ({
   createdAt: actor.created_at.toISOString(),
 });
 
-const selectColumns = `id, handle, display_name, discriminator, registered, actor_type, profile_picture_id, policy_version_accepted, policy_accepted_at, retired_at, created_at`;
+export const selectColumns = `id, handle, display_name, discriminator, registered, actor_type, profile_picture_id, policy_version_accepted, policy_accepted_at, retired_at, created_at`;
 
 export class PostgresActorRepository implements ActorRepository {
   public constructor(

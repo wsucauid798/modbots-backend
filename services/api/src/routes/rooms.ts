@@ -51,6 +51,22 @@ export const roomRoutes = (
       },
     );
 
+    app.get<{ Params: RoomParams }>(
+      "/api/rooms/:roomId/roster",
+      async (request, reply) => {
+        const actors = await rooms.listRoster(request.params.roomId);
+
+        if (actors === null) {
+          return reply.code(404).send({
+            error: "room_not_found",
+            message: `Room '${request.params.roomId}' does not exist`,
+          });
+        }
+
+        return { actors };
+      },
+    );
+
     app.get<{ Params: RoomParams; Querystring: EventsQuery }>(
       "/api/rooms/:roomId/events",
       async (request, reply) => {
