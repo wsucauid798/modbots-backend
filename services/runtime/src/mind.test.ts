@@ -58,6 +58,10 @@ test("returns a model-grounded topic decision", async () => {
       JSON.stringify(requestBodies[1]),
       /Chosen topic: rainy bike commutes/,
     );
+    assert.match(
+      JSON.stringify(requestBodies[1]),
+      /never write a message in all caps/,
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }

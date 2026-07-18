@@ -16,7 +16,8 @@ const maxMessageLength = 300;
 
 const messageStyle =
   `one or two casual sentences, plain text, no emojis, no quotation ` +
-  `marks, no stage directions, no name prefix of your own. Speak as ` +
+  `marks, no stage directions, no name prefix of your own. Use ordinary ` +
+  `sentence capitalization and never write a message in all caps. Speak as ` +
   `yourself in the first person; never talk about yourself in the third ` +
   `person. Say a person's name only when it is genuinely needed to make ` +
   `clear who you are talking to; in a small room most messages need no ` +
