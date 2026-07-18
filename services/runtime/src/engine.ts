@@ -1,14 +1,25 @@
 import type { Mind } from "./mind.js";
 import type { Persona } from "./personas.js";
-import { PlatformClient, PlatformError } from "./platform.js";
+import { PlatformError } from "./platform.js";
+import type { PlatformClient } from "./platform.js";
 import type { ContentAddress, RoomEvent } from "./platform.js";
 import type { RoomContentPart } from "./platform.js";
 import type { AgentExperience } from "./experience.js";
 
+type ConversationPlatform = Pick<
+  PlatformClient,
+  "getActor" | "inferenceParts" | "join" | "postMessage"
+>;
+type ConversationMind = Pick<Mind, "addressee" | "consider" | "observe">;
+type ConversationExperience = Pick<
+  AgentExperience,
+  "openTurnImpulse" | "perceive" | "view"
+>;
+
 interface BotState {
   persona: Persona;
   actorId: string;
-  experience: AgentExperience;
+  experience: ConversationExperience;
   muted: boolean;
   lastSpokeAt: number;
 }
@@ -44,18 +55,18 @@ export class ConversationEngine {
   // speaks to people who actually exist. Humans present before the
   // runtime started become known the moment they speak.
   private readonly humansPresent = new Set<string>();
+  private eventWork: Promise<void> = Promise.resolve();
   private stopped = false;
   private lastBotMessageAt = 0;
-  private humanReplyPending = false;
 
   public constructor(
-    private readonly client: PlatformClient,
-    private readonly mind: Mind,
+    private readonly client: ConversationPlatform,
+    private readonly mind: ConversationMind,
     private readonly tempo: number,
     bots: Array<{
       persona: Persona;
       actorId: string;
-      experience: AgentExperience;
+      experience: ConversationExperience;
     }>,
   ) {
     this.bots = bots.map((bot) => ({ ...bot, muted: false, lastSpokeAt: 0 }));
@@ -70,6 +81,25 @@ export class ConversationEngine {
 
   public stop(): void {
     this.stopped = true;
+  }
+
+  public enqueueRoomEvent(
+    event: RoomEvent,
+    options: { react: boolean } = { react: true },
+  ): Promise<void> {
+    const operation = this.eventWork.then(() =>
+      this.onRoomEvent(event, options),
+    );
+
+    this.eventWork = operation.catch((error) => {
+      console.error(
+        `Could not process room event ${event.sequence}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    });
+
+    return this.eventWork;
   }
 
   private sleep(minMs: number, maxMs: number): Promise<void> {
@@ -643,7 +673,7 @@ export class ConversationEngine {
     }
   }
 
-  public async onRoomEvent(
+  private async onRoomEvent(
     event: RoomEvent,
     options: { react: boolean } = { react: true },
   ): Promise<void> {
@@ -748,21 +778,15 @@ export class ConversationEngine {
       }
 
       // One considered reply per human message, never a pile-on.
-      if (info.type === "human" && options.react && !this.humanReplyPending) {
-        this.humanReplyPending = true;
-
-        try {
-          await this.replyToHuman(
-            info.display,
-            event.payload.content,
-            typeof event.payload.contentItemId === "string"
-              ? { contentItemId: event.payload.contentItemId }
-              : undefined,
-            event.actorId,
-          );
-        } finally {
-          this.humanReplyPending = false;
-        }
+      if (info.type === "human" && options.react) {
+        await this.replyToHuman(
+          info.display,
+          event.payload.content,
+          typeof event.payload.contentItemId === "string"
+            ? { contentItemId: event.payload.contentItemId }
+            : undefined,
+          event.actorId,
+        );
       }
     }
 
@@ -806,21 +830,15 @@ export class ConversationEngine {
         this.humansPresent.add(info.display);
       }
 
-      if (info.type === "human" && options.react && !this.humanReplyPending) {
-        this.humanReplyPending = true;
-
-        try {
-          await this.replyToHuman(
-            info.display,
-            content,
-            typeof event.payload.contentItemId === "string"
-              ? { contentItemId: event.payload.contentItemId }
-              : undefined,
-            event.actorId,
-          );
-        } finally {
-          this.humanReplyPending = false;
-        }
+      if (info.type === "human" && options.react) {
+        await this.replyToHuman(
+          info.display,
+          content,
+          typeof event.payload.contentItemId === "string"
+            ? { contentItemId: event.payload.contentItemId }
+            : undefined,
+          event.actorId,
+        );
       }
     }
   }

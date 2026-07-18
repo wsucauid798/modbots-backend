@@ -118,14 +118,14 @@ const main = async (): Promise<void> => {
   const recentEvents = await client.recentEvents(500);
 
   for (const event of recentEvents) {
-    await engine.onRoomEvent(event, { react: false });
+    await engine.enqueueRoomEvent(event, { react: false });
   }
 
   const startSequence =
     recentEvents.at(-1)?.sequence ?? (await client.latestSequence());
 
   void watchRoom(startSequence, (event) => {
-    void engine.onRoomEvent(event);
+    void engine.enqueueRoomEvent(event);
   });
 
   console.log(
