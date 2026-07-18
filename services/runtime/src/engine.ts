@@ -1,8 +1,8 @@
 import type { Mind } from "./mind.js";
 import type { Persona } from "./personas.js";
 import {
+  activityLevelAtUtc,
   autonomousDelayRange,
-  isActiveAtUtc,
   maximumAutonomousSilenceMs,
 } from "./activity.js";
 import { PlatformError } from "./platform.js";
@@ -118,9 +118,9 @@ export class ConversationEngine {
     return this.bots.filter((bot) => !bot.muted);
   }
 
-  private scheduledBots(at: Date = this.now()): BotState[] {
+  private preferredBots(at: Date = this.now()): BotState[] {
     return this.availableBots().filter((bot) =>
-      isActiveAtUtc(bot.persona.activity, at),
+      activityLevelAtUtc(bot.persona.activity, at) !== "low",
     );
   }
 
@@ -505,13 +505,15 @@ export class ConversationEngine {
 
   public async run(): Promise<void> {
     while (!this.stopped) {
-      const scheduledBeforeWait = this.scheduledBots();
+      const preferredBeforeWait = this.preferredBots();
       const [minimumWait, maximumWait] = autonomousDelayRange(
-        scheduledBeforeWait.length,
+        preferredBeforeWait.length,
       );
       await this.sleep(minimumWait, maximumWait);
 
-      const candidates = this.scheduledBots();
+      const preferred = this.preferredBots();
+      const candidates =
+        preferred.length > 0 ? preferred : this.availableBots();
 
       if (candidates.length === 0) {
         continue;
@@ -522,7 +524,7 @@ export class ConversationEngine {
       const bot = Math.random() < 0.7 ? candidates[0] : pick(candidates);
       const mustSpeak =
         this.now().getTime() - this.lastBotMessageAt >=
-        maximumAutonomousSilenceMs(candidates.length);
+        maximumAutonomousSilenceMs(preferred.length);
 
       await this.takeTurn(bot, this.guidanceForOpenTurn(), mustSpeak);
     }
@@ -734,7 +736,7 @@ export class ConversationEngine {
         return;
       }
 
-      const scheduled = this.scheduledBots();
+      const scheduled = this.preferredBots();
       const greetingPool =
         scheduled.length > 0 ? scheduled : this.availableBots();
       const greeter = pick(greetingPool);
@@ -869,7 +871,7 @@ export class ConversationEngine {
       return;
     }
 
-    const scheduled = this.scheduledBots();
+    const scheduled = this.preferredBots();
     const responsePool = scheduled.length > 0 ? scheduled : available;
 
     const lower = content.toLowerCase();
