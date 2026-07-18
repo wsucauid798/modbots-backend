@@ -18,7 +18,7 @@ type ConversationPlatform = Pick<
 type ConversationMind = Pick<Mind, "addressee" | "consider" | "observe">;
 type ConversationExperience = Pick<
   AgentExperience,
-  "openTurnImpulse" | "perceive" | "view"
+  "perceive" | "view"
 >;
 
 interface BotState {
@@ -336,39 +336,6 @@ export class ConversationEngine {
     return openerMatches >= 2 || closerMatches >= 2;
   }
 
-  // Detects the conversation circling: most of the recent messages sharing
-  // an opener or a closer means the room is stuck on one shape, and the
-  // next speaker should be told to move on rather than fed more of it.
-  private conversationCircling(): boolean {
-    const recents = this.recentContents(4);
-
-    if (recents.length < 4) {
-      return false;
-    }
-
-    const openers = new Map<string, number>();
-    const closers = new Map<string, number>();
-
-    for (const recent of recents) {
-      const words = ConversationEngine.normalizedWords(recent);
-
-      if (words.length === 0) {
-        continue;
-      }
-
-      openers.set(words[0], (openers.get(words[0]) ?? 0) + 1);
-      closers.set(
-        words[words.length - 1],
-        (closers.get(words[words.length - 1]) ?? 0) + 1,
-      );
-    }
-
-    return (
-      Math.max(0, ...openers.values()) >= 3 ||
-      Math.max(0, ...closers.values()) >= 3
-    );
-  }
-
   private static asksQuestion(content: string): boolean {
     const text = content.trim().toLowerCase();
 
@@ -406,7 +373,7 @@ export class ConversationEngine {
     return undefined;
   }
 
-  private guidanceForOpenTurn(bot: BotState): string | null {
+  private guidanceForOpenTurn(): string | null {
     const unanswered = this.recentHumanQuestionWithoutBotReply();
 
     if (
@@ -417,13 +384,6 @@ export class ConversationEngine {
         `${unanswered.speaker} asked a question and no resident has answered ` +
         `yet: ${unanswered.content} Answer it directly first, then add at ` +
         `most one small thought of your own.`
-      );
-    }
-
-    if (this.conversationCircling()) {
-      return (
-        "The conversation has been circling the same thing. Change the " +
-        "subject to something completely new."
       );
     }
 
@@ -439,7 +399,7 @@ export class ConversationEngine {
       );
     }
 
-    return bot.experience.openTurnImpulse();
+    return null;
   }
 
   private addressedBot(content: string): BotState | undefined {
@@ -564,7 +524,7 @@ export class ConversationEngine {
         this.now().getTime() - this.lastBotMessageAt >=
         maximumAutonomousSilenceMs(candidates.length);
 
-      await this.takeTurn(bot, this.guidanceForOpenTurn(bot), mustSpeak);
+      await this.takeTurn(bot, this.guidanceForOpenTurn(), mustSpeak);
     }
   }
 
@@ -626,6 +586,19 @@ export class ConversationEngine {
               `shape, staying silent: ${decision.message.slice(0, 60)}`,
           );
           return false;
+        }
+
+        if (
+          decision.topic !== undefined &&
+          decision.topicMove !== undefined &&
+          decision.topicSource !== undefined &&
+          decision.topicGrounding !== undefined
+        ) {
+          console.log(
+            `${bot.persona.displayName} chose to ${decision.topicMove} ` +
+              `topic '${decision.topic}' from ${decision.topicSource}: ` +
+              decision.topicGrounding,
+          );
         }
 
         await this.say(bot, decision.message, replyTo, addressedTo);

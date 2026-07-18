@@ -120,9 +120,6 @@ const makeExperience = (perceived: PerceivedMessage[] = []) => ({
   view(): string {
     return "No established experience yet.";
   },
-  openTurnImpulse(): string | null {
-    return null;
-  },
 });
 
 const arwen: Persona = {
@@ -131,9 +128,9 @@ const arwen: Persona = {
   card: "Warm and curious.",
   activity: { startHourUtc: 4, endHourUtc: 14 },
 };
-const jacob: Persona = {
+const jakob: Persona = {
   handle: "jacob",
-  displayName: "Jacob",
+  displayName: "Jakob",
   card: "Friendly and opinionated.",
   activity: { startHourUtc: 10, endHourUtc: 20 },
 };
@@ -142,7 +139,7 @@ const noonUtc = () => new Date("2026-07-18T12:00:00.000Z");
 
 const makeBots = () => [
   { persona: arwen, actorId: "bot-arwen", experience: makeExperience() },
-  { persona: jacob, actorId: "bot-jacob", experience: makeExperience() },
+  { persona: jakob, actorId: "bot-jacob", experience: makeExperience() },
 ];
 
 const humanMessage = (
@@ -222,7 +219,7 @@ test("routes a structural address to the intended resident", async () => {
     }),
   );
 
-  assert.deepEqual(mind.considered, ["Jacob"]);
+  assert.deepEqual(mind.considered, ["Jakob"]);
   assert.equal(platform.posts.length, 1);
   assert.deepEqual(platform.posts[0]?.addressedTo, [
     { targetType: "actor", actorId: "human-one" },
@@ -290,7 +287,7 @@ test("perceives the authoritative UTC event time", async () => {
         experience: makeExperience(arwenPerceptions),
       },
       {
-        persona: jacob,
+        persona: jakob,
         actorId: "bot-jacob",
         experience: makeExperience(),
       },

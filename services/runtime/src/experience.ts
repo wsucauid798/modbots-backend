@@ -12,25 +12,18 @@ interface PersonMemory extends WeightedMemory {
 }
 
 interface ExperienceState {
-  version: 1;
+  version: 2;
   handle: string;
   displayName: string;
   people: Record<string, PersonMemory>;
-  interests: Record<string, WeightedMemory>;
-  curiosities: Record<string, WeightedMemory>;
-  responsiveTopics: Record<string, WeightedMemory>;
-  quietTopics: Record<string, WeightedMemory>;
-  confusingTopics: Record<string, WeightedMemory>;
   impressions: string[];
+  responsiveMoments: string[];
+  confusingMoments: string[];
+  quietMoments: string[];
   pendingAttempt?: {
-    topics: string[];
+    content: string;
     spokenAt: string;
   };
-}
-
-interface WeightedTopic {
-  topic: string;
-  weight: number;
 }
 
 export interface PerceivedMessage {
@@ -43,62 +36,19 @@ export interface PerceivedMessage {
   fromSelf: boolean;
 }
 
-const stopWords = new Set([
-  "about",
-  "after",
-  "again",
-  "because",
-  "before",
-  "being",
-  "could",
-  "every",
-  "going",
-  "maybe",
-  "people",
-  "really",
-  "right",
-  "should",
-  "someone",
-  "something",
-  "their",
-  "there",
-  "thing",
-  "think",
-  "those",
-  "would",
-]);
-
 const clamp = (value: number, max: number): number =>
   Math.min(max, Math.max(0, value));
 
 const safeFilePart = (value: string): string =>
   value.replace(/[^A-Za-z0-9._-]/g, "_");
 
-const topicsFrom = (content: string): string[] => {
-  const counts = new Map<string, number>();
+const excerpt = (content: string): string => {
+  const flattened = content.replace(/\s+/g, " ").trim();
 
-  for (const word of
-    content.toLowerCase().match(/[\p{L}\p{N}][\p{L}\p{N}'-]*/gu) ?? []) {
-    const normalized = word.replace(/^'+|'+$/g, "");
-
-    if (normalized.length < 5 || stopWords.has(normalized)) {
-      continue;
-    }
-
-    counts.set(normalized, (counts.get(normalized) ?? 0) + 1);
-  }
-
-  return [...counts.entries()]
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-    .slice(0, 4)
-    .map(([word]) => word);
+  return flattened.length <= 220
+    ? flattened
+    : `${flattened.slice(0, 217).trimEnd()}...`;
 };
-
-const asksQuestion = (content: string): boolean =>
-  content.includes("?") ||
-  /^(who|what|when|where|why|how|which|can|could|would|should|do|does|did|is|are|am|was|were|has|have|had)\b/i.test(
-    content.trim(),
-  );
 
 const signalsConfusion = (content: string): boolean => {
   const text = content.toLowerCase();
@@ -112,6 +62,11 @@ const signalsConfusion = (content: string): boolean => {
     )
   );
 };
+
+const stringList = (value: unknown): string[] =>
+  Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string")
+    : [];
 
 export class AgentExperience {
   private saveChain: Promise<void> = Promise.resolve();
@@ -131,57 +86,47 @@ export class AgentExperience {
     try {
       const parsed = JSON.parse(
         await readFile(filePath, "utf8"),
-      ) as Partial<ExperienceState>;
+      ) as Record<string, unknown>;
+      const people =
+        typeof parsed.people === "object" && parsed.people !== null
+          ? (parsed.people as Record<string, PersonMemory>)
+          : {};
 
-      if (
-        parsed.version === 1 &&
-        typeof parsed.handle === "string" &&
-        typeof parsed.displayName === "string" &&
-        typeof parsed.people === "object" &&
-        parsed.people !== null &&
-        typeof parsed.interests === "object" &&
-        parsed.interests !== null &&
-        typeof parsed.curiosities === "object" &&
-        parsed.curiosities !== null &&
-        Array.isArray(parsed.impressions)
-      ) {
+      if (parsed.version === 2) {
+        const pending = parsed.pendingAttempt as
+          | Record<string, unknown>
+          | undefined;
+
         return new AgentExperience(filePath, {
-          version: 1,
+          version: 2,
           handle: persona.handle,
           displayName: persona.displayName,
-          people: parsed.people as Record<string, PersonMemory>,
-          interests: parsed.interests as Record<string, WeightedMemory>,
-          curiosities: parsed.curiosities as Record<string, WeightedMemory>,
-          responsiveTopics:
-            typeof parsed.responsiveTopics === "object" &&
-            parsed.responsiveTopics !== null
-              ? (parsed.responsiveTopics as Record<string, WeightedMemory>)
-              : {},
-          quietTopics:
-            typeof parsed.quietTopics === "object" &&
-            parsed.quietTopics !== null
-              ? (parsed.quietTopics as Record<string, WeightedMemory>)
-              : {},
-          confusingTopics:
-            typeof parsed.confusingTopics === "object" &&
-            parsed.confusingTopics !== null
-              ? (parsed.confusingTopics as Record<string, WeightedMemory>)
-              : {},
-          impressions: parsed.impressions.filter(
-            (entry): entry is string => typeof entry === "string",
-          ),
+          people,
+          impressions: stringList(parsed.impressions),
+          responsiveMoments: stringList(parsed.responsiveMoments),
+          confusingMoments: stringList(parsed.confusingMoments),
+          quietMoments: stringList(parsed.quietMoments),
           pendingAttempt:
-            typeof parsed.pendingAttempt === "object" &&
-            parsed.pendingAttempt !== null &&
-            Array.isArray(parsed.pendingAttempt.topics) &&
-            typeof parsed.pendingAttempt.spokenAt === "string"
-              ? {
-                  topics: parsed.pendingAttempt.topics.filter(
-                    (topic): topic is string => typeof topic === "string",
-                  ),
-                  spokenAt: parsed.pendingAttempt.spokenAt,
-                }
+            pending !== undefined &&
+            typeof pending.content === "string" &&
+            typeof pending.spokenAt === "string"
+              ? { content: pending.content, spokenAt: pending.spokenAt }
               : undefined,
+        });
+      }
+
+      // Version 1 stored guessed topic words, including in impressions.
+      // Preserve familiar people, but let room replay rebuild real moments.
+      if (parsed.version === 1) {
+        return new AgentExperience(filePath, {
+          version: 2,
+          handle: persona.handle,
+          displayName: persona.displayName,
+          people,
+          impressions: [],
+          responsiveMoments: [],
+          confusingMoments: [],
+          quietMoments: [],
         });
       }
     } catch {
@@ -189,16 +134,14 @@ export class AgentExperience {
     }
 
     return new AgentExperience(filePath, {
-      version: 1,
+      version: 2,
       handle: persona.handle,
       displayName: persona.displayName,
       people: {},
-      interests: {},
-      curiosities: {},
-      responsiveTopics: {},
-      quietTopics: {},
-      confusingTopics: {},
       impressions: [],
+      responsiveMoments: [],
+      confusingMoments: [],
+      quietMoments: [],
     });
   }
 
@@ -207,16 +150,18 @@ export class AgentExperience {
     const now = Number.isFinite(occurredAt)
       ? new Date(occurredAt).toISOString()
       : new Date().toISOString();
-    const topics = topicsFrom(message.content);
     const attention =
       message.fromSelf || message.addressedToSelf || message.addressedToRoom
         ? 2
         : 1;
 
     if (message.fromSelf) {
-      this.rememberAttempt(topics, now);
+      this.state.pendingAttempt = {
+        content: excerpt(message.content),
+        spokenAt: now,
+      };
     } else {
-      this.readAttemptOutcome(message, topics, now);
+      this.readAttemptOutcome(message, now);
       const person = this.state.people[message.speaker] ?? {
         type: message.type,
         weight: 0,
@@ -228,177 +173,55 @@ export class AgentExperience {
       this.state.people[message.speaker] = person;
     }
 
-    for (const topic of topics) {
-      const memory = this.state.interests[topic] ?? {
-        weight: 0,
-        lastSeenAt: now,
-      };
-      memory.weight = clamp(memory.weight + attention, 100);
-      memory.lastSeenAt = now;
-      this.state.interests[topic] = memory;
+    const address = message.addressedToSelf
+      ? " to me"
+      : message.addressedToRoom
+        ? " to the room"
+        : "";
+    const impression = message.fromSelf
+      ? `I said: "${excerpt(message.content)}"`
+      : `${message.speaker} said${address}: "${excerpt(message.content)}"`;
+    this.remember(this.state.impressions, impression, 40);
 
-      if (asksQuestion(message.content) && !message.fromSelf) {
-        const curiosity = this.state.curiosities[topic] ?? {
-          weight: 0,
-          lastSeenAt: now,
-        };
-        curiosity.weight = clamp(curiosity.weight + 2, 100);
-        curiosity.lastSeenAt = now;
-        this.state.curiosities[topic] = curiosity;
-      }
-    }
-
-    if (topics.length > 0) {
-      const address =
-        message.addressedToSelf
-          ? " to me"
-          : message.addressedToRoom
-            ? " to the room"
-            : "";
-      const impression = message.fromSelf
-        ? `I talked about ${topics.join(", ")}.`
-        : `${message.speaker} talked${address} about ${topics.join(", ")}.`;
-      this.state.impressions.push(impression);
-    }
-
-    while (this.state.impressions.length > 40) {
-      this.state.impressions.shift();
-    }
-
-    this.fade(now);
+    this.fadePeople();
     this.saveSoon();
   }
 
   public view(): string {
-    const familiarPeople = this.top(this.state.people, 5);
-    const interests = this.top(this.state.interests, 8);
-    const curiosities = this.top(this.state.curiosities, 5);
-    const responsiveTopics = this.top(this.state.responsiveTopics, 4);
-    const quietTopics = this.top(this.state.quietTopics, 4);
-    const confusingTopics = this.top(this.state.confusingTopics, 4);
-    const impressions = this.state.impressions.slice(-8);
+    const familiarPeople = Object.entries(this.state.people)
+      .sort((a, b) => b[1].weight - a[1].weight || a[0].localeCompare(b[0]))
+      .slice(0, 5)
+      .map(([person]) => person);
+    const impressions = this.state.impressions.slice(-10);
+    const responsive = this.state.responsiveMoments.slice(-4);
+    const confusing = this.state.confusingMoments.slice(-3);
+    const quiet = this.state.quietMoments.slice(-3);
     const lines = [
       familiarPeople.length === 0
         ? "People feel mostly unfamiliar so far."
         : `People I am becoming familiar with: ${familiarPeople.join(", ")}.`,
-      interests.length === 0
-        ? "My interests are still forming from the room."
-        : `Topics I have been drawn toward: ${interests.join(", ")}.`,
-      curiosities.length === 0
-        ? "I do not have a strong curiosity gap right now."
-        : `Things I am curious about: ${curiosities.join(", ")}.`,
-      responsiveTopics.length === 0
-        ? "I am still learning what gets people talking."
-        : `Topics that have drawn replies: ${responsiveTopics.join(", ")}.`,
-      quietTopics.length === 0
-        ? "I do not have a strong sense of topics that fall flat yet."
-        : `Topics that have often gone quiet: ${quietTopics.join(", ")}.`,
-      confusingTopics.length === 0
-        ? "I do not have a strong sense of what I have made confusing yet."
-        : `Topics I may need to explain more clearly: ${confusingTopics.join(", ")}.`,
       impressions.length === 0
         ? "I do not have many lived impressions from this room yet."
-        : `Recent impressions: ${impressions.join(" ")}`,
+        : `Recent lived moments:\n- ${impressions.join("\n- ")}`,
+      responsive.length === 0
+        ? "I am still learning what gets people talking."
+        : `Exchanges that drew a response:\n- ${responsive.join("\n- ")}`,
+      confusing.length === 0
+        ? "I do not have a recent confusing exchange to repair."
+        : `Exchanges that may need a clearer explanation:\n- ${confusing.join("\n- ")}`,
+      quiet.length === 0
+        ? "I do not have a strong recent example of a subject falling flat."
+        : `Things I said that did not draw a response:\n- ${quiet.join("\n- ")}`,
     ];
 
     return lines.join("\n");
-  }
-
-  public openTurnImpulse(): string | null {
-    const confusing = this.weightedTop(this.state.confusingTopics, 1)[0];
-
-    if (confusing !== undefined && confusing.weight >= 2) {
-      return (
-        `Something about ${confusing.topic} may have confused people. ` +
-        `If the conversation allows it, repair it plainly from your own ` +
-        `point of view. If it no longer fits, pass.`
-      );
-    }
-
-    const curiosity = this.weightedTop(this.state.curiosities, 1)[0];
-
-    if (curiosity !== undefined && curiosity.weight >= 4) {
-      return (
-        `Your own curiosity keeps returning to ${curiosity.topic}. ` +
-        `If it fits the room, ask about it naturally or connect it to what ` +
-        `people have been saying. If it does not fit, pass.`
-      );
-    }
-
-    const interest =
-      this.weightedTop(this.state.responsiveTopics, 1)[0] ??
-      this.weightedTop(this.state.interests, 1)[0];
-
-    if (interest !== undefined && interest.weight >= 6) {
-      return (
-        `You have become familiar with ${interest.topic} in this room. ` +
-        `If the conversation is open, you may bring it up from your own ` +
-        `point of view. If the timing is wrong, pass.`
-      );
-    }
-
-    return null;
   }
 
   public async flush(): Promise<void> {
     await this.saveChain;
   }
 
-  private top(
-    entries: Record<string, WeightedMemory>,
-    limit: number,
-  ): string[] {
-    return this.weightedTop(entries, limit).map((entry) => entry.topic);
-  }
-
-  private weightedTop(
-    entries: Record<string, WeightedMemory>,
-    limit: number,
-  ): WeightedTopic[] {
-    return Object.entries(entries)
-      .sort((a, b) => b[1].weight - a[1].weight || a[0].localeCompare(b[0]))
-      .slice(0, limit)
-      .map(([topic, memory]) => ({ topic, weight: memory.weight }));
-  }
-
-  private fade(now: string): void {
-    for (const bucket of [
-      this.state.people,
-      this.state.interests,
-      this.state.curiosities,
-      this.state.responsiveTopics,
-      this.state.quietTopics,
-      this.state.confusingTopics,
-    ]) {
-      for (const [key, memory] of Object.entries(bucket)) {
-        memory.weight = clamp(memory.weight * 0.995, 100);
-
-        if (memory.weight < 0.2) {
-          delete bucket[key];
-        } else {
-          memory.lastSeenAt = memory.lastSeenAt || now;
-        }
-      }
-    }
-  }
-
-  private rememberAttempt(topics: string[], now: string): void {
-    if (topics.length === 0) {
-      this.state.pendingAttempt = undefined;
-      return;
-    }
-
-    this.state.pendingAttempt = {
-      topics,
-      spokenAt: now,
-    };
-  }
-
-  private readAttemptOutcome(
-    message: PerceivedMessage,
-    topics: string[],
-    now: string,
-  ): void {
+  private readAttemptOutcome(message: PerceivedMessage, now: string): void {
     const attempt = this.state.pendingAttempt;
 
     if (attempt === undefined) {
@@ -412,76 +235,51 @@ export class AgentExperience {
       return;
     }
 
-    const overlap = attempt.topics.filter((topic) =>
-      topics.includes(topic),
-    );
-    const confused =
-      ageMs <= 5 * 60_000 &&
-      signalsConfusion(message.content) &&
-      (message.addressedToSelf ||
-        message.addressedToRoom ||
-        overlap.length > 0 ||
-        asksQuestion(message.content));
-    const responded =
-      ageMs <= 5 * 60_000 &&
-      (message.addressedToSelf ||
-        message.addressedToRoom ||
-        overlap.length > 0);
+    const response = `${message.speaker} replied: "${excerpt(message.content)}"`;
+    const addressed = message.addressedToSelf || message.addressedToRoom;
 
-    if (confused) {
-      for (const topic of overlap.length === 0 ? attempt.topics : overlap) {
-        this.bump(this.state.confusingTopics, topic, 4, now);
-        this.bump(this.state.curiosities, topic, 1, now);
-      }
-
-      this.state.impressions.push(
-        `My last point may have confused the room around ${
-          (overlap.length === 0 ? attempt.topics : overlap).join(", ")
-        }.`,
+    if (ageMs <= 5 * 60_000 && addressed && signalsConfusion(message.content)) {
+      this.remember(
+        this.state.confusingMoments,
+        `I said "${attempt.content}". ${response}`,
+        12,
       );
       this.state.pendingAttempt = undefined;
       return;
     }
 
-    if (responded) {
-      for (const topic of overlap.length === 0 ? attempt.topics : overlap) {
-        this.bump(this.state.responsiveTopics, topic, 3, now);
-        this.bump(this.state.interests, topic, 1, now);
-
-        if (this.state.curiosities[topic] !== undefined) {
-          this.state.curiosities[topic].weight = clamp(
-            this.state.curiosities[topic].weight - 2,
-            100,
-          );
-        }
-      }
-
+    if (ageMs <= 5 * 60_000 && addressed) {
+      this.remember(
+        this.state.responsiveMoments,
+        `I said "${attempt.content}". ${response}`,
+        16,
+      );
       this.state.pendingAttempt = undefined;
       return;
     }
 
     if (ageMs > 5 * 60_000) {
-      for (const topic of attempt.topics) {
-        this.bump(this.state.quietTopics, topic, 2, now);
-      }
-
+      this.remember(this.state.quietMoments, `I said "${attempt.content}".`, 12);
       this.state.pendingAttempt = undefined;
     }
   }
 
-  private bump(
-    bucket: Record<string, WeightedMemory>,
-    topic: string,
-    amount: number,
-    now: string,
-  ): void {
-    const memory = bucket[topic] ?? {
-      weight: 0,
-      lastSeenAt: now,
-    };
-    memory.weight = clamp(memory.weight + amount, 100);
-    memory.lastSeenAt = now;
-    bucket[topic] = memory;
+  private remember(bucket: string[], value: string, limit: number): void {
+    bucket.push(value);
+
+    while (bucket.length > limit) {
+      bucket.shift();
+    }
+  }
+
+  private fadePeople(): void {
+    for (const [person, memory] of Object.entries(this.state.people)) {
+      memory.weight = clamp(memory.weight * 0.995, 100);
+
+      if (memory.weight < 0.2) {
+        delete this.state.people[person];
+      }
+    }
   }
 
   private saveSoon(): void {

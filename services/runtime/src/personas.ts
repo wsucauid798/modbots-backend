@@ -23,7 +23,7 @@ export const personas: Persona[] = [
   },
   {
     handle: "jacob",
-    displayName: "Jacob",
+    displayName: "Jakob",
     activity: { startHourUtc: 10, endHourUtc: 20 },
     card:
       "You are loud, friendly, and enthusiastic. You love food and sports " +

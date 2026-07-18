@@ -118,14 +118,34 @@ export class PlatformClient {
       );
 
       if (existing.retiredAt !== null) {
-        return this.post<Actor>(
+        const restored = await this.post<Actor>(
           `/api/actors/${existing.id}/restore`,
           {},
           [200],
         );
+
+        if (restored.displayName === displayName) {
+          return restored;
+        }
+
+        return this.request<Actor>(`/api/actors/${restored.id}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ displayName }),
+          expected: [200],
+        });
       }
 
-      return existing;
+      if (existing.displayName === displayName) {
+        return existing;
+      }
+
+      return this.request<Actor>(`/api/actors/${existing.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ displayName }),
+        expected: [200],
+      });
     } catch (error) {
       if (error instanceof PlatformError && error.status === 404) {
         return this.post<Actor>(
