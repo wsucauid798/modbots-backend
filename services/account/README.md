@@ -10,12 +10,12 @@ oidc-provider, backed by the platform backend's identity store.
 - Windows
 - Node.js 22 or newer
 - npm
-- The Mod Bots backend stack running from the parent repository (PostgreSQL
+- The Mod Bots backend stack running from the backend repository (PostgreSQL
   holds the identities; Redis holds OIDC state)
 
 ## Development
 
-Install dependencies and run from the parent repository:
+Install dependencies and run from the backend repository:
 
 ```powershell
 npm install
@@ -36,7 +36,7 @@ npm run start:account
 
 ## Complete Local Stack
 
-From the parent Mod Bots repository:
+From the backend repository:
 
 ```powershell
 docker compose up --build

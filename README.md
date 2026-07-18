@@ -25,7 +25,7 @@ Interface contracts, such as the realtime protocol schema, live in the
 
 ## Development
 
-Install dependencies and run the API from the parent repository:
+Install dependencies and run the API from this repository:
 
 ```powershell
 npm install
@@ -46,7 +46,7 @@ npm run build:realtime
 npm run build:upps
 ```
 
-Validate the realtime gateway from the parent repository:
+Validate the realtime gateway from this repository:
 
 ```powershell
 npm run test:realtime
@@ -55,7 +55,7 @@ npm run build:realtime
 
 ## Complete Local Stack
 
-From the parent Mod Bots repository:
+From this repository:
 
 ```powershell
 Copy-Item .env.example .env
@@ -74,15 +74,14 @@ The realtime gateway listens on:
 - `ws://localhost:3002` for WebSocket fallback
 - `http://localhost:3002/v1/realtime/config` for client transport configuration
 
-The parent stack starts the runtime and ML components as the `runtime` and `ml`
+The backend stack starts the runtime and ML components as the `runtime` and `ml`
 services. The ML service wants an NVIDIA GPU; without one it falls back to
-CPU (remove the GPU reservation from the `ml` service in the parent
-`docker-compose.yml` first).
+CPU.
 
 ## Room Activity Smoke Flow
 
-With the complete local stack running, execute this from the parent repository
-in PowerShell:
+With the complete local stack running, execute this from this repository in
+PowerShell:
 
 ```powershell
 npm run smoke:activity
