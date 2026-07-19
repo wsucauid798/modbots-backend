@@ -85,10 +85,17 @@ class DerivedObservation(BaseModel):
     endMs: int | None = None
 
 
+class TokenUsage(BaseModel):
+    inputTokens: int = 0
+    cachedInputTokens: int = 0
+    outputTokens: int = 0
+
+
 class ChatResponse(BaseModel):
     content: str
     model: str
     observations: list[DerivedObservation]
+    usage: TokenUsage
 
 
 def _prepare_message(
@@ -269,7 +276,7 @@ def chat(request: ChatRequest) -> ChatResponse:
         )
     except APIStatusError as exception:
         raise HTTPException(
-            status_code=502,
+            status_code=429 if exception.status_code == 429 else 502,
             detail=(
                 "OpenAI rejected the inference request with HTTP "
                 f"{exception.status_code}"
@@ -293,8 +300,16 @@ def chat(request: ChatRequest) -> ChatResponse:
             detail="OpenAI returned an empty response",
         )
 
+    usage = getattr(response, "usage", None)
+    input_details = getattr(usage, "input_tokens_details", None)
+
     return ChatResponse(
         content=content,
         model=OPENAI_MODEL,
         observations=observations,
+        usage=TokenUsage(
+            inputTokens=getattr(usage, "input_tokens", 0) or 0,
+            cachedInputTokens=getattr(input_details, "cached_tokens", 0) or 0,
+            outputTokens=getattr(usage, "output_tokens", 0) or 0,
+        ),
     )

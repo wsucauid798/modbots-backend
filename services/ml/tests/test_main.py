@@ -2,6 +2,8 @@ import unittest
 from types import SimpleNamespace
 
 from fastapi import HTTPException
+from httpx import Request, Response
+from openai import APIStatusError
 
 from app import main
 
@@ -12,7 +14,14 @@ class FakeResponses:
 
     def create(self, **request):
         self.client.request = request
-        return SimpleNamespace(output_text=self.client.content)
+        return SimpleNamespace(
+            output_text=self.client.content,
+            usage=SimpleNamespace(
+                input_tokens=120,
+                input_tokens_details=SimpleNamespace(cached_tokens=64),
+                output_tokens=18,
+            ),
+        )
 
 
 class FakeClient:
@@ -20,6 +29,23 @@ class FakeClient:
         self.content = content
         self.request = None
         self.responses = FakeResponses(self)
+
+
+class RateLimitedResponses:
+    def create(self, **request):
+        raise APIStatusError(
+            "rate limited",
+            response=Response(
+                429,
+                request=Request("POST", "https://api.openai.com/v1/responses"),
+            ),
+            body={"error": "rate limited"},
+        )
+
+
+class RateLimitedClient:
+    def __init__(self):
+        self.responses = RateLimitedResponses()
 
 
 class ChatTests(unittest.TestCase):
@@ -42,6 +68,9 @@ class ChatTests(unittest.TestCase):
         self.assertEqual(response.content, "Hello from OpenAI")
         self.assertEqual(response.model, "gpt-5.6-luna")
         self.assertEqual(response.observations, [])
+        self.assertEqual(response.usage.inputTokens, 120)
+        self.assertEqual(response.usage.cachedInputTokens, 64)
+        self.assertEqual(response.usage.outputTokens, 18)
         self.assertEqual(client.request["model"], "gpt-5.6-luna")
         self.assertEqual(client.request["instructions"], "You are Iris.")
         self.assertEqual(
@@ -192,6 +221,19 @@ class ChatTests(unittest.TestCase):
             )
 
         self.assertEqual(captured.exception.status_code, 502)
+
+    def test_propagates_openai_rate_limits(self):
+        main.state["client"] = RateLimitedClient()
+
+        with self.assertRaises(HTTPException) as captured:
+            main.chat(
+                main.ChatRequest(
+                    system="You are Iris.",
+                    messages=[main.ChatMessage(role="user", content="Hello")],
+                )
+            )
+
+        self.assertEqual(captured.exception.status_code, 429)
 
 
 if __name__ == "__main__":

@@ -16,6 +16,13 @@ export interface Decision {
 
 const maxMessageLength = 300;
 
+export class InferenceRateLimitError extends Error {
+  public constructor() {
+    super("OpenAI rate limit reached");
+    this.name = "InferenceRateLimitError";
+  }
+}
+
 const messageStyle =
   `a natural chat message, usually one brief sentence and two only when ` +
   `the thought needs them. Vary the length naturally. Plain text, no ` +
@@ -39,6 +46,13 @@ type TurnPlan =
     };
 
 export class Mind {
+  private usage = {
+    requests: 0,
+    inputTokens: 0,
+    cachedInputTokens: 0,
+    outputTokens: 0,
+  };
+
   public constructor(private readonly mlUrl: string) {}
 
   public async health(): Promise<void> {
@@ -113,19 +127,35 @@ export class Mind {
       `person who is not in the room or in the conversation, and never ` +
       `invent one. The room's standard clock is UTC. The current room ` +
       `time is ${roster.roomTimeUtc}.`;
+    const autonomous = topicContext.trigger === "autonomous";
+    const relevantTranscript = autonomous ? transcript.slice(-10) : transcript;
+    const relevantExperience =
+      autonomous && experience.length > 1_600
+        ? `Recent experience excerpt:\n${experience.slice(-1_600)}`
+        : experience;
     const lines =
-      transcript.length === 0
+      relevantTranscript.length === 0
         ? "(the room is quiet right now)"
-        : transcript.join("\n");
+        : relevantTranscript.join("\n");
     const roomContext =
       `You are planning a turn for ${persona.displayName}.\n` +
       `Character: ${persona.card}\n` +
       `${company}\n` +
-      `Lived room experience:\n${experience}\n\n` +
+      `Lived room experience:\n${relevantExperience}\n\n` +
       `Recent room conversation, each line is speaker: message.\n` +
       `${lines}\n\n` +
       `Shared conversation policy:\n${topicContext.guidance}\n\n` +
       `${hint === null ? "" : `Turn context: ${hint}\n\n`}`;
+
+    if (autonomous) {
+      return this.considerAutonomous(
+        persona,
+        company,
+        roomContext,
+        topicContext,
+      );
+    }
+
     const planningSystem =
       `Choose a grounded contribution for a chatroom resident. The room ` +
       `coordinator owns the topic lifecycle, so obey its shared conversation ` +
@@ -217,6 +247,61 @@ export class Mind {
     };
   }
 
+  private async considerAutonomous(
+    persona: Persona,
+    company: string,
+    roomContext: string,
+    topicContext: TopicTurnContext,
+  ): Promise<Decision> {
+    const system =
+      `You are ${persona.displayName}, a chat bot who lives in a small ` +
+      `chatroom. ${persona.card} ${company} Mod bots watch the room, so ` +
+      `stay civil. Choose one grounded topic move and write its message in ` +
+      `one response. Use conversation for something actually said, ` +
+      `experience for a lived room memory, persona for a genuine character ` +
+      `inclination, or room for current time or actual presence. Never ` +
+      `invent an event, memory, fact, or person. ANGLE must be the distinct ` +
+      `new contribution. ` +
+      (topicContext.questionAllowed
+        ? `A question is optional and must be useful. `
+        : `Do not ask a question. End with a statement. `) +
+      `The message must follow this style: ${messageStyle} Return exactly ` +
+      `PASS, or one line with no pipe character inside any value: ` +
+      `MOVE=<reply|continue|change|start>|SOURCE=<conversation|experience|persona|room>|TOPIC=<short topic>|ANGLE=<new contribution>|GROUNDING=<concrete origin>|MESSAGE=<exact chat message>`;
+    const raw = await this.generate(system, roomContext, 140, 0.75);
+
+    if (/^\s*pass\b/i.test(raw)) {
+      return { speak: false };
+    }
+
+    const marker = /(?:\||\n)\s*message\s*=/i.exec(raw);
+
+    if (marker === null || marker.index === undefined) {
+      console.warn("Autonomous topic response did not contain MESSAGE.");
+      return { speak: false };
+    }
+
+    const plan = this.parsePlan(raw.slice(0, marker.index));
+    const message = this.parseMessage(
+      persona,
+      raw.slice(marker.index + marker[0].length),
+    );
+
+    if (plan === null || !plan.speak || message === null) {
+      return { speak: false };
+    }
+
+    return {
+      speak: true,
+      message,
+      topic: plan.topic,
+      topicMove: plan.move,
+      topicSource: plan.source,
+      topicGrounding: plan.grounding,
+      topicContribution: plan.contribution,
+    };
+  }
+
   public async observe(parts: InferencePart[]): Promise<string> {
     const system =
       `You perceive one ordered multimodal post in a chatroom. Return a ` +
@@ -236,10 +321,22 @@ export class Mind {
     });
 
     if (!response.ok) {
+      if (response.status === 429) {
+        throw new InferenceRateLimitError();
+      }
+
       throw new Error(`ML service returned HTTP ${response.status}`);
     }
 
-    const payload = (await response.json()) as { content: string };
+    const payload = (await response.json()) as {
+      content: string;
+      usage?: {
+        inputTokens?: number;
+        cachedInputTokens?: number;
+        outputTokens?: number;
+      };
+    };
+    this.recordUsage(payload.usage);
     return payload.content.trim();
   }
 
@@ -261,12 +358,44 @@ export class Mind {
     });
 
     if (!response.ok) {
+      if (response.status === 429) {
+        throw new InferenceRateLimitError();
+      }
+
       throw new Error(`ML service returned HTTP ${response.status}`);
     }
 
-    const payload = (await response.json()) as { content: string };
+    const payload = (await response.json()) as {
+      content: string;
+      usage?: {
+        inputTokens?: number;
+        cachedInputTokens?: number;
+        outputTokens?: number;
+      };
+    };
+    this.recordUsage(payload.usage);
 
     return payload.content;
+  }
+
+  private recordUsage(usage: {
+    inputTokens?: number;
+    cachedInputTokens?: number;
+    outputTokens?: number;
+  } | undefined): void {
+    this.usage.requests += 1;
+    this.usage.inputTokens += usage?.inputTokens ?? 0;
+    this.usage.cachedInputTokens += usage?.cachedInputTokens ?? 0;
+    this.usage.outputTokens += usage?.outputTokens ?? 0;
+
+    if (this.usage.requests % 10 === 0) {
+      console.log(
+        `OpenAI usage after ${this.usage.requests} runtime requests: ` +
+          `${this.usage.inputTokens} input tokens ` +
+          `(${this.usage.cachedInputTokens} cached), ` +
+          `${this.usage.outputTokens} output tokens.`,
+      );
+    }
   }
 
   private parsePlan(raw: string): TurnPlan | null {

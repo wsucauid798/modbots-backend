@@ -6,6 +6,7 @@ export interface TopicTurnContext {
   eligible: boolean;
   questionAllowed: boolean;
   guidance: string;
+  trigger: TurnTrigger;
 }
 
 interface ActiveTopic {
@@ -39,6 +40,7 @@ const minimumQuietMs = 2 * 60_000;
 const maximumQuietMs = 5 * 60_000;
 const topicCooldownMs = 30 * 60_000;
 const maximumBotTurnsWithoutHuman = 3;
+const maximumTopicIdleMs = 15 * 60_000;
 
 const stopWords = new Set([
   "a",
@@ -143,6 +145,13 @@ export class TopicCoordinator {
 
   public turnContext(trigger: TurnTrigger, now: number): TopicTurnContext {
     if (
+      this.active !== null &&
+      now - this.active.lastAdvancedAt >= maximumTopicIdleMs
+    ) {
+      this.closeActive(now, false);
+    }
+
+    if (
       trigger === "autonomous" &&
       this.active !== null &&
       this.active.botTurnsSinceHuman >= maximumBotTurnsWithoutHuman
@@ -161,6 +170,7 @@ export class TopicCoordinator {
           eligible: false,
           questionAllowed: false,
           guidance: "The room is resting between topics. Stay silent.",
+          trigger,
         };
       }
     }
@@ -173,6 +183,7 @@ export class TopicCoordinator {
           trigger === "autonomous"
             ? "There is no active topic. Start one grounded subject with a natural observation. Do not manufacture an event or force a debate."
             : "There is no active topic. Ground the new topic in the event that triggered this turn.",
+        trigger,
       };
     }
 
@@ -193,7 +204,12 @@ export class TopicCoordinator {
         (questionAllowed
           ? "At most one useful question may be asked."
           : "The bot question budget is already used. Do not ask another question."),
+      trigger,
     };
+  }
+
+  public hasActiveTopic(): boolean {
+    return this.active !== null;
   }
 
   public evaluate(

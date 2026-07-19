@@ -20,6 +20,7 @@ const topicContext = {
   eligible: true,
   questionAllowed: true,
   guidance: "The active topic is rainy bike commutes.",
+  trigger: "human" as const,
 };
 
 test("returns a model-grounded topic decision", async () => {
@@ -97,6 +98,53 @@ test("does not speak when a model decision has no topic grounding", async () => 
     );
 
     assert.deepEqual(decision, { speak: false });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("plans and writes an autonomous turn with one inference request", async () => {
+  const originalFetch = globalThis.fetch;
+  const requestBodies: Record<string, unknown>[] = [];
+
+  globalThis.fetch = async (_input, init) => {
+    requestBodies.push(
+      JSON.parse(String(init?.body)) as Record<string, unknown>,
+    );
+
+    return new Response(
+      JSON.stringify({
+        content:
+          "MOVE=start|SOURCE=persona|TOPIC=rainy day routines|ANGLE=tea as a slow ritual|GROUNDING=Jakob's established character inclination|MESSAGE=Rain makes a strong cup of tea feel less like a drink and more like a schedule.",
+        usage: { inputTokens: 400, cachedInputTokens: 0, outputTokens: 45 },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  };
+
+  try {
+    const decision = await new Mind("http://ml.test").consider(
+      persona,
+      { ...roster, humans: [] },
+      ["Arwen: The rain has not stopped all afternoon."],
+      "Rainy afternoons tend to make the room quieter.",
+      null,
+      {
+        eligible: true,
+        questionAllowed: true,
+        guidance: "There is no active topic.",
+        trigger: "autonomous",
+      },
+    );
+
+    assert.equal(requestBodies.length, 1);
+    assert.equal(decision.speak, true);
+    assert.equal(decision.topic, "rainy day routines");
+    assert.equal(decision.topicContribution, "tea as a slow ritual");
+    assert.equal(
+      decision.message,
+      "Rain makes a strong cup of tea feel less like a drink and more like a schedule.",
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }

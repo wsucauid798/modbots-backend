@@ -75,3 +75,37 @@ export const autonomousDelayRange = (
 
   return [60_000, 180_000];
 };
+
+export const roomActivityLevelAtUtc = (
+  windows: DailyActivityWindow[],
+  date: Date,
+): ActivityLevel => {
+  const activeResidents = windows.filter(
+    (window) => activityLevelAtUtc(window, date) === "high",
+  ).length;
+
+  if (activeResidents >= 3) {
+    return "high";
+  }
+
+  if (activeResidents >= 2) {
+    return "mid";
+  }
+
+  return "low";
+};
+
+export const emptyRoomAutonomousDelayRange = (
+  level: ActivityLevel,
+  topicActive: boolean,
+): readonly [minimumMs: number, maximumMs: number] => {
+  if (level === "high") {
+    return topicActive ? [30_000, 60_000] : [90_000, 180_000];
+  }
+
+  if (level === "mid") {
+    return topicActive ? [60_000, 120_000] : [240_000, 480_000];
+  }
+
+  return topicActive ? [180_000, 360_000] : [600_000, 1_200_000];
+};
