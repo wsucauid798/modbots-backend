@@ -57,14 +57,7 @@
           "$ref": "#/$defs/identifier"
         },
         "role": {
-          "enum": [
-            "reasoning",
-            "vision",
-            "speech_transcription",
-            "audio_understanding",
-            "media_generation",
-            "embedding"
-          ]
+          "const": "multimodal_reasoning"
         },
         "modelId": {
           "type": "string",
@@ -158,8 +151,7 @@
         "task": {
           "enum": [
             "conversation",
-            "content_understanding",
-            "media_generation"
+            "content_understanding"
           ]
         },
         "inputModalities": {
@@ -207,6 +199,7 @@
         "artifacts": {
           "type": "array",
           "minItems": 1,
+          "maxItems": 1,
           "items": {
             "$ref": "#/$defs/artifact"
           }
@@ -499,6 +492,7 @@
             "artifacts": {
               "type": "array",
               "minItems": 1,
+              "maxItems": 1,
               "items": {
                 "$ref": "#/$defs/artifactProvenance"
               }

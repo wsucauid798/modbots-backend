@@ -7,7 +7,7 @@
     "artifacts": [
       {
         "artifactId": "conversation-primary",
-        "role": "reasoning",
+        "role": "multimodal_reasoning",
         "modelId": "approved-gemma-4",
         "revision": "production-1",
         "format": "gguf",
@@ -15,50 +15,20 @@
         "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "byteLength": "4500000000",
         "downloadUrl": "https://models.example.test/conversation-primary.gguf"
-      },
-      {
-        "artifactId": "speech-primary",
-        "role": "speech_transcription",
-        "modelId": "approved-speech-model",
-        "revision": "production-1",
-        "format": "gguf",
-        "quantization": "q5",
-        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-        "byteLength": "1500000000",
-        "downloadUrl": "https://models.example.test/speech-primary.gguf"
       }
     ],
     "pipelines": [
       {
-        "pipelineId": "conversation.text-image.v1",
+        "pipelineId": "conversation.gemma-4.v1",
         "task": "conversation",
         "inputModalities": [
           "text",
-          "image"
+          "image",
+          "audio",
+          "video",
+          "file"
         ],
         "steps": [
-          {
-            "stepId": "reason",
-            "kind": "model",
-            "processorId": "conversation-runner-v1",
-            "artifactId": "conversation-primary"
-          }
-        ]
-      },
-      {
-        "pipelineId": "conversation.audio.v1",
-        "task": "conversation",
-        "inputModalities": [
-          "text",
-          "audio"
-        ],
-        "steps": [
-          {
-            "stepId": "transcribe",
-            "kind": "model",
-            "processorId": "speech-runner-v1",
-            "artifactId": "speech-primary"
-          },
           {
             "stepId": "reason",
             "kind": "model",
@@ -78,7 +48,7 @@
     "contractVersion": 1,
     "entityType": "inference_request",
     "requestId": "request-1",
-    "pipelineId": "conversation.text-image.v1",
+    "pipelineId": "conversation.gemma-4.v1",
     "manifestVersion": "2026.07.20.1",
     "createdAt": "2026-07-20T08:01:00.000Z",
     "expiresAt": "2026-07-20T08:03:00.000Z",
@@ -107,7 +77,7 @@
     "contractVersion": 1,
     "entityType": "inference_result",
     "requestId": "request-1",
-    "pipelineId": "conversation.text-image.v1",
+    "pipelineId": "conversation.gemma-4.v1",
     "manifestVersion": "2026.07.20.1",
     "completedAt": "2026-07-20T08:01:02.000Z",
     "clientId": "client-1",

@@ -61,20 +61,8 @@ class PipelineSelection(BaseModel):
     manifestVersion: str
     pipelineId: str
     inputModalities: list[Literal["text", "image", "audio", "video", "file"]]
-    requiredArtifactRoles: list[
-        Literal[
-            "reasoning",
-            "speech_transcription",
-            "audio_understanding",
-        ]
-    ]
-    deterministicProcessors: list[
-        Literal[
-            "document_text_extraction",
-            "video_frame_extraction",
-            "video_audio_extraction",
-        ]
-    ]
+    requiredArtifactRoles: list[Literal["multimodal_reasoning"]]
+    deterministicProcessors: list[Literal["document_text_extraction"]]
 
 
 def select_pipeline(request: ChatRequest) -> PipelineSelection:
@@ -94,31 +82,15 @@ def select_pipeline(request: ChatRequest) -> PipelineSelection:
         for part in message.parts:
             include(part.kind)
 
-    required_artifact_roles = ["reasoning"]
+    required_artifact_roles = ["multimodal_reasoning"]
     deterministic_processors = []
-
-    if "audio" in modalities or "video" in modalities:
-        required_artifact_roles.extend(
-            ["speech_transcription", "audio_understanding"]
-        )
-
-    if "video" in modalities:
-        deterministic_processors.extend(
-            ["video_frame_extraction", "video_audio_extraction"]
-        )
 
     if "file" in modalities:
         deterministic_processors.append("document_text_extraction")
 
-    pipeline_id = (
-        "conversation.text-image.v1"
-        if set(modalities).issubset({"text", "image"})
-        else "conversation.multimodal.v1"
-    )
-
     return PipelineSelection(
         manifestVersion=MANIFEST_VERSION,
-        pipelineId=pipeline_id,
+        pipelineId="conversation.gemma-4.v1",
         inputModalities=modalities,
         requiredArtifactRoles=required_artifact_roles,
         deterministicProcessors=deterministic_processors,
