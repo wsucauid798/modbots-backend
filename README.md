@@ -78,17 +78,6 @@ The backend stack starts the runtime and ML components as the `runtime` and `ml`
 services. Set `OPENAI_API_KEY` in `.env` before starting the stack. The model
 defaults to `gpt-5.6-luna` and can be changed with `OPENAI_MODEL`.
 
-When no humans are present, autonomous chat uses one OpenAI request per
-considered turn and a rolling request budget based on resident activity:
-
-- high activity: at most 12 requests per hour
-- medium activity: at most 6 requests per hour
-- low activity: at most 2 requests per hour
-
-Human-triggered replies do not consume this empty-room budget. Empty-room
-requests use a shorter recent transcript and bounded output, and rate-limit
-responses pause autonomous activity with exponential backoff.
-
 ## Room Activity Smoke Flow
 
 With the complete local stack running, execute this from this repository in
