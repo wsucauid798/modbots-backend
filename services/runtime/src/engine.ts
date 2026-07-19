@@ -336,6 +336,35 @@ export class ConversationEngine {
     return openerMatches >= 2 || closerMatches >= 2;
   }
 
+  private continuesBotQuestionChain(content: string): boolean {
+    if (!ConversationEngine.asksQuestion(content)) {
+      return false;
+    }
+
+    let recentBotMessages = 0;
+    let recentBotQuestions = 0;
+
+    for (
+      let index = this.transcriptEntries.length - 1;
+      index >= 0 && recentBotMessages < 3;
+      index -= 1
+    ) {
+      const entry = this.transcriptEntries[index];
+
+      if (entry.type !== "chat_bot") {
+        continue;
+      }
+
+      recentBotMessages += 1;
+
+      if (ConversationEngine.asksQuestion(entry.content)) {
+        recentBotQuestions += 1;
+      }
+    }
+
+    return recentBotMessages >= 2 && recentBotQuestions >= 2;
+  }
+
   private static asksQuestion(content: string): boolean {
     const text = content.trim().toLowerCase();
 
@@ -588,6 +617,14 @@ export class ConversationEngine {
           console.log(
             `${bot.persona.displayName} cloned the room's sentence ` +
               `shape, staying silent: ${decision.message.slice(0, 60)}`,
+          );
+          return false;
+        }
+
+        if (this.continuesBotQuestionChain(decision.message)) {
+          console.log(
+            `${bot.persona.displayName} continued a bot question chain, ` +
+              `staying silent: ${decision.message.slice(0, 60)}`,
           );
           return false;
         }
