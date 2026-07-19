@@ -75,21 +75,3 @@ export const autonomousDelayRange = (
 
   return [60_000, 180_000];
 };
-
-export const maximumAutonomousSilenceMs = (
-  preferredResidents: number,
-): number => {
-  if (preferredResidents >= 3) {
-    return 45_000;
-  }
-
-  if (preferredResidents === 2) {
-    return 75_000;
-  }
-
-  if (preferredResidents === 1) {
-    return 150_000;
-  }
-
-  return 240_000;
-};

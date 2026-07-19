@@ -4,7 +4,6 @@ import { test } from "node:test";
 import {
   activityLevelAtUtc,
   autonomousDelayRange,
-  maximumAutonomousSilenceMs,
 } from "./activity.js";
 
 const atUtc = (hour: number, minute = 0): Date =>
@@ -39,8 +38,4 @@ test("increases autonomous chat frequency when activity overlaps", () => {
   assert.deepEqual(autonomousDelayRange(1), [18_000, 40_000]);
   assert.deepEqual(autonomousDelayRange(2), [12_000, 28_000]);
   assert.deepEqual(autonomousDelayRange(3), [8_000, 20_000]);
-  assert.equal(maximumAutonomousSilenceMs(0), 240_000);
-  assert.equal(maximumAutonomousSilenceMs(1), 150_000);
-  assert.equal(maximumAutonomousSilenceMs(2), 75_000);
-  assert.equal(maximumAutonomousSilenceMs(3), 45_000);
 });

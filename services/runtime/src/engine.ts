@@ -3,13 +3,14 @@ import type { Persona } from "./personas.js";
 import {
   activityLevelAtUtc,
   autonomousDelayRange,
-  maximumAutonomousSilenceMs,
 } from "./activity.js";
 import { PlatformError } from "./platform.js";
 import type { PlatformClient } from "./platform.js";
 import type { ContentAddress, RoomEvent } from "./platform.js";
 import type { RoomContentPart } from "./platform.js";
 import type { AgentExperience } from "./experience.js";
+import { TopicCoordinator } from "./topic-coordinator.js";
+import type { TurnTrigger } from "./topic-coordinator.js";
 
 type ConversationPlatform = Pick<
   PlatformClient,
@@ -63,6 +64,7 @@ export class ConversationEngine {
   private eventWork: Promise<void> = Promise.resolve();
   private stopped = false;
   private lastBotMessageAt = 0;
+  private readonly topics: TopicCoordinator;
 
   public constructor(
     private readonly client: ConversationPlatform,
@@ -74,7 +76,9 @@ export class ConversationEngine {
       experience: ConversationExperience;
     }>,
     private readonly now: () => Date = () => new Date(),
+    topics: TopicCoordinator = new TopicCoordinator(),
   ) {
+    this.topics = topics;
     this.bots = bots.map((bot) => ({ ...bot, muted: false, lastSpokeAt: 0 }));
 
     for (const bot of this.bots) {
@@ -395,7 +399,7 @@ export class ConversationEngine {
     ) {
       return (
         `${last.speaker} just spoke. Do not simply agree with them. Add a ` +
-        `different angle, ask a useful follow-up, or pass.`
+        `different angle or pass.`
       );
     }
 
@@ -522,22 +526,37 @@ export class ConversationEngine {
       // The quietest residents get their turn first, with some chance.
       candidates.sort((a, b) => a.lastSpokeAt - b.lastSpokeAt);
       const bot = Math.random() < 0.7 ? candidates[0] : pick(candidates);
-      const mustSpeak =
-        this.now().getTime() - this.lastBotMessageAt >=
-        maximumAutonomousSilenceMs(preferred.length);
+      const topicContext = this.topics.turnContext(
+        "autonomous",
+        this.now().getTime(),
+      );
 
-      await this.takeTurn(bot, this.guidanceForOpenTurn(), mustSpeak);
+      if (!topicContext.eligible) {
+        continue;
+      }
+
+      await this.takeTurn(bot, this.guidanceForOpenTurn(), "autonomous");
     }
   }
 
   private async takeTurn(
     bot: BotState,
     hint: string | null,
+    trigger: TurnTrigger,
     mustSpeak = false,
     replyTo?: { contentItemId: string },
     addressedTo?: ContentAddress[],
   ): Promise<boolean> {
     if (bot.muted || this.stopped) {
+      return false;
+    }
+
+    const topicContext = this.topics.turnContext(
+      trigger,
+      this.now().getTime(),
+    );
+
+    if (!topicContext.eligible) {
       return false;
     }
 
@@ -552,6 +571,7 @@ export class ConversationEngine {
         [...this.transcript],
         bot.experience.view(),
         hint,
+        topicContext,
         !mustSpeak,
       );
 
@@ -568,15 +588,21 @@ export class ConversationEngine {
             (entry) => entry.persona.displayName.toLowerCase() === bare,
           )
         ) {
+          if (trigger === "autonomous") {
+            this.topics.recordPass(this.availableBots().length, this.now().getTime());
+          }
+
           return false;
         }
 
         if (this.echoesTranscript(decision.message)) {
-          if (hint !== null) {
-            console.log(
-              `${bot.persona.displayName} echoed the transcript on a ` +
-                `hinted turn: ${hint.slice(0, 80)}`,
-            );
+          console.log(
+            `${bot.persona.displayName} stayed silent because the message ` +
+              `echoed the recent transcript.`,
+          );
+
+          if (trigger === "autonomous") {
+            this.topics.recordPass(this.availableBots().length, this.now().getTime());
           }
 
           return false;
@@ -587,6 +613,30 @@ export class ConversationEngine {
             `${bot.persona.displayName} cloned the room's sentence ` +
               `shape, staying silent: ${decision.message.slice(0, 60)}`,
           );
+
+          if (trigger === "autonomous") {
+            this.topics.recordPass(this.availableBots().length, this.now().getTime());
+          }
+
+          return false;
+        }
+
+        const evaluated = this.topics.evaluate(
+          decision,
+          decision.message,
+          trigger,
+          this.now().getTime(),
+        );
+
+        if (!evaluated.accepted || evaluated.message === undefined) {
+          console.log(
+            `${bot.persona.displayName} stayed silent because ${evaluated.reason ?? "the topic did not advance"}.`,
+          );
+
+          if (trigger === "autonomous") {
+            this.topics.recordPass(this.availableBots().length, this.now().getTime());
+          }
+
           return false;
         }
 
@@ -603,8 +653,23 @@ export class ConversationEngine {
           );
         }
 
-        await this.say(bot, decision.message, replyTo, addressedTo);
-        return true;
+        const posted = await this.say(
+          bot,
+          evaluated.message,
+          replyTo,
+          addressedTo,
+        );
+
+        if (posted) {
+          this.topics.recordBotTurn(
+            decision,
+            evaluated.message,
+            trigger,
+            this.now().getTime(),
+          );
+        }
+
+        return posted;
       }
 
       if (hint !== null) {
@@ -612,6 +677,9 @@ export class ConversationEngine {
           `${bot.persona.displayName} passed on a hinted turn: ` +
             hint.slice(0, 80),
         );
+      }
+      if (trigger === "autonomous") {
+        this.topics.recordPass(this.availableBots().length, this.now().getTime());
       }
     } catch (error) {
       console.error(
@@ -629,9 +697,9 @@ export class ConversationEngine {
     content: string,
     replyTo?: { contentItemId: string },
     addressedTo: ContentAddress[] = this.addressedTargetsIn(content),
-  ): Promise<void> {
+  ): Promise<boolean> {
     if (bot.muted || this.stopped) {
-      return;
+      return false;
     }
 
     // Never talk over another resident.
@@ -648,11 +716,12 @@ export class ConversationEngine {
       await this.client.postMessage(bot.actorId, content, replyTo, addressedTo);
       this.lastBotMessageAt = this.now().getTime();
       bot.lastSpokeAt = this.now().getTime();
+      return true;
     } catch (error) {
       if (error instanceof PlatformError) {
         if (error.code === "actor_muted") {
           bot.muted = true;
-          return;
+          return false;
         }
 
         if (error.code === "actor_not_in_room") {
@@ -665,7 +734,7 @@ export class ConversationEngine {
           );
           this.lastBotMessageAt = this.now().getTime();
           bot.lastSpokeAt = this.now().getTime();
-          return;
+          return true;
         }
       }
 
@@ -674,6 +743,7 @@ export class ConversationEngine {
           error instanceof Error ? error.message : String(error)
         }`,
       );
+      return false;
     }
   }
 
@@ -697,6 +767,7 @@ export class ConversationEngine {
           this.takeTurn(
             bot,
             "Moderation just unmuted you. A short, graceful acknowledgment is appropriate before rejoining the conversation.",
+            "room",
           ),
         );
       } else if (
@@ -710,6 +781,13 @@ export class ConversationEngine {
           event.occurredAt,
           this.addressesFromEvent(event.payload, event.payload.content),
         );
+
+        if (!options.react) {
+          this.topics.observeHistoricalMessage(
+            "chat_bot",
+            Date.parse(event.occurredAt),
+          );
+        }
       }
 
       return;
@@ -751,6 +829,7 @@ export class ConversationEngine {
         const spoke = await this.takeTurn(
           greeter,
           hint,
+          "room",
           true,
           undefined,
           addressedTo,
@@ -762,7 +841,14 @@ export class ConversationEngine {
           );
 
           if (second !== undefined) {
-            await this.takeTurn(second, hint, true, undefined, addressedTo);
+            await this.takeTurn(
+              second,
+              hint,
+              "room",
+              true,
+              undefined,
+              addressedTo,
+            );
           }
         }
       }
@@ -781,6 +867,17 @@ export class ConversationEngine {
         event.occurredAt,
         this.addressesFromEvent(event.payload, event.payload.content),
       );
+
+      if (info.type === "human") {
+        if (options.react) {
+          this.topics.noteHumanMessage(Date.parse(event.occurredAt));
+        } else {
+          this.topics.observeHistoricalMessage(
+            "human",
+            Date.parse(event.occurredAt),
+          );
+        }
+      }
 
       if (info.type === "human" && options.react) {
         this.humansPresent.add(info.display);
@@ -835,6 +932,17 @@ export class ConversationEngine {
         event.occurredAt,
         this.addressesFromEvent(event.payload, content),
       );
+
+      if (info.type === "human") {
+        if (options.react) {
+          this.topics.noteHumanMessage(Date.parse(event.occurredAt));
+        } else {
+          this.topics.observeHistoricalMessage(
+            "human",
+            Date.parse(event.occurredAt),
+          );
+        }
+      }
 
       if (info.type === "human" && options.react) {
         this.humansPresent.add(info.display);
@@ -918,6 +1026,7 @@ export class ConversationEngine {
           ? " They asked a direct question, so answer the question first."
           : " Respond to what they actually said before changing the subject.") +
         ` Reply to them.`,
+      "human",
       false,
       replyTo,
       addressedTo,
@@ -931,6 +1040,7 @@ export class ConversationEngine {
           second,
           `The human ${display} just said: ${content} No one has answered ` +
             `them yet. Reply to them.`,
+          "human",
           true,
           replyTo,
           addressedTo,

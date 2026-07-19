@@ -83,6 +83,11 @@ class FakeMind {
     _transcript: string[],
     _experience: string,
     _hint: string | null,
+    _topicContext: {
+      eligible: boolean;
+      questionAllowed: boolean;
+      guidance: string;
+    },
     _allowPass = true,
   ): Promise<Decision> {
     this.considered.push(persona.displayName);
@@ -94,7 +99,20 @@ class FakeMind {
       );
     }
 
-    return this.decisions.shift() ?? { speak: false };
+    const decision = this.decisions.shift() ?? { speak: false };
+
+    if (!decision.speak) {
+      return decision;
+    }
+
+    return {
+      topic: "human message",
+      topicMove: "reply",
+      topicSource: "conversation",
+      topicGrounding: "the human's current message",
+      topicContribution: decision.message ?? "a direct response",
+      ...decision,
+    };
   }
 
   public async observe(_parts: InferencePart[]): Promise<string> {

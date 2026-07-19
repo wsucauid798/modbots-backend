@@ -16,6 +16,12 @@ const roster = {
   roomTimeUtc: "2026-07-18T12:00:00.000Z",
 };
 
+const topicContext = {
+  eligible: true,
+  questionAllowed: true,
+  guidance: "The active topic is rainy bike commutes.",
+};
+
 test("returns a model-grounded topic decision", async () => {
   const originalFetch = globalThis.fetch;
   const requestBodies: Record<string, unknown>[] = [];
@@ -27,7 +33,7 @@ test("returns a model-grounded topic decision", async () => {
     requestBodies.push(requestBody);
     const content =
       requestBodies.length === 1
-        ? "MOVE=continue|SOURCE=conversation|TOPIC=rainy bike commutes|GROUNDING=Mira said she cycled through the rain"
+        ? "MOVE=continue|SOURCE=conversation|TOPIC=rainy bike commutes|ANGLE=keeping belongings dry|GROUNDING=Mira said she cycled through the rain"
         : "Getting caught in rain is rough. Did your bag stay dry?";
 
     return new Response(
@@ -43,6 +49,7 @@ test("returns a model-grounded topic decision", async () => {
       ["Mira: I cycled home through the rain."],
       "Mira has talked about cycling before.",
       null,
+      topicContext,
     );
 
     assert.deepEqual(decision, {
@@ -52,6 +59,7 @@ test("returns a model-grounded topic decision", async () => {
       topicMove: "continue",
       topicSource: "conversation",
       topicGrounding: "Mira said she cycled through the rain",
+      topicContribution: "keeping belongings dry",
     });
     assert.equal(requestBodies.length, 2);
     assert.match(
@@ -85,6 +93,7 @@ test("does not speak when a model decision has no topic grounding", async () => 
       [],
       "My interests are still forming from the room.",
       null,
+      topicContext,
     );
 
     assert.deepEqual(decision, { speak: false });
