@@ -24,15 +24,34 @@ export class InferenceRateLimitError extends Error {
 }
 
 const messageStyle =
-  `a natural chat message, usually one brief sentence and two only when ` +
-  `the thought needs them. Vary the length naturally. Plain text, no ` +
+  `a natural chat message whose length and sentence shape follow the ` +
+  `cadence selected for this turn. Do not pad a thought to reach the upper ` +
+  `word limit. Plain text, no ` +
   `emojis, no quotation marks, no stage directions, no name prefix of ` +
   `your own. Use ordinary ` +
-  `sentence capitalization and never write a message in all caps. Speak as ` +
-  `yourself in the first person; never talk about yourself in the third ` +
-  `person. Say a person's name only when it is genuinely needed to make ` +
+  `sentence capitalization and never write a message in all caps. Speak ` +
+  `from your own perspective when relevant, but do not force the message ` +
+  `to begin with I or I'd. Do not habitually join two thoughts with a ` +
+  `semicolon. Never talk about yourself in the third person. Say a ` +
+  `person's name only when it is genuinely needed to make ` +
   `clear who you are talking to; in a small room most messages need no ` +
   `name at all, and repeating names constantly sounds fake.`;
+
+export const messageCadenceFor = (random: number): string => {
+  if (random < 0.2) {
+    return `Write a tiny reaction of 2 to 6 words. A fragment is allowed.`;
+  }
+
+  if (random < 0.5) {
+    return `Write one short sentence of 7 to 12 words.`;
+  }
+
+  if (random < 0.8) {
+    return `Write a natural message of 13 to 22 words, usually one sentence.`;
+  }
+
+  return `Write 23 to 38 words across one or two sentences.`;
+};
 
 type TurnPlan =
   | { speak: false }
@@ -53,7 +72,10 @@ export class Mind {
     outputTokens: 0,
   };
 
-  public constructor(private readonly mlUrl: string) {}
+  public constructor(
+    private readonly mlUrl: string,
+    private readonly random: () => number = Math.random,
+  ) {}
 
   public async health(): Promise<void> {
     const response = await fetch(new URL("/health", this.mlUrl).toString());
@@ -128,6 +150,7 @@ export class Mind {
       `invent one. The room's standard clock is UTC. The current room ` +
       `time is ${roster.roomTimeUtc}.`;
     const autonomous = topicContext.trigger === "autonomous";
+    const cadence = messageCadenceFor(this.random());
     const relevantTranscript = autonomous ? transcript.slice(-10) : transcript;
     const relevantExperience =
       autonomous && experience.length > 1_600
@@ -153,6 +176,7 @@ export class Mind {
         company,
         roomContext,
         topicContext,
+        cadence,
       );
     }
 
@@ -226,6 +250,7 @@ export class Mind {
         `New contribution: ${plan.contribution}\n` +
         `Topic source: ${plan.source}\n` +
         `Concrete grounding: ${plan.grounding}\n\n` +
+        `Cadence for this turn: ${cadence}\n` +
         `Write only the exact chat message now.`,
       70,
       0.85,
@@ -252,6 +277,7 @@ export class Mind {
     company: string,
     roomContext: string,
     topicContext: TopicTurnContext,
+    cadence: string,
   ): Promise<Decision> {
     const system =
       `You are ${persona.displayName}, a chat bot who lives in a small ` +
@@ -265,7 +291,8 @@ export class Mind {
       (topicContext.questionAllowed
         ? `A question is optional and must be useful. `
         : `Do not ask a question. End with a statement. `) +
-      `The message must follow this style: ${messageStyle} Return exactly ` +
+      `The message must follow this style: ${messageStyle} Cadence for this ` +
+      `turn: ${cadence} Return exactly ` +
       `PASS, or one line with no pipe character inside any value: ` +
       `MOVE=<reply|continue|change|start>|SOURCE=<conversation|experience|persona|room>|TOPIC=<short topic>|ANGLE=<new contribution>|GROUNDING=<concrete origin>|MESSAGE=<exact chat message>`;
     const raw = await this.generate(system, roomContext, 140, 0.75);
