@@ -1,0 +1,541 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://modbots.dev/contracts/inference-v1.schema.json",
+  "title": "Mod Bots client-executed inference contract version 1",
+  "description": "Contracts for backend-selected inference pipelines executed by access clients.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/pipelineManifest"
+    },
+    {
+      "$ref": "#/$defs/inferenceRequest"
+    },
+    {
+      "$ref": "#/$defs/inferenceResult"
+    }
+  ],
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "modality": {
+      "enum": [
+        "text",
+        "image",
+        "audio",
+        "video",
+        "file"
+      ]
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifactId",
+        "role",
+        "modelId",
+        "revision",
+        "format",
+        "quantization",
+        "sha256",
+        "byteLength",
+        "downloadUrl"
+      ],
+      "properties": {
+        "artifactId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "role": {
+          "enum": [
+            "reasoning",
+            "vision",
+            "speech_transcription",
+            "audio_understanding",
+            "media_generation",
+            "embedding"
+          ]
+        },
+        "modelId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "revision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "format": {
+          "type": "string",
+          "minLength": 1
+        },
+        "quantization": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "byteLength": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*$"
+        },
+        "downloadUrl": {
+          "type": "string",
+          "format": "uri"
+        }
+      }
+    },
+    "pipelineStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stepId",
+        "kind",
+        "processorId"
+      ],
+      "properties": {
+        "stepId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "kind": {
+          "enum": [
+            "deterministic",
+            "model"
+          ]
+        },
+        "processorId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "artifactId": {
+          "$ref": "#/$defs/identifier"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "model"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "artifactId"
+            ],
+            "properties": {
+              "artifactId": {
+                "$ref": "#/$defs/identifier"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "pipeline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pipelineId",
+        "task",
+        "inputModalities",
+        "steps"
+      ],
+      "properties": {
+        "pipelineId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "task": {
+          "enum": [
+            "conversation",
+            "content_understanding",
+            "media_generation"
+          ]
+        },
+        "inputModalities": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/modality"
+          }
+        },
+        "steps": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/pipelineStep"
+          }
+        }
+      }
+    },
+    "pipelineManifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "entityType",
+        "manifestVersion",
+        "issuedAt",
+        "artifacts",
+        "pipelines",
+        "signature"
+      ],
+      "properties": {
+        "contractVersion": {
+          "const": 1
+        },
+        "entityType": {
+          "const": "inference_pipeline_manifest"
+        },
+        "manifestVersion": {
+          "$ref": "#/$defs/identifier"
+        },
+        "issuedAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "artifacts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/artifact"
+          }
+        },
+        "pipelines": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/pipeline"
+          }
+        },
+        "signature": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "algorithm",
+            "keyId",
+            "value"
+          ],
+          "properties": {
+            "algorithm": {
+              "const": "ed25519"
+            },
+            "keyId": {
+              "$ref": "#/$defs/identifier"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
+    "textInputPart": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "partId",
+        "kind",
+        "text"
+      ],
+      "properties": {
+        "partId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "kind": {
+          "const": "text"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "mediaInputPart": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "partId",
+        "kind",
+        "mediaAssetId",
+        "mediaType",
+        "sha256",
+        "downloadUrl"
+      ],
+      "properties": {
+        "partId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "kind": {
+          "enum": [
+            "image",
+            "audio",
+            "video",
+            "file"
+          ]
+        },
+        "mediaAssetId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "mediaType": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "downloadUrl": {
+          "type": "string",
+          "format": "uri"
+        }
+      }
+    },
+    "inferenceRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "entityType",
+        "requestId",
+        "pipelineId",
+        "manifestVersion",
+        "createdAt",
+        "expiresAt",
+        "system",
+        "inputs",
+        "generation"
+      ],
+      "properties": {
+        "contractVersion": {
+          "const": 1
+        },
+        "entityType": {
+          "const": "inference_request"
+        },
+        "requestId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "pipelineId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "manifestVersion": {
+          "$ref": "#/$defs/identifier"
+        },
+        "createdAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "expiresAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "system": {
+          "type": "string",
+          "minLength": 1
+        },
+        "inputs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/textInputPart"
+              },
+              {
+                "$ref": "#/$defs/mediaInputPart"
+              }
+            ]
+          }
+        },
+        "generation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "maximumOutputTokens",
+            "temperature"
+          ],
+          "properties": {
+            "maximumOutputTokens": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            },
+            "temperature": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 2
+            }
+          }
+        }
+      }
+    },
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "sourcePartId",
+        "processorId"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "image",
+            "transcript",
+            "video_frame",
+            "document_text"
+          ]
+        },
+        "sourcePartId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "processorId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "text": {
+          "type": "string"
+        },
+        "startMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "endMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "artifactProvenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifactId",
+        "sha256"
+      ],
+      "properties": {
+        "artifactId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "inferenceResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "entityType",
+        "requestId",
+        "pipelineId",
+        "manifestVersion",
+        "completedAt",
+        "clientId",
+        "content",
+        "observations",
+        "provenance"
+      ],
+      "properties": {
+        "contractVersion": {
+          "const": 1
+        },
+        "entityType": {
+          "const": "inference_result"
+        },
+        "requestId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "pipelineId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "manifestVersion": {
+          "$ref": "#/$defs/identifier"
+        },
+        "completedAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "clientId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "content": {
+          "type": "string",
+          "minLength": 1
+        },
+        "observations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/observation"
+          }
+        },
+        "provenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "artifacts",
+            "runtimeId",
+            "runtimeVersion",
+            "executionBackend",
+            "promptTemplateVersion",
+            "inputTokens",
+            "outputTokens",
+            "durationMs"
+          ],
+          "properties": {
+            "artifacts": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/artifactProvenance"
+              }
+            },
+            "runtimeId": {
+              "$ref": "#/$defs/identifier"
+            },
+            "runtimeVersion": {
+              "type": "string",
+              "minLength": 1
+            },
+            "executionBackend": {
+              "enum": [
+                "gpu",
+                "webgpu",
+                "cpu",
+                "wasm"
+              ]
+            },
+            "promptTemplateVersion": {
+              "$ref": "#/$defs/identifier"
+            },
+            "inputTokens": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "outputTokens": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "durationMs": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    }
+  }
+}

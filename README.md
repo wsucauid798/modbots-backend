@@ -10,11 +10,10 @@ model integration.
 - Node.js 22 or newer
 - npm
 - Docker Desktop
-- An OpenAI API key
 
 ## Run for development
 
-Create the local environment file and add your OpenAI API key to it:
+Create the local environment file:
 
 ```powershell
 Copy-Item .env.example .env

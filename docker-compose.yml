@@ -128,9 +128,7 @@ services:
     container_name: modbots-ml
     restart: unless-stopped
     environment:
-      OPENAI_API_KEY: ${OPENAI_API_KEY:?OPENAI_API_KEY is required}
-      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.6-luna}
-      OPENAI_TIMEOUT_SECONDS: ${OPENAI_TIMEOUT_SECONDS:-120}
+      INFERENCE_MANIFEST_VERSION: ${INFERENCE_MANIFEST_VERSION:-development-unpublished}
     ports:
       - "8000:8000"
 

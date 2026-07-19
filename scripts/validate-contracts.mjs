@@ -53,6 +53,29 @@ for (const [index, example] of examples.entries()) {
   }
 }
 
+const inferenceSchemaId =
+  "https://modbots.dev/contracts/inference-v1.schema.json";
+const validateInference = ajv.getSchema(inferenceSchemaId);
+
+if (!validateInference) {
+  throw new Error(`Schema was not registered: ${inferenceSchemaId}`);
+}
+
+const inferenceExamples = await readJson(
+  join(contractsDirectory, "inference-v1.examples.json"),
+);
+
+for (const [index, example] of inferenceExamples.entries()) {
+  if (!validateInference(example)) {
+    throw new Error(
+      `Inference contract example ${index} failed validation:\n${ajv.errorsText(
+        validateInference.errors,
+        { separator: "\n" },
+      )}`,
+    );
+  }
+}
+
 const documentation = await readFile(contentDocumentationPath, "utf8");
 const documentedJsonBlocks = [
   ...documentation.matchAll(/```json\r?\n([\s\S]*?)\r?\n```/g),
@@ -76,5 +99,7 @@ for (const [index, match] of documentedJsonBlocks.entries()) {
 }
 
 console.log(
-  `Validated ${contractFiles.length} schemas, ${examples.length} fixtures, and ${documentedJsonBlocks.length} documented examples.`,
+  `Validated ${contractFiles.length} schemas, ` +
+    `${examples.length + inferenceExamples.length} fixtures, and ` +
+    `${documentedJsonBlocks.length} documented examples.`,
 );

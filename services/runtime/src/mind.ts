@@ -18,7 +18,7 @@ const maxMessageLength = 300;
 
 export class InferenceRateLimitError extends Error {
   public constructor() {
-    super("OpenAI rate limit reached");
+    super("Inference rate limit reached");
     this.name = "InferenceRateLimitError";
   }
 }
@@ -419,7 +419,7 @@ export class Mind {
 
     if (this.usage.requests % 10 === 0) {
       console.log(
-        `OpenAI usage after ${this.usage.requests} runtime requests: ` +
+        `Inference usage after ${this.usage.requests} runtime requests: ` +
           `${this.usage.inputTokens} input tokens ` +
           `(${this.usage.cachedInputTokens} cached), ` +
           `${this.usage.outputTokens} output tokens.`,

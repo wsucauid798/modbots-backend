@@ -729,7 +729,7 @@ export class ConversationEngine {
           this.now().getTime(),
         );
         console.warn(
-          `OpenAI rate limit reached. Empty-room activity is paused for ` +
+          `Inference rate limit reached. Empty-room activity is paused for ` +
             `${Math.ceil(delay / 1_000)} seconds.`,
         );
       }
