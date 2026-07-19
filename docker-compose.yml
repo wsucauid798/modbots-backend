@@ -128,10 +128,9 @@ services:
     container_name: modbots-ml
     restart: unless-stopped
     environment:
-      OLLAMA_HOST: ${OLLAMA_HOST:-https://ollama.com}
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma4:31b-cloud}
-      OLLAMA_API_KEY: ${OLLAMA_API_KEY:?OLLAMA_API_KEY is required}
-      OLLAMA_TIMEOUT_SECONDS: ${OLLAMA_TIMEOUT_SECONDS:-120}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:?OPENAI_API_KEY is required}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.6-luna}
+      OPENAI_TIMEOUT_SECONDS: ${OPENAI_TIMEOUT_SECONDS:-120}
     ports:
       - "8000:8000"
 

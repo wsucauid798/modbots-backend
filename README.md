@@ -75,8 +75,8 @@ The realtime gateway listens on:
 - `http://localhost:3002/v1/realtime/config` for client transport configuration
 
 The backend stack starts the runtime and ML components as the `runtime` and `ml`
-services. The ML service wants an NVIDIA GPU; without one it falls back to
-CPU.
+services. Set `OPENAI_API_KEY` in `.env` before starting the stack. The model
+defaults to `gpt-5.6-luna` and can be changed with `OPENAI_MODEL`.
 
 ## Room Activity Smoke Flow
 

@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException
-from ollama import Client, RequestError, ResponseError
+from openai import APIConnectionError, APIStatusError, OpenAI, OpenAIError
 from pydantic import BaseModel, Field, model_validator
 
 from .media import (
@@ -14,29 +14,23 @@ from .media import (
     process_video,
 )
 
-OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "https://ollama.com")
-OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "gemma4:31b-cloud")
-OLLAMA_API_KEY = os.environ.get("OLLAMA_API_KEY", "")
-OLLAMA_TIMEOUT_SECONDS = float(os.environ.get("OLLAMA_TIMEOUT_SECONDS", "120"))
+OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-5.6-luna")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+OPENAI_TIMEOUT_SECONDS = float(os.environ.get("OPENAI_TIMEOUT_SECONDS", "120"))
 
 state: dict[str, object | None] = {"client": None}
 
 
-def _client(host: str, api_key: str) -> Client:
-    headers = {"Authorization": f"Bearer {api_key}"} if api_key else None
-    return Client(
-        host=host,
-        headers=headers,
-        timeout=OLLAMA_TIMEOUT_SECONDS,
-    )
+def _client(api_key: str) -> OpenAI:
+    return OpenAI(api_key=api_key, timeout=OPENAI_TIMEOUT_SECONDS)
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    if OLLAMA_HOST.rstrip("/") == "https://ollama.com" and not OLLAMA_API_KEY:
-        raise RuntimeError("OLLAMA_API_KEY is required for Ollama Cloud")
+    if not OPENAI_API_KEY:
+        raise RuntimeError("OPENAI_API_KEY is required")
 
-    state["client"] = _client(OLLAMA_HOST, OLLAMA_API_KEY)
+    state["client"] = _client(OPENAI_API_KEY)
     yield
     state["client"] = None
 
@@ -101,7 +95,10 @@ def _prepare_message(
     message: ChatMessage,
 ) -> tuple[dict, list[DerivedObservation]]:
     fragments = [message.content] if message.content.strip() else []
-    images = [encode_base64(decode_base64(image)) for image in message.images]
+    images = [
+        (encode_base64(decode_base64(image)), "image/png")
+        for image in message.images
+    ]
     observations: list[DerivedObservation] = []
 
     for source_part, part in enumerate(message.parts):
@@ -114,7 +111,7 @@ def _prepare_message(
         filename = part.filename or f"part-{source_part}"
 
         if part.kind == "image":
-            images.append(encode_base64(data))
+            images.append((encode_base64(data), media_type))
             image_number = len(images)
             fragments.append(
                 f"[Image {image_number}, ordered content part {source_part}]"
@@ -123,8 +120,8 @@ def _prepare_message(
                 DerivedObservation(
                     kind="image",
                     sourcePart=source_part,
-                    processor="ollama-cloud-multimodal",
-                    model=OLLAMA_MODEL,
+                    processor="openai-vision",
+                    model=OPENAI_MODEL,
                 )
             )
             continue
@@ -132,7 +129,7 @@ def _prepare_message(
         if part.kind == "audio":
             raise HTTPException(
                 status_code=422,
-                detail="No audio-capable model is available through Ollama Cloud",
+                detail="Audio input is not supported by the configured OpenAI model",
             )
 
         if part.kind == "video":
@@ -143,7 +140,7 @@ def _prepare_message(
                     status_code=422,
                     detail=(
                         "Video audio cannot be processed because no audio-capable "
-                        "model is available through Ollama Cloud"
+                        "OpenAI model is configured"
                     ),
                 )
 
@@ -154,7 +151,7 @@ def _prepare_message(
                 processed.images,
                 strict=True,
             ):
-                images.append(encode_base64(frame))
+                images.append((encode_base64(frame), "image/jpeg"))
                 frame_labels.append(
                     f"Image {len(images)} is the frame at {timestamp} ms"
                 )
@@ -163,7 +160,7 @@ def _prepare_message(
                         kind="video_frame",
                         sourcePart=source_part,
                         processor="ffmpeg",
-                        model=OLLAMA_MODEL,
+                        model=OPENAI_MODEL,
                         startMs=timestamp,
                         endMs=timestamp,
                     )
@@ -190,7 +187,7 @@ def _prepare_message(
         )
 
         for page, image in enumerate(processed.images, start=1):
-            images.append(encode_base64(image))
+            images.append((encode_base64(image), "image/png"))
             fragments.append(
                 f"[Image {len(images)} is page {page} of {filename}]"
             )
@@ -199,14 +196,26 @@ def _prepare_message(
                     kind="image",
                     sourcePart=source_part,
                     processor="pdftoppm",
-                    model=OLLAMA_MODEL,
+                    model=OPENAI_MODEL,
                 )
             )
 
+    text = "\n\n".join(fragment for fragment in fragments if fragment)
+    content = []
+
+    if text:
+        content.append({"type": "input_text", "text": text})
+
+    content.extend(
+        {
+            "type": "input_image",
+            "image_url": f"data:{media_type};base64,{data}",
+        }
+        for data, media_type in images
+    )
     prepared = {
         "role": message.role,
-        "content": "\n\n".join(fragment for fragment in fragments if fragment),
-        **({"images": images} if images else {}),
+        "content": content,
     }
     return prepared, observations
 
@@ -216,8 +225,8 @@ def health() -> dict:
     return {
         "status": "ok",
         "service": "ml",
-        "provider": "ollama-cloud",
-        "model": OLLAMA_MODEL,
+        "provider": "openai",
+        "model": OPENAI_MODEL,
         "inputModalities": ["text", "image", "video", "file"],
         "unsupportedInputModalities": ["audio"],
         "videoAudioSupported": False,
@@ -230,7 +239,7 @@ def chat(request: ChatRequest) -> ChatResponse:
     if client is None:
         raise HTTPException(status_code=503, detail="ML client is not ready")
 
-    messages = [{"role": "system", "content": request.system}]
+    messages = []
     observations: list[DerivedObservation] = []
 
     try:
@@ -249,41 +258,43 @@ def chat(request: ChatRequest) -> ChatResponse:
         ) from exception
 
     try:
-        response = client.chat(
-            model=OLLAMA_MODEL,
-            messages=messages,
-            stream=False,
-            think=False,
-            options={
-                "num_predict": request.maxTokens,
-                "temperature": request.temperature,
-                "top_p": 0.95,
-                "repeat_penalty": 1.1,
-            },
+        response = client.responses.create(
+            model=OPENAI_MODEL,
+            instructions=request.system,
+            input=messages,
+            max_output_tokens=request.maxTokens,
+            reasoning={"effort": "none"},
+            temperature=request.temperature,
+            text={"verbosity": "low"},
         )
-    except ResponseError as exception:
+    except APIStatusError as exception:
         raise HTTPException(
             status_code=502,
             detail=(
-                "Ollama Cloud rejected the inference request with HTTP "
+                "OpenAI rejected the inference request with HTTP "
                 f"{exception.status_code}"
             ),
         ) from exception
-    except RequestError as exception:
+    except APIConnectionError as exception:
         raise HTTPException(
             status_code=502,
-            detail="Ollama Cloud could not be reached",
+            detail="OpenAI could not be reached",
+        ) from exception
+    except OpenAIError as exception:
+        raise HTTPException(
+            status_code=502,
+            detail="OpenAI inference failed",
         ) from exception
 
-    content = response.message.content.strip()
+    content = response.output_text.strip()
     if not content:
         raise HTTPException(
             status_code=502,
-            detail="Ollama Cloud returned an empty response",
+            detail="OpenAI returned an empty response",
         )
 
     return ChatResponse(
         content=content,
-        model=OLLAMA_MODEL,
+        model=OPENAI_MODEL,
         observations=observations,
     )
