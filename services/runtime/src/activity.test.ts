@@ -35,12 +35,12 @@ test("treats off-peak time as low activity instead of unavailable", () => {
 });
 
 test("increases autonomous chat frequency when activity overlaps", () => {
-  assert.deepEqual(autonomousDelayRange(0), [60_000, 180_000]);
-  assert.deepEqual(autonomousDelayRange(1), [18_000, 40_000]);
-  assert.deepEqual(autonomousDelayRange(2), [12_000, 28_000]);
-  assert.deepEqual(autonomousDelayRange(3), [8_000, 20_000]);
-  assert.equal(maximumAutonomousSilenceMs(0), 240_000);
-  assert.equal(maximumAutonomousSilenceMs(1), 150_000);
-  assert.equal(maximumAutonomousSilenceMs(2), 75_000);
-  assert.equal(maximumAutonomousSilenceMs(3), 45_000);
+  assert.deepEqual(autonomousDelayRange(0), [120_000, 240_000]);
+  assert.deepEqual(autonomousDelayRange(1), [45_000, 90_000]);
+  assert.deepEqual(autonomousDelayRange(2), [30_000, 60_000]);
+  assert.deepEqual(autonomousDelayRange(3), [20_000, 45_000]);
+  assert.equal(maximumAutonomousSilenceMs(0), 360_000);
+  assert.equal(maximumAutonomousSilenceMs(1), 240_000);
+  assert.equal(maximumAutonomousSilenceMs(2), 180_000);
+  assert.equal(maximumAutonomousSilenceMs(3), 120_000);
 });
