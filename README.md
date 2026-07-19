@@ -32,10 +32,10 @@ Start the development stack:
 docker compose up --build
 ```
 
+## License
+
+This project is licensed under the [MIT License](LICENSE.md).
+
 ## Copyright
 
 Copyright &copy; 2026 William Sawyerr.
-
-## License
-
-See [LICENSE.md](LICENSE.md) for the license terms.
