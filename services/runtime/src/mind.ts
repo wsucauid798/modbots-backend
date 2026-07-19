@@ -150,7 +150,9 @@ export class Mind {
       `invent one. The room's standard clock is UTC. The current room ` +
       `time is ${roster.roomTimeUtc}.`;
     const autonomous = topicContext.trigger === "autonomous";
-    const cadence = messageCadenceFor(this.random());
+    const cadence = /greet them briefly/i.test(hint ?? "")
+      ? messageCadenceFor(0.2)
+      : messageCadenceFor(this.random());
     const relevantTranscript = autonomous ? transcript.slice(-10) : transcript;
     const relevantExperience =
       autonomous && experience.length > 1_600

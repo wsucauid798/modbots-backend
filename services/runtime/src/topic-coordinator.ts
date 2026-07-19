@@ -41,6 +41,7 @@ const maximumQuietMs = 5 * 60_000;
 const topicCooldownMs = 30 * 60_000;
 const maximumBotTurnsWithoutHuman = 3;
 const maximumTopicIdleMs = 15 * 60_000;
+const humanConversationYieldMs = 2 * 60_000;
 
 const stopWords = new Set([
   "a",
@@ -111,6 +112,7 @@ export class TopicCoordinator {
   private readonly recentlyClosed: ClosedTopic[] = [];
   private lastRoomActivityAt = 0;
   private quietUntil = 0;
+  private yieldToHumanUntil = 0;
 
   public constructor(private readonly random: () => number = Math.random) {}
 
@@ -130,6 +132,10 @@ export class TopicCoordinator {
       : this.lastRoomActivityAt;
     this.lastRoomActivityAt = Math.max(this.lastRoomActivityAt, effectiveTime);
     this.quietUntil = 0;
+    this.yieldToHumanUntil = Math.max(
+      this.yieldToHumanUntil,
+      effectiveTime + humanConversationYieldMs,
+    );
 
     if (this.active === null) {
       return;
@@ -157,6 +163,15 @@ export class TopicCoordinator {
       this.active.botTurnsSinceHuman >= maximumBotTurnsWithoutHuman
     ) {
       this.closeActive(now, true);
+    }
+
+    if (trigger === "autonomous" && now < this.yieldToHumanUntil) {
+      return {
+        eligible: false,
+        questionAllowed: false,
+        guidance: "A human just spoke. Give the human conversation room and stay silent.",
+        trigger,
+      };
     }
 
     if (trigger === "autonomous" && this.active === null) {

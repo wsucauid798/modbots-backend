@@ -73,6 +73,22 @@ test("allows only one bot question until a human contributes", () => {
   assert.equal(topics.turnContext("human", 3_000).questionAllowed, true);
 });
 
+test("yields autonomous conversation after a human speaks", () => {
+  const topics = new TopicCoordinator(() => 0);
+  topics.recordBotTurn(
+    decision("checking whether the skillet sits flat", "start"),
+    "Check whether the skillet sits flat.",
+    "autonomous",
+    1_000,
+  );
+
+  topics.noteHumanMessage(2_000);
+
+  assert.equal(topics.turnContext("autonomous", 121_999).eligible, false);
+  assert.equal(topics.turnContext("human", 2_001).eligible, true);
+  assert.equal(topics.turnContext("autonomous", 122_000).eligible, true);
+});
+
 test("rejects a repeated angle on the active topic", () => {
   const topics = new TopicCoordinator(() => 0);
   topics.recordBotTurn(

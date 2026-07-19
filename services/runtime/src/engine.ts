@@ -607,6 +607,16 @@ export class ConversationEngine {
       );
       this.autonomousBudget.recordSuccess();
 
+      // A human may speak while an autonomous inference request is in
+      // flight. Recheck before posting so the completed bot turn yields to
+      // the human instead of landing as an immediate pile-on.
+      if (
+        trigger === "autonomous" &&
+        !this.topics.turnContext(trigger, this.now().getTime()).eligible
+      ) {
+        return false;
+      }
+
       if (decision.speak && decision.message !== undefined) {
         // A message that is nothing but someone's name is a mimicry
         // artifact, not speech.
@@ -856,13 +866,17 @@ export class ConversationEngine {
         return;
       }
 
+      this.topics.noteHumanMessage(this.now().getTime());
+
       const scheduled = this.preferredBots();
       const greetingPool =
         scheduled.length > 0 ? scheduled : this.availableBots();
       const greeter = pick(greetingPool);
 
       if (greeter !== undefined) {
-        const hint = `A human named ${info.display} just walked into the room. Greet them.`;
+        const hint =
+          `A human named ${info.display} just walked into the room. ` +
+          `Greet them briefly without recapping or extending the bots' existing topic.`;
         await this.sleep(5_000, 14_000);
         const addressedTo: ContentAddress[] = [
           { targetType: "actor", actorId: event.actorId },
@@ -912,7 +926,7 @@ export class ConversationEngine {
 
       if (info.type === "human") {
         if (options.react) {
-          this.topics.noteHumanMessage(Date.parse(event.occurredAt));
+          this.topics.noteHumanMessage(this.now().getTime());
         } else {
           this.topics.observeHistoricalMessage(
             "human",
@@ -945,6 +959,11 @@ export class ConversationEngine {
         return;
       }
 
+      if (info.type === "human" && options.react) {
+        this.humansPresent.add(info.display);
+        this.topics.noteHumanMessage(this.now().getTime());
+      }
+
       const hasMedia = parts.some((part) => part.kind !== "text");
       let content: string;
 
@@ -975,19 +994,11 @@ export class ConversationEngine {
         this.addressesFromEvent(event.payload, content),
       );
 
-      if (info.type === "human") {
-        if (options.react) {
-          this.topics.noteHumanMessage(Date.parse(event.occurredAt));
-        } else {
-          this.topics.observeHistoricalMessage(
-            "human",
-            Date.parse(event.occurredAt),
-          );
-        }
-      }
-
-      if (info.type === "human" && options.react) {
-        this.humansPresent.add(info.display);
+      if (info.type === "human" && !options.react) {
+        this.topics.observeHistoricalMessage(
+          "human",
+          Date.parse(event.occurredAt),
+        );
       }
 
       if (info.type === "human" && options.react) {
@@ -1056,6 +1067,10 @@ export class ConversationEngine {
     await this.sleep(3_000, 9_000);
     const first = target ?? pick(responsePool);
     const directQuestion = ConversationEngine.asksQuestion(content);
+    const greeting =
+      /^\s*(?:hi|hello|hey|good\s+(?:morning|afternoon|evening))(?:\s+(?:everyone|everybody|all|folks|there))?[!.?]*\s*$/i.test(
+        content,
+      );
     const addressedTo =
       humanActorId === undefined
         ? undefined
@@ -1064,7 +1079,9 @@ export class ConversationEngine {
       first,
       `The human ${display} just said: ${content}` +
         `${target !== undefined ? " They are speaking to you." : ""}` +
-        (directQuestion
+        (greeting
+          ? " This is a greeting. Greet them briefly without recapping or extending the bots' existing topic."
+          : directQuestion
           ? " They asked a direct question, so answer the question first."
           : " Respond to what they actually said before changing the subject.") +
         ` Reply to them.`,
