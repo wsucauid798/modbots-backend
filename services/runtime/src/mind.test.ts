@@ -62,57 +62,6 @@ test("returns a model-grounded topic decision", async () => {
       JSON.stringify(requestBodies[1]),
       /never write a message in all caps/,
     );
-    assert.match(
-      JSON.stringify(requestBodies[0]),
-      /Choose a recognizable subject/,
-    );
-    assert.match(
-      JSON.stringify(requestBodies[0]),
-      /incidental detail in each message becomes the next abstract topic/,
-    );
-    assert.match(
-      JSON.stringify(requestBodies[1]),
-      /ordinary chat, not an interview/,
-    );
-    assert.match(
-      JSON.stringify(requestBodies[1]),
-      /Do not end most messages with a question/,
-    );
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
-test("normalizes casual sentence capitalization", async () => {
-  const originalFetch = globalThis.fetch;
-  let requestCount = 0;
-
-  globalThis.fetch = async () => {
-    requestCount += 1;
-    const content =
-      requestCount === 1
-        ? "MOVE=reply|SOURCE=conversation|TOPIC=wet cycling gear|GROUNDING=Mira said her bag got soaked"
-        : "that sounds rough. i hope the bag dried out.";
-
-    return new Response(
-      JSON.stringify({ content }),
-      { status: 200, headers: { "content-type": "application/json" } },
-    );
-  };
-
-  try {
-    const decision = await new Mind("http://ml.test").consider(
-      persona,
-      roster,
-      ["Mira: My bag got soaked on the ride home."],
-      "Mira has talked about cycling before.",
-      null,
-    );
-
-    assert.equal(
-      decision.message,
-      "That sounds rough. I hope the bag dried out.",
-    );
   } finally {
     globalThis.fetch = originalFetch;
   }

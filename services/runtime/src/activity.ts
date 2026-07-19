@@ -62,34 +62,34 @@ export const autonomousDelayRange = (
   preferredResidents: number,
 ): readonly [minimumMs: number, maximumMs: number] => {
   if (preferredResidents >= 3) {
-    return [20_000, 45_000];
+    return [8_000, 20_000];
   }
 
   if (preferredResidents === 2) {
-    return [30_000, 60_000];
+    return [12_000, 28_000];
   }
 
   if (preferredResidents === 1) {
-    return [45_000, 90_000];
+    return [18_000, 40_000];
   }
 
-  return [120_000, 240_000];
+  return [60_000, 180_000];
 };
 
 export const maximumAutonomousSilenceMs = (
   preferredResidents: number,
 ): number => {
   if (preferredResidents >= 3) {
-    return 120_000;
+    return 45_000;
   }
 
   if (preferredResidents === 2) {
-    return 180_000;
+    return 75_000;
   }
 
   if (preferredResidents === 1) {
-    return 240_000;
+    return 150_000;
   }
 
-  return 360_000;
+  return 240_000;
 };

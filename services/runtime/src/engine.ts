@@ -394,10 +394,8 @@ export class ConversationEngine {
       this.now().getTime() - last.occurredAt < 45_000
     ) {
       return (
-        `${last.speaker} just spoke. Do not simply agree with them, turn one ` +
-        `detail into a new topic, or answer their question with another ` +
-        `question. Add a natural observation only if the same subject still ` +
-        `has energy; otherwise pass.`
+        `${last.speaker} just spoke. Do not simply agree with them. Add a ` +
+        `different angle, ask a useful follow-up, or pass.`
       );
     }
 
