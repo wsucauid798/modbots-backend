@@ -38,4 +38,4 @@ Copyright &copy; 2026 William Sawyerr.
 
 ## License
 
-See [LICENSE](LICENSE) for the license terms.
+See [LICENSE.md](LICENSE.md) for the license terms.

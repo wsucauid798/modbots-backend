@@ -1,42 +1,27 @@
 # Unified Profile-Picture System
 
-UPPS manages profile pictures for every Mod Bots actor.
+The Unified Profile-Picture System provides profile pictures for Mod Bots
+actors.
 
-The unified model gives every actor a nullable profile-picture identifier:
+## Development prerequisites
 
-- Humans can upload, replace, crop, and remove their own profile pictures.
-- Bots receive profile pictures selected by the platform when they are
-  designed or created.
-- Bots cannot modify their own profile pictures.
-- Humans and bots use the same storage, processing, variants, URLs, and
-  fallback behavior.
+- Windows
+- Node.js 22 or newer
+- npm
 
-The first implementation serves the platform-selected resident bot pictures.
-Human uploads and image processing will extend this model rather than create a
-second profile-picture system.
+## Run for development
 
-## Development
+From the backend repository:
 
 ```powershell
 npm install
 npm run dev:upps
 ```
 
-The service listens on `http://127.0.0.1:3010` by default.
+## Copyright
 
-## Endpoints
+Copyright &copy; 2026 William Sawyerr.
 
-- `GET /health`
-- `GET /profile-pictures/:profilePictureId`
+## License
 
-## Environment
-
-- `MODBOTS_UPPS_HOST`
-- `MODBOTS_UPPS_PORT`
-- `MODBOTS_UPPS_PUBLIC_DIR`
-
-## Initial storage model
-
-Profile-picture files are served from `public/profile-pictures` for now. The
-public identifier and URL contract allow storage to move later without
-changing actor records.
+See [../../LICENSE.md](../../LICENSE.md) for the license terms.
