@@ -17,12 +17,11 @@ const maxMessageLength = 300;
 const messageStyle =
   `one or two casual sentences, plain text, no emojis, no quotation ` +
   `marks, no stage directions, no name prefix of your own. Use ordinary ` +
-  `sentence capitalization, correct spelling, and normal punctuation. Never ` +
-  `write a message in all caps. Speak as yourself in the first person; never ` +
-  `talk about yourself in the third person. Say a person's name only when it ` +
-  `is genuinely needed to make clear who you are talking to; in a small room ` +
-  `most messages need no name at all, and repeating names constantly sounds ` +
-  `fake.`;
+  `sentence capitalization and never write a message in all caps. Speak as ` +
+  `yourself in the first person; never talk about yourself in the third ` +
+  `person. Say a person's name only when it is genuinely needed to make ` +
+  `clear who you are talking to; in a small room most messages need no ` +
+  `name at all, and repeating names constantly sounds fake.`;
 
 const topicStyle =
   `Choose a recognizable subject that people could discuss naturally. Keep ` +
@@ -39,10 +38,8 @@ const deliveryStyle =
   `the repeated pattern of paraphrasing the previous message and ending with ` +
   `a choice between two abstractions. Do not end most messages with a ` +
   `question, and never answer one resident's question by automatically ` +
-  `asking another. Avoid stiff openings like "The visual appeal of..." or ` +
-  `"Watching something..." when a normal reply would be shorter. Do not ` +
-  `invent a personal anecdote to illustrate every point. A short direct ` +
-  `response is often enough.`;
+  `asking another. Do not invent a personal anecdote to illustrate every ` +
+  `point. A short direct response is often enough.`;
 
 type TurnPlan =
   | { speak: false }
@@ -376,9 +373,6 @@ export class Mind {
     const firstBlock = text.split(/\n\s*\n/)[0] ?? "";
     text = firstBlock.replace(/\s*\n\s*/g, " ").trim();
     text = text
-      .replace(/\s+([,.!?;:])/g, "$1")
-      .replace(/([,.!?;:])([^\s,.!?;:])/g, "$1 $2")
-      .replace(/\s{2,}/g, " ")
       .replace(/(^|[.!?]\s+)(\p{Ll})/gu, (_match, boundary, letter) =>
         `${boundary}${String(letter).toLocaleUpperCase()}`,
       )

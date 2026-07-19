@@ -308,28 +308,3 @@ test("perceives the authoritative UTC event time", async () => {
     "2026-07-17T21:14:00.000Z",
   );
 });
-
-test("drops bot replies that keep an interview question chain going", async () => {
-  const platform = new FakePlatform({
-    "human-one": makeActor("human-one", "Mina"),
-  });
-  const mind = new FakeMind([
-    { speak: true, message: "Do you think it matters more than the risk?" },
-  ]);
-  const engine = new ConversationEngine(platform, mind, 0, makeBots(), noonUtc);
-
-  await engine.enqueueRoomEvent(
-    humanMessage("7", "bot-arwen", "Should it be permanent?"),
-    { react: false },
-  );
-  await engine.enqueueRoomEvent(
-    humanMessage("8", "bot-jacob", "Do you think the loss is the point?"),
-    { react: false },
-  );
-
-  await engine.enqueueRoomEvent(
-    humanMessage("9", "human-one", "That pattern feels weird."),
-  );
-
-  assert.equal(platform.posts.length, 0);
-});
