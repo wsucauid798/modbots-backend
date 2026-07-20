@@ -1,6 +1,10 @@
 import type { Mind } from "./mind.js";
 import type { Persona } from "./personas.js";
-import { activityLevelAtUtc, autonomousDelayRange } from "./activity.js";
+import {
+  activityLevelAtUtc,
+  autonomousDelayRange,
+  roomActivityLevelAtUtc,
+} from "./activity.js";
 import { PlatformError } from "./platform.js";
 import type { PlatformClient } from "./platform.js";
 import type { ContentAddress, RoomEvent } from "./platform.js";
@@ -506,9 +510,8 @@ export class ConversationEngine {
 
   public async run(): Promise<void> {
     while (!this.stopped) {
-      const preferredBeforeWait = this.preferredBots();
       const [minimumWait, maximumWait] = autonomousDelayRange(
-        preferredBeforeWait.length,
+        roomActivityLevelAtUtc(this.now()),
       );
       await this.sleep(minimumWait, maximumWait);
 

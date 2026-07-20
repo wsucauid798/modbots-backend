@@ -35,8 +35,6 @@ export interface TopicDecisionResult {
   reason?: string;
 }
 
-const minimumQuietMs = 2 * 60_000;
-const maximumQuietMs = 5 * 60_000;
 const topicCooldownMs = 30 * 60_000;
 const maximumBotTurnsWithoutHuman = 3;
 const maximumTopicIdleMs = 15 * 60_000;
@@ -110,18 +108,11 @@ export class TopicCoordinator {
   private active: ActiveTopic | null = null;
   private readonly recentlyClosed: ClosedTopic[] = [];
   private lastRoomActivityAt = 0;
-  private quietUntil = 0;
   private yieldToHumanUntil = 0;
 
-  public constructor(private readonly random: () => number = Math.random) {}
-
-  public observeHistoricalMessage(type: string, occurredAt: number): void {
+  public observeHistoricalMessage(_type: string, occurredAt: number): void {
     if (Number.isFinite(occurredAt)) {
       this.lastRoomActivityAt = Math.max(this.lastRoomActivityAt, occurredAt);
-    }
-
-    if (type === "human") {
-      this.quietUntil = 0;
     }
   }
 
@@ -130,7 +121,6 @@ export class TopicCoordinator {
       ? occurredAt
       : this.lastRoomActivityAt;
     this.lastRoomActivityAt = Math.max(this.lastRoomActivityAt, effectiveTime);
-    this.quietUntil = 0;
     this.yieldToHumanUntil = Math.max(
       this.yieldToHumanUntil,
       effectiveTime + humanConversationYieldMs,
@@ -153,7 +143,7 @@ export class TopicCoordinator {
       this.active !== null &&
       now - this.active.lastAdvancedAt >= maximumTopicIdleMs
     ) {
-      this.closeActive(now, false);
+      this.closeActive(now);
     }
 
     if (
@@ -161,7 +151,7 @@ export class TopicCoordinator {
       this.active !== null &&
       this.active.botTurnsSinceHuman >= maximumBotTurnsWithoutHuman
     ) {
-      this.closeActive(now, true);
+      this.closeActive(now);
     }
 
     if (trigger === "autonomous" && now < this.yieldToHumanUntil) {
@@ -170,21 +160,6 @@ export class TopicCoordinator {
         questionAllowed: false,
         guidance: "A human just spoke. Give the human conversation room and stay silent.",
       };
-    }
-
-    if (trigger === "autonomous" && this.active === null) {
-      const eligibleAt = Math.max(
-        this.quietUntil,
-        this.lastRoomActivityAt + minimumQuietMs,
-      );
-
-      if (now < eligibleAt) {
-        return {
-          eligible: false,
-          questionAllowed: false,
-          guidance: "The room is resting between topics. Stay silent.",
-        };
-      }
     }
 
     if (this.active === null) {
@@ -307,7 +282,7 @@ export class TopicCoordinator {
 
     if (startsNewTopic) {
       if (this.active !== null) {
-        this.closeActive(now, false);
+        this.closeActive(now);
       }
 
       this.active = {
@@ -350,34 +325,23 @@ export class TopicCoordinator {
 
   public recordPass(availableBots: number, now: number): void {
     if (this.active === null) {
-      this.scheduleQuietPeriod(now);
       return;
     }
 
     this.active.consecutivePasses += 1;
 
     if (this.active.consecutivePasses >= Math.min(2, availableBots)) {
-      this.closeActive(now, true);
+      this.closeActive(now);
     }
   }
 
-  private closeActive(now: number, rest: boolean): void {
+  private closeActive(now: number): void {
     if (this.active !== null) {
       this.recentlyClosed.push({ label: this.active.label, closedAt: now });
       this.active = null;
     }
 
-    if (rest) {
-      this.scheduleQuietPeriod(now);
-    }
-
     this.pruneClosed(now);
-  }
-
-  private scheduleQuietPeriod(now: number): void {
-    const duration =
-      minimumQuietMs + this.random() * (maximumQuietMs - minimumQuietMs);
-    this.quietUntil = Math.max(this.quietUntil, now + duration);
   }
 
   private pruneClosed(now: number): void {

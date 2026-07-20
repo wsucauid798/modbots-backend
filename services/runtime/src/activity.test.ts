@@ -4,6 +4,7 @@ import { test } from "node:test";
 import {
   activityLevelAtUtc,
   autonomousDelayRange,
+  roomActivityLevelAtUtc,
 } from "./activity.js";
 
 const atUtc = (hour: number, minute = 0): Date =>
@@ -33,9 +34,19 @@ test("treats off-peak time as low activity instead of unavailable", () => {
   assert.equal(activityLevelAtUtc(window, atUtc(22)), "low");
 });
 
-test("increases autonomous chat frequency when activity overlaps", () => {
-  assert.deepEqual(autonomousDelayRange(0), [60_000, 180_000]);
-  assert.deepEqual(autonomousDelayRange(1), [18_000, 40_000]);
-  assert.deepEqual(autonomousDelayRange(2), [12_000, 28_000]);
-  assert.deepEqual(autonomousDelayRange(3), [8_000, 20_000]);
+test("uses UTC for the room-wide activity rhythm", () => {
+  assert.equal(roomActivityLevelAtUtc(atUtc(0)), "low");
+  assert.equal(roomActivityLevelAtUtc(atUtc(5, 59)), "low");
+  assert.equal(roomActivityLevelAtUtc(atUtc(6)), "mid");
+  assert.equal(roomActivityLevelAtUtc(atUtc(7, 59)), "mid");
+  assert.equal(roomActivityLevelAtUtc(atUtc(8)), "high");
+  assert.equal(roomActivityLevelAtUtc(atUtc(17, 59)), "high");
+  assert.equal(roomActivityLevelAtUtc(atUtc(18)), "mid");
+  assert.equal(roomActivityLevelAtUtc(atUtc(23, 59)), "mid");
+});
+
+test("keeps autonomous chat active at every activity level", () => {
+  assert.deepEqual(autonomousDelayRange("high"), [8_000, 20_000]);
+  assert.deepEqual(autonomousDelayRange("mid"), [20_000, 45_000]);
+  assert.deepEqual(autonomousDelayRange("low"), [45_000, 90_000]);
 });

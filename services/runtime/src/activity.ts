@@ -58,20 +58,33 @@ export const activityLevelAtUtc = (
   return "low";
 };
 
+export const roomActivityLevelAtUtc = (date: Date): ActivityLevel => {
+  const current = minutesSinceUtcMidnight(date);
+  const lowEnds = 6 * 60;
+  const highStarts = 8 * 60;
+  const highEnds = 18 * 60;
+
+  if (current < lowEnds) {
+    return "low";
+  }
+
+  if (current >= highStarts && current < highEnds) {
+    return "high";
+  }
+
+  return "mid";
+};
+
 export const autonomousDelayRange = (
-  preferredResidents: number,
+  level: ActivityLevel,
 ): readonly [minimumMs: number, maximumMs: number] => {
-  if (preferredResidents >= 3) {
+  if (level === "high") {
     return [8_000, 20_000];
   }
 
-  if (preferredResidents === 2) {
-    return [12_000, 28_000];
+  if (level === "mid") {
+    return [20_000, 45_000];
   }
 
-  if (preferredResidents === 1) {
-    return [18_000, 40_000];
-  }
-
-  return [60_000, 180_000];
+  return [45_000, 90_000];
 };

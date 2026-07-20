@@ -17,17 +17,24 @@ const decision = (
   topicContribution: contribution,
 });
 
-test("waits at least two minutes before autonomous speech after history", () => {
-  const topics = new TopicCoordinator(() => 0);
+test("allows scheduled autonomous speech after loading history", () => {
+  const topics = new TopicCoordinator();
   topics.observeHistoricalMessage("chat_bot", 1_000);
 
-  assert.equal(topics.turnContext("autonomous", 120_999).eligible, false);
-  assert.equal(topics.turnContext("autonomous", 121_000).eligible, true);
+  assert.equal(topics.turnContext("autonomous", 1_001).eligible, true);
   assert.equal(topics.turnContext("human", 1_001).eligible, true);
 });
 
-test("closes a topic after three bot turns without a human", () => {
-  const topics = new TopicCoordinator(() => 0);
+test("a passed turn does not stop an idle room", () => {
+  const topics = new TopicCoordinator();
+
+  topics.recordPass(5, 1_000);
+
+  assert.equal(topics.turnContext("autonomous", 1_001).eligible, true);
+});
+
+test("moves to a new topic without stopping after three bot turns", () => {
+  const topics = new TopicCoordinator();
 
   for (let turn = 0; turn < 3; turn += 1) {
     topics.recordBotTurn(
@@ -38,13 +45,11 @@ test("closes a topic after three bot turns without a human", () => {
     );
   }
 
-  assert.equal(topics.turnContext("autonomous", 30_000).eligible, false);
-  assert.equal(topics.turnContext("autonomous", 149_999).eligible, false);
-  assert.equal(topics.turnContext("autonomous", 150_000).eligible, true);
+  assert.equal(topics.turnContext("autonomous", 30_000).eligible, true);
 });
 
 test("allows only one bot question until a human contributes", () => {
-  const topics = new TopicCoordinator(() => 0);
+  const topics = new TopicCoordinator();
   const first = decision("whether a visible repair tells the object's history", "start");
 
   topics.recordBotTurn(
@@ -74,7 +79,7 @@ test("allows only one bot question until a human contributes", () => {
 });
 
 test("yields autonomous conversation after a human speaks", () => {
-  const topics = new TopicCoordinator(() => 0);
+  const topics = new TopicCoordinator();
   topics.recordBotTurn(
     decision("checking whether the skillet sits flat", "start"),
     "Check whether the skillet sits flat.",
@@ -90,7 +95,7 @@ test("yields autonomous conversation after a human speaks", () => {
 });
 
 test("rejects a repeated angle on the active topic", () => {
-  const topics = new TopicCoordinator(() => 0);
+  const topics = new TopicCoordinator();
   topics.recordBotTurn(
     decision("visible repairs preserve an object's history", "start"),
     "A visible repair preserves the object's history.",
@@ -110,7 +115,7 @@ test("rejects a repeated angle on the active topic", () => {
 });
 
 test("keeps a closed topic on cooldown", () => {
-  const topics = new TopicCoordinator(() => 0);
+  const topics = new TopicCoordinator();
 
   for (let turn = 0; turn < 3; turn += 1) {
     topics.recordBotTurn(
