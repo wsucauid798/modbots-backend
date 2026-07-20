@@ -137,3 +137,22 @@ test("keeps a closed topic on cooldown", () => {
   assert.equal(restart.accepted, false);
   assert.equal(restart.reason, "topic is still on cooldown");
 });
+
+test("tells the next speaker which recently completed topics to avoid", () => {
+  const topics = new TopicCoordinator();
+
+  for (let turn = 0; turn < 3; turn += 1) {
+    topics.recordBotTurn(
+      decision(`new repair angle ${turn}`, turn === 0 ? "start" : "continue"),
+      `Repair statement ${turn}.`,
+      "autonomous",
+      turn * 10_000,
+    );
+  }
+
+  const context = topics.turnContext("autonomous", 30_000);
+
+  assert.equal(context.eligible, true);
+  assert.match(context.guidance, /Recently completed topics: repairing old objects/);
+  assert.match(context.guidance, /Choose a clearly different subject/);
+});

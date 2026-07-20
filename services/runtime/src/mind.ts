@@ -151,6 +151,7 @@ export class Mind {
       `${lines}\n\n` +
       `Shared conversation policy:\n${topicContext.guidance}\n\n` +
       `${hint === null ? "" : `Turn context: ${hint}\n\n`}`;
+    const participantNames = [...roster.residents, ...roster.humans];
 
     const planningSystem =
       `Choose a grounded contribution for a chatroom resident. The room ` +
@@ -175,7 +176,7 @@ export class Mind {
       100,
       0.45,
     );
-    let plan = this.parsePlan(planText);
+    let plan = this.parsePlan(planText, participantNames);
 
     if (plan === null) {
       planText = await this.generate(
@@ -186,7 +187,7 @@ export class Mind {
         100,
         0.1,
       );
-      plan = this.parsePlan(planText);
+      plan = this.parsePlan(planText, participantNames);
     }
 
     if (plan === null || !plan.speak) {
@@ -296,7 +297,10 @@ export class Mind {
     return payload.content;
   }
 
-  private parsePlan(raw: string): TurnPlan | null {
+  private parsePlan(
+    raw: string,
+    participantNames: string[] = [],
+  ): TurnPlan | null {
     const normalized = raw
       .trim()
       .replace(/^```(?:json|text)?\s*/i, "")
@@ -362,6 +366,20 @@ export class Mind {
       } catch {
         // The line protocol above is the primary format.
       }
+    }
+
+    // Small local models sometimes put a participant's name in SOURCE even
+    // though the grounding and the rest of the plan are valid. A named
+    // participant is conversation grounding, so preserve that plan without
+    // accepting arbitrary unrecognized sources.
+    if (
+      source !== undefined &&
+      !sources.has(source) &&
+      participantNames.some(
+        (name) => name.toLowerCase() === source?.toLowerCase(),
+      )
+    ) {
+      source = "conversation";
     }
 
     if (

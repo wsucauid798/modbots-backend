@@ -29,6 +29,7 @@ interface BotState {
   experience: ConversationExperience;
   muted: boolean;
   lastSpokeAt: number;
+  lastAttemptedAt: number;
 }
 
 interface ActorInfo {
@@ -80,7 +81,12 @@ export class ConversationEngine {
     topics: TopicCoordinator = new TopicCoordinator(),
   ) {
     this.topics = topics;
-    this.bots = bots.map((bot) => ({ ...bot, muted: false, lastSpokeAt: 0 }));
+    this.bots = bots.map((bot) => ({
+      ...bot,
+      muted: false,
+      lastSpokeAt: 0,
+      lastAttemptedAt: 0,
+    }));
 
     for (const bot of this.bots) {
       this.actorInfo.set(bot.actorId, {
@@ -308,10 +314,9 @@ export class ConversationEngine {
       .map((line) => line.slice(line.indexOf(":") + 1));
   }
 
-  // The room can converge on a sentence shape (every message opening with
-  // the same word or closing on the same question) and then imitate it
-  // forever. A message that opens or closes the way most recent messages
-  // did is silence instead.
+  // The room can converge on a sentence shape and then imitate it forever.
+  // Match short phrases rather than a single common word so ordinary openers
+  // such as "This" do not suppress otherwise distinct contributions.
   private clonesPattern(content: string): boolean {
     const words = ConversationEngine.normalizedWords(content);
 
@@ -329,11 +334,20 @@ export class ConversationEngine {
         continue;
       }
 
-      if (recentWords[0] === words[0]) {
+      const openerLength = Math.min(2, words.length, recentWords.length);
+      const closerLength = Math.min(2, words.length, recentWords.length);
+
+      if (
+        recentWords.slice(0, openerLength).join(" ") ===
+        words.slice(0, openerLength).join(" ")
+      ) {
         openerMatches += 1;
       }
 
-      if (recentWords[recentWords.length - 1] === words[words.length - 1]) {
+      if (
+        recentWords.slice(-closerLength).join(" ") ===
+        words.slice(-closerLength).join(" ")
+      ) {
         closerMatches += 1;
       }
     }
@@ -379,6 +393,17 @@ export class ConversationEngine {
   }
 
   private guidanceForOpenTurn(): string | null {
+    const recentOpenings = this.transcriptEntries
+      .filter((entry) => entry.type === "chat_bot")
+      .slice(-3)
+      .map((entry) =>
+        ConversationEngine.normalizedWords(entry.content).slice(0, 2).join(" "),
+      )
+      .filter((opening) => opening.length > 0);
+    const styleGuidance =
+      recentOpenings.length === 0
+        ? ""
+        : ` Use a different sentence opening from these recent openings: ${recentOpenings.join(", ")}.`;
     const unanswered = this.recentHumanQuestionWithoutBotReply();
 
     if (
@@ -388,7 +413,7 @@ export class ConversationEngine {
       return (
         `${unanswered.speaker} asked a question and no resident has answered ` +
         `yet: ${unanswered.content} Answer it directly first, then add at ` +
-        `most one small thought of your own.`
+        `most one small thought of your own.${styleGuidance}`
       );
     }
 
@@ -400,11 +425,11 @@ export class ConversationEngine {
     ) {
       return (
         `${last.speaker} just spoke. Do not simply agree with them. Add a ` +
-        `different angle or pass.`
+        `different angle.${styleGuidance}`
       );
     }
 
-    return null;
+    return styleGuidance.trim().length > 0 ? styleGuidance.trim() : null;
   }
 
   private addressedBot(content: string): BotState | undefined {
@@ -523,9 +548,23 @@ export class ConversationEngine {
         continue;
       }
 
-      // The quietest residents get their turn first, with some chance.
-      candidates.sort((a, b) => a.lastSpokeAt - b.lastSpokeAt);
-      const bot = Math.random() < 0.7 ? candidates[0] : pick(candidates);
+      // Rotate attempts as well as successful turns. A resident whose output
+      // is rejected must not monopolize the scheduler simply because they
+      // remain the least recent successful speaker.
+      candidates.sort(
+        (a, b) =>
+          a.lastAttemptedAt - b.lastAttemptedAt ||
+          a.lastSpokeAt - b.lastSpokeAt,
+      );
+      const leastRecentlyAttempted = candidates.filter(
+        (candidate) =>
+          candidate.lastAttemptedAt === candidates[0]?.lastAttemptedAt,
+      );
+      const first = pick(leastRecentlyAttempted);
+      const ordered = [
+        first,
+        ...candidates.filter((candidate) => candidate !== first),
+      ];
       const topicContext = this.topics.turnContext(
         "autonomous",
         this.now().getTime(),
@@ -535,7 +574,27 @@ export class ConversationEngine {
         continue;
       }
 
-      await this.takeTurn(bot, this.guidanceForOpenTurn(), "autonomous");
+      // A scheduled room turn represents intended activity. Try other
+      // residents when a plan is invalid or repetitive so an internal
+      // rejection does not become a long visible silence.
+      for (const bot of ordered.slice(0, Math.min(3, ordered.length))) {
+        if (
+          !this.topics.turnContext("autonomous", this.now().getTime()).eligible
+        ) {
+          break;
+        }
+
+        const posted = await this.takeTurn(
+          bot,
+          this.guidanceForOpenTurn(),
+          "autonomous",
+          true,
+        );
+
+        if (posted) {
+          break;
+        }
+      }
     }
   }
 
@@ -561,6 +620,7 @@ export class ConversationEngine {
     }
 
     try {
+      bot.lastAttemptedAt = this.now().getTime();
       const decision = await this.mind.consider(
         bot.persona,
         {

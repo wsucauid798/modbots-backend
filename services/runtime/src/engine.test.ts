@@ -22,6 +22,7 @@ interface PostedMessage {
 
 class FakePlatform {
   public readonly posts: PostedMessage[] = [];
+  public onPost?: () => void;
 
   public constructor(private readonly actors: Record<string, Actor>) {}
 
@@ -52,12 +53,14 @@ class FakePlatform {
     addressedTo?: ContentAddress[],
   ): Promise<void> {
     this.posts.push({ actorId, content, replyTo, addressedTo });
+    this.onPost?.();
   }
 }
 
 class FakeMind {
   public readonly considered: string[] = [];
   public readonly roomTimesUtc: string[] = [];
+  public readonly allowPassValues: boolean[] = [];
 
   public constructor(
     private readonly decisions: Decision[],
@@ -92,6 +95,7 @@ class FakeMind {
   ): Promise<Decision> {
     this.considered.push(persona.displayName);
     this.roomTimesUtc.push(_roster.roomTimeUtc);
+    this.allowPassValues.push(_allowPass);
 
     if (this.considered.length === 1 && this.firstDecisionDelayMs > 0) {
       await new Promise((resolve) =>
@@ -324,5 +328,49 @@ test("perceives the authoritative UTC event time", async () => {
   assert.equal(
     arwenPerceptions[0]?.occurredAt,
     "2026-07-17T21:14:00.000Z",
+  );
+});
+
+test("a scheduled activity turn rotates residents until one speaks", async () => {
+  const platform = new FakePlatform({});
+  const mind = new FakeMind([
+    { speak: false },
+    { speak: true, message: "There is something different worth noticing." },
+  ]);
+  const engine = new ConversationEngine(platform, mind, 0, makeBots(), noonUtc);
+  platform.onPost = () => engine.stop();
+
+  await engine.run();
+
+  assert.equal(platform.posts.length, 1);
+  assert.equal(mind.considered.length, 2);
+  assert.notEqual(mind.considered[0], mind.considered[1]);
+  assert.deepEqual(mind.allowPassValues, [false, false]);
+});
+
+test("a common first word does not suppress a scheduled contribution", async () => {
+  const platform = new FakePlatform({});
+  const mind = new FakeMind([
+    {
+      speak: true,
+      message: "This separate observation takes the conversation elsewhere.",
+    },
+  ]);
+  const engine = new ConversationEngine(platform, mind, 0, makeBots(), noonUtc);
+  platform.onPost = () => engine.stop();
+
+  await engine.enqueueRoomEvent(
+    humanMessage("7", "bot-arwen", "This morning feels unusually slow."),
+    { react: false },
+  );
+  await engine.enqueueRoomEvent(
+    humanMessage("8", "bot-jacob", "This weather makes the room feel quiet."),
+    { react: false },
+  );
+  await engine.run();
+
+  assert.equal(
+    platform.posts[0]?.content,
+    "This separate observation takes the conversation elsewhere.",
   );
 });

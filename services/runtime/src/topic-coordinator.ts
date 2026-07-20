@@ -139,6 +139,8 @@ export class TopicCoordinator {
   }
 
   public turnContext(trigger: TurnTrigger, now: number): TopicTurnContext {
+    this.pruneClosed(now);
+
     if (
       this.active !== null &&
       now - this.active.lastAdvancedAt >= maximumTopicIdleMs
@@ -163,12 +165,20 @@ export class TopicCoordinator {
     }
 
     if (this.active === null) {
+      const recentlyCompleted = this.recentlyClosed
+        .slice(-5)
+        .map((topic) => topic.label)
+        .join("; ");
+
       return {
         eligible: true,
         questionAllowed: true,
         guidance:
           trigger === "autonomous"
-            ? "There is no active topic. Start one grounded subject with a natural observation. Do not manufacture an event or force a debate."
+            ? "There is no active topic. Start one grounded subject with a natural observation. Do not manufacture an event or force a debate. " +
+              (recentlyCompleted.length > 0
+                ? `Recently completed topics: ${recentlyCompleted}. Choose a clearly different subject.`
+                : "")
             : "There is no active topic. Ground the new topic in the event that triggered this turn.",
       };
     }

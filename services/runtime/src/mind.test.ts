@@ -101,3 +101,39 @@ test("does not speak when a model decision has no topic grounding", async () => 
     globalThis.fetch = originalFetch;
   }
 });
+
+test("treats a participant-named source as conversation grounding", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestCount = 0;
+
+  globalThis.fetch = async () => {
+    requestCount += 1;
+    const content =
+      requestCount === 1
+        ? "MOVE=start|SOURCE=Mira|TOPIC=rainy bike commutes|ANGLE=wet brakes need extra stopping distance|GROUNDING=Mira said she cycled through the rain"
+        : "Wet brakes can make the trip home surprisingly tense.";
+
+    return new Response(
+      JSON.stringify({ content }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  };
+
+  try {
+    const result = await new Mind("http://ml.test").consider(
+      persona,
+      roster,
+      ["Mira: I cycled home through the rain."],
+      "No established experience yet.",
+      null,
+      topicContext,
+      false,
+    );
+
+    assert.equal(result.speak, true);
+    assert.equal(result.topicSource, "conversation");
+    assert.equal(requestCount, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
