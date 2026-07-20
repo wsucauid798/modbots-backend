@@ -31,7 +31,10 @@ def response(status_code, payload):
     return httpx.Response(
         status_code,
         json=payload,
-        request=httpx.Request("POST", "http://inference:8080/test"),
+        request=httpx.Request(
+            "POST",
+            "http://model-runner.docker.internal/v1/test",
+        ),
     )
 
 
@@ -47,6 +50,7 @@ class CpuInferenceTests(unittest.IsolatedAsyncioTestCase):
         result = await main.health()
 
         self.assertEqual(result.status_code, 200)
+        self.assertEqual(main.state["client"].last_health_path, "models")
         self.assertIn(b'"execution":"cpu"', result.body)
         self.assertIn(main.MODEL_ID.encode(), result.body)
 
@@ -92,7 +96,7 @@ class CpuInferenceTests(unittest.IsolatedAsyncioTestCase):
         )
 
         path, payload = client.last_chat_request
-        self.assertEqual(path, "/v1/chat/completions")
+        self.assertEqual(path, "chat/completions")
         self.assertEqual(payload["model"], main.MODEL_ID)
         self.assertEqual(
             payload["messages"],
@@ -110,7 +114,7 @@ class CpuInferenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.usage.cachedInputTokens, 8)
         self.assertEqual(result.usage.outputTokens, 3)
 
-    async def test_image_and_audio_use_llama_multimodal_parts(self):
+    async def test_image_and_audio_use_model_runner_multimodal_parts(self):
         client = FakeClient(
             chat_response=response(
                 200,
@@ -175,7 +179,10 @@ class CpuInferenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(captured.exception.status_code, 429)
 
     async def test_connection_failure_reports_starting_state(self):
-        request = httpx.Request("GET", "http://inference:8080/health")
+        request = httpx.Request(
+            "GET",
+            "http://model-runner.docker.internal/v1/models",
+        )
         main.state["client"] = FakeClient(
             error=httpx.ConnectError("not ready", request=request)
         )

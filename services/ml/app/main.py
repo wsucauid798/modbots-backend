@@ -16,17 +16,13 @@ from .media import (
     process_video,
 )
 
-LLAMA_URL = os.environ.get("LLAMA_URL", "http://inference:8080")
-MODEL_ID = os.environ.get(
-    "MODEL_ID",
-    "google/gemma-4-E4B-it-qat-q4_0-gguf:Q4_0",
+MODEL_URL = os.environ.get(
+    "MODEL_URL",
+    "http://model-runner.docker.internal/engines/v1",
 )
+MODEL_ID = os.environ.get("MODEL_ID", "ai/gemma4")
 INFERENCE_TIMEOUT_SECONDS = float(
     os.environ.get("INFERENCE_TIMEOUT_SECONDS", "600")
-)
-INFERENCE_API_KEY = os.environ.get(
-    "INFERENCE_API_KEY",
-    "local-inference-only",
 )
 
 state: dict[str, httpx.AsyncClient | None] = {"client": None}
@@ -35,8 +31,7 @@ state: dict[str, httpx.AsyncClient | None] = {"client": None}
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     async with httpx.AsyncClient(
-        base_url=LLAMA_URL,
-        headers={"Authorization": f"Bearer {INFERENCE_API_KEY}"},
+        base_url=f"{MODEL_URL.rstrip('/')}/",
         timeout=INFERENCE_TIMEOUT_SECONDS,
     ) as client:
         state["client"] = client
@@ -308,7 +303,7 @@ def _client() -> httpx.AsyncClient:
 @app.get("/health")
 async def health() -> JSONResponse:
     try:
-        response = await _client().get("/health", timeout=5)
+        response = await _client().get("models", timeout=5)
     except HTTPException:
         raise
     except httpx.RequestError:
@@ -362,7 +357,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
 
     try:
         response = await _client().post(
-            "/v1/chat/completions",
+            "chat/completions",
             json={
                 "model": MODEL_ID,
                 "messages": messages,

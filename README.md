@@ -9,7 +9,7 @@ model integration.
 - Windows
 - Node.js 22 or newer
 - npm
-- Docker Desktop
+- Docker Desktop with Docker Model Runner enabled
 
 ## Run for development
 
@@ -23,6 +23,12 @@ Install the Node.js dependencies:
 
 ```powershell
 npm install
+```
+
+Enable Docker Model Runner:
+
+```powershell
+docker desktop enable model-runner
 ```
 
 Start the development stack:
