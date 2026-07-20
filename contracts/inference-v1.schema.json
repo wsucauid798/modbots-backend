@@ -44,6 +44,7 @@
       "required": [
         "artifactId",
         "role",
+        "filename",
         "modelId",
         "revision",
         "format",
@@ -57,7 +58,15 @@
           "$ref": "#/$defs/identifier"
         },
         "role": {
-          "const": "multimodal_reasoning"
+          "enum": [
+            "multimodal_reasoning",
+            "multimodal_projector"
+          ]
+        },
+        "filename": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
         },
         "modelId": {
           "type": "string",
@@ -199,7 +208,7 @@
         "artifacts": {
           "type": "array",
           "minItems": 1,
-          "maxItems": 1,
+          "maxItems": 2,
           "items": {
             "$ref": "#/$defs/artifact"
           }
@@ -492,7 +501,7 @@
             "artifacts": {
               "type": "array",
               "minItems": 1,
-              "maxItems": 1,
+              "maxItems": 2,
               "items": {
                 "$ref": "#/$defs/artifactProvenance"
               }

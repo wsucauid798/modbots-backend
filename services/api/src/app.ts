@@ -16,6 +16,7 @@ import { commandRoutes } from "./routes/commands.js";
 import { contentRoutes } from "./routes/content.js";
 import { credentialRoutes } from "./routes/credentials.js";
 import { healthRoutes } from "./routes/health.js";
+import { inferenceRoutes } from "./routes/inference.js";
 import { moderationRoutes } from "./routes/moderation.js";
 import { mediaRoutes } from "./routes/media.js";
 import { roomRoutes } from "./routes/rooms.js";
@@ -31,6 +32,7 @@ export interface AppDependencies {
   credentials: CredentialRepository;
   moderation: ModerationRepository;
   media: MediaRepository;
+  inferenceManifest: Record<string, unknown>;
   publisher: EventPublisher;
   rooms: RoomRepository;
   sessions: SessionRepository;
@@ -73,6 +75,7 @@ export const buildApp = (dependencies: AppDependencies): FastifyInstance => {
   });
 
   app.register(healthRoutes(dependencies.database, dependencies.publisher));
+  app.register(inferenceRoutes(dependencies.inferenceManifest));
   app.register(actorRoutes(dependencies.actors));
   app.register(roomRoutes(dependencies.rooms, dependencies.publisher));
   app.register(contentRoutes(dependencies.content));

@@ -30,6 +30,7 @@ WORKDIR /app
 ENV NODE_ENV=production
 
 COPY --from=build /app/services/api/dist ./services/api/dist
+COPY contracts ./contracts
 COPY --from=production-deps /app/node_modules ./node_modules
 
 EXPOSE 3001

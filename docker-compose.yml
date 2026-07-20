@@ -28,6 +28,7 @@ services:
       SESSION_TTL_DAYS: ${SESSION_TTL_DAYS:-30}
       ACCOUNT_URL: ${ACCOUNT_URL:-http://account:3003}
       UPPS_PUBLIC_URL: ${UPPS_PUBLIC_URL:-http://localhost:3010}
+      INFERENCE_MANIFEST_PATH: ${INFERENCE_MANIFEST_PATH:-contracts/inference-manifest.json}
     ports:
       - "${PORT:-3001}:${PORT:-3001}"
     depends_on:

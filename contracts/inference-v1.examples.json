@@ -8,13 +8,26 @@
       {
         "artifactId": "conversation-primary",
         "role": "multimodal_reasoning",
+        "filename": "gemma-4-E4B_q4_0-it.gguf",
         "modelId": "approved-gemma-4",
         "revision": "production-1",
         "format": "gguf",
         "quantization": "q4",
         "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "byteLength": "4500000000",
-        "downloadUrl": "https://models.example.test/conversation-primary.gguf"
+        "downloadUrl": "https://models.example.test/gemma-4-E4B_q4_0-it.gguf"
+      },
+      {
+        "artifactId": "conversation-projector",
+        "role": "multimodal_projector",
+        "filename": "gemma-4-E4B-it-mmproj.gguf",
+        "modelId": "approved-gemma-4",
+        "revision": "production-1",
+        "format": "gguf",
+        "quantization": "f16",
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "byteLength": "992000000",
+        "downloadUrl": "https://models.example.test/gemma-4-E4B-it-mmproj.gguf"
       }
     ],
     "pipelines": [

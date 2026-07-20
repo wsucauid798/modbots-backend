@@ -1,6 +1,7 @@
 import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { createDatabase, migrateDatabase } from "./database.js";
+import { loadInferenceManifest } from "./inference-manifest.js";
 import { SessionWriteAuthorizer } from "./domain/auth.js";
 import { CommandService } from "./domain/commands.js";
 import { ModerationPolicy } from "./domain/moderation-policy.js";
@@ -43,6 +44,7 @@ const start = async (): Promise<void> => {
     database,
     moderation: new PostgresModerationRepository(database),
     media,
+    inferenceManifest: loadInferenceManifest(config.inference.manifestPath),
     publisher,
     rooms: new PostgresRoomRepository(database, config.upps.publicUrl),
     sessions,
