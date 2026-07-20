@@ -1,12 +1,6 @@
-import { InferenceRateLimitError } from "./mind.js";
 import type { Mind } from "./mind.js";
 import type { Persona } from "./personas.js";
-import {
-  activityLevelAtUtc,
-  autonomousDelayRange,
-  emptyRoomAutonomousDelayRange,
-  roomActivityLevelAtUtc,
-} from "./activity.js";
+import { activityLevelAtUtc, autonomousDelayRange } from "./activity.js";
 import { PlatformError } from "./platform.js";
 import type { PlatformClient } from "./platform.js";
 import type { ContentAddress, RoomEvent } from "./platform.js";
@@ -14,7 +8,6 @@ import type { RoomContentPart } from "./platform.js";
 import type { AgentExperience } from "./experience.js";
 import { TopicCoordinator } from "./topic-coordinator.js";
 import type { TurnTrigger } from "./topic-coordinator.js";
-import { AutonomousRequestBudget } from "./autonomous-budget.js";
 
 type ConversationPlatform = Pick<
   PlatformClient,
@@ -69,7 +62,6 @@ export class ConversationEngine {
   private stopped = false;
   private lastBotMessageAt = 0;
   private readonly topics: TopicCoordinator;
-  private readonly autonomousBudget: AutonomousRequestBudget;
 
   public constructor(
     private readonly client: ConversationPlatform,
@@ -82,10 +74,8 @@ export class ConversationEngine {
     }>,
     private readonly now: () => Date = () => new Date(),
     topics: TopicCoordinator = new TopicCoordinator(),
-    autonomousBudget: AutonomousRequestBudget = new AutonomousRequestBudget(),
   ) {
     this.topics = topics;
-    this.autonomousBudget = autonomousBudget;
     this.bots = bots.map((bot) => ({ ...bot, muted: false, lastSpokeAt: 0 }));
 
     for (const bot of this.bots) {
@@ -132,13 +122,6 @@ export class ConversationEngine {
   private preferredBots(at: Date = this.now()): BotState[] {
     return this.availableBots().filter((bot) =>
       activityLevelAtUtc(bot.persona.activity, at) !== "low",
-    );
-  }
-
-  private roomActivityLevel(at: Date = this.now()) {
-    return roomActivityLevelAtUtc(
-      this.bots.map((bot) => bot.persona.activity),
-      at,
     );
   }
 
@@ -524,13 +507,9 @@ export class ConversationEngine {
   public async run(): Promise<void> {
     while (!this.stopped) {
       const preferredBeforeWait = this.preferredBots();
-      const emptyRoom = this.humansPresent.size === 0;
-      const [minimumWait, maximumWait] = emptyRoom
-        ? emptyRoomAutonomousDelayRange(
-            this.roomActivityLevel(),
-            this.topics.hasActiveTopic(),
-          )
-        : autonomousDelayRange(preferredBeforeWait.length);
+      const [minimumWait, maximumWait] = autonomousDelayRange(
+        preferredBeforeWait.length,
+      );
       await this.sleep(minimumWait, maximumWait);
 
       const preferred = this.preferredBots();
@@ -578,19 +557,6 @@ export class ConversationEngine {
       return false;
     }
 
-    const emptyRoomAutonomous =
-      trigger === "autonomous" && this.humansPresent.size === 0;
-
-    if (
-      emptyRoomAutonomous &&
-      !this.autonomousBudget.tryConsume(
-        this.roomActivityLevel(),
-        this.now().getTime(),
-      )
-    ) {
-      return false;
-    }
-
     try {
       const decision = await this.mind.consider(
         bot.persona,
@@ -605,8 +571,6 @@ export class ConversationEngine {
         topicContext,
         !mustSpeak,
       );
-      this.autonomousBudget.recordSuccess();
-
       // A human may speak while an autonomous inference request is in
       // flight. Recheck before posting so the completed bot turn yields to
       // the human instead of landing as an immediate pile-on.
@@ -724,16 +688,6 @@ export class ConversationEngine {
         this.topics.recordPass(this.availableBots().length, this.now().getTime());
       }
     } catch (error) {
-      if (error instanceof InferenceRateLimitError) {
-        const delay = this.autonomousBudget.recordRateLimit(
-          this.now().getTime(),
-        );
-        console.warn(
-          `Inference rate limit reached. Empty-room activity is paused for ` +
-            `${Math.ceil(delay / 1_000)} seconds.`,
-        );
-      }
-
       console.error(
         `${bot.persona.displayName} lost their train of thought: ${
           error instanceof Error ? error.message : String(error)

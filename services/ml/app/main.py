@@ -88,16 +88,9 @@ class DerivedObservation(BaseModel):
     endMs: int | None = None
 
 
-class Usage(BaseModel):
-    inputTokens: int = 0
-    cachedInputTokens: int = 0
-    outputTokens: int = 0
-
-
 class ChatResponse(BaseModel):
     content: str
     model: str
-    usage: Usage
     observations: list[DerivedObservation]
 
 
@@ -394,8 +387,6 @@ async def chat(request: ChatRequest) -> ChatResponse:
     try:
         payload = response.json()
         content = payload["choices"][0]["message"]["content"].strip()
-        upstream_usage = payload.get("usage", {})
-        prompt_details = upstream_usage.get("prompt_tokens_details", {})
     except (AttributeError, IndexError, KeyError, TypeError, ValueError) as exception:
         raise HTTPException(
             status_code=502,
@@ -411,10 +402,5 @@ async def chat(request: ChatRequest) -> ChatResponse:
     return ChatResponse(
         content=content,
         model=MODEL_ID,
-        usage=Usage(
-            inputTokens=upstream_usage.get("prompt_tokens", 0),
-            cachedInputTokens=prompt_details.get("cached_tokens", 0),
-            outputTokens=upstream_usage.get("completion_tokens", 0),
-        ),
         observations=observations,
     )

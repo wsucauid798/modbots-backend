@@ -87,7 +87,6 @@ class FakeMind {
       eligible: boolean;
       questionAllowed: boolean;
       guidance: string;
-      trigger: "autonomous" | "human" | "room";
     },
     _allowPass = true,
   ): Promise<Decision> {

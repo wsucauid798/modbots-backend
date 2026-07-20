@@ -6,7 +6,6 @@ export interface TopicTurnContext {
   eligible: boolean;
   questionAllowed: boolean;
   guidance: string;
-  trigger: TurnTrigger;
 }
 
 interface ActiveTopic {
@@ -170,7 +169,6 @@ export class TopicCoordinator {
         eligible: false,
         questionAllowed: false,
         guidance: "A human just spoke. Give the human conversation room and stay silent.",
-        trigger,
       };
     }
 
@@ -185,7 +183,6 @@ export class TopicCoordinator {
           eligible: false,
           questionAllowed: false,
           guidance: "The room is resting between topics. Stay silent.",
-          trigger,
         };
       }
     }
@@ -198,7 +195,6 @@ export class TopicCoordinator {
           trigger === "autonomous"
             ? "There is no active topic. Start one grounded subject with a natural observation. Do not manufacture an event or force a debate."
             : "There is no active topic. Ground the new topic in the event that triggered this turn.",
-        trigger,
       };
     }
 
@@ -219,12 +215,7 @@ export class TopicCoordinator {
         (questionAllowed
           ? "At most one useful question may be asked."
           : "The bot question budget is already used. Do not ask another question."),
-      trigger,
     };
-  }
-
-  public hasActiveTopic(): boolean {
-    return this.active !== null;
   }
 
   public evaluate(

@@ -76,11 +76,6 @@ class CpuInferenceTests(unittest.IsolatedAsyncioTestCase):
                     "choices": [
                         {"message": {"role": "assistant", "content": "Hello."}}
                     ],
-                    "usage": {
-                        "prompt_tokens": 12,
-                        "completion_tokens": 3,
-                        "prompt_tokens_details": {"cached_tokens": 8},
-                    },
                 },
             )
         )
@@ -110,9 +105,6 @@ class CpuInferenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(payload["chat_template_kwargs"]["enable_thinking"])
         self.assertEqual(payload["reasoning_format"], "none")
         self.assertEqual(result.content, "Hello.")
-        self.assertEqual(result.usage.inputTokens, 12)
-        self.assertEqual(result.usage.cachedInputTokens, 8)
-        self.assertEqual(result.usage.outputTokens, 3)
 
     async def test_image_and_audio_use_model_runner_multimodal_parts(self):
         client = FakeClient(
@@ -120,7 +112,6 @@ class CpuInferenceTests(unittest.IsolatedAsyncioTestCase):
                 200,
                 {
                     "choices": [{"message": {"content": "I can perceive both."}}],
-                    "usage": {},
                 },
             )
         )
@@ -163,7 +154,7 @@ class CpuInferenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(content[1]["type"], "input_audio")
         self.assertEqual(content[1]["input_audio"]["format"], "wav")
 
-    async def test_rate_limit_is_preserved_for_runtime_backoff(self):
+    async def test_busy_model_is_reported_as_rate_limited(self):
         main.state["client"] = FakeClient(
             chat_response=response(429, {"error": {"message": "busy"}})
         )
