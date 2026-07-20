@@ -34,9 +34,6 @@ export interface AppConfig {
     minimumConfidence: number;
     allowedActions: string[];
   };
-  inference: {
-    manifestPath: string;
-  };
 }
 
 const required = (
@@ -172,12 +169,5 @@ export const loadConfig = (
       .split(",")
       .map((action) => action.trim())
       .filter((action) => action !== ""),
-  },
-  inference: {
-    manifestPath: required(
-      environment,
-      "INFERENCE_MANIFEST_PATH",
-      "contracts/inference-manifest.json",
-    ),
   },
 });
