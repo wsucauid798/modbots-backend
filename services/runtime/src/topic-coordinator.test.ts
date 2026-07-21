@@ -89,9 +89,9 @@ test("yields autonomous conversation after a human speaks", () => {
 
   topics.noteHumanMessage(2_000);
 
-  assert.equal(topics.turnContext("autonomous", 121_999).eligible, false);
+  assert.equal(topics.turnContext("autonomous", 16_999).eligible, false);
   assert.equal(topics.turnContext("human", 2_001).eligible, true);
-  assert.equal(topics.turnContext("autonomous", 122_000).eligible, true);
+  assert.equal(topics.turnContext("autonomous", 17_000).eligible, true);
 });
 
 test("rejects a repeated angle on the active topic", () => {

@@ -38,7 +38,7 @@ export interface TopicDecisionResult {
 const topicCooldownMs = 30 * 60_000;
 const maximumBotTurnsWithoutHuman = 3;
 const maximumTopicIdleMs = 15 * 60_000;
-const humanConversationYieldMs = 2 * 60_000;
+const humanConversationYieldMs = 15_000;
 
 const stopWords = new Set([
   "a",

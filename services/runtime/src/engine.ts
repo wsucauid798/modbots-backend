@@ -773,7 +773,7 @@ export class ConversationEngine {
 
     // Never talk over another resident.
     const sinceLast = this.now().getTime() - this.lastBotMessageAt;
-    const minimumGap = 6_000 * this.tempo;
+    const minimumGap = 2_000 * this.tempo;
 
     if (sinceLast < minimumGap) {
       await new Promise((resolve) =>
@@ -832,7 +832,7 @@ export class ConversationEngine {
         bot.muted = true;
       } else if (event.type === "actor_unmuted") {
         bot.muted = false;
-        void this.sleep(8_000, 20_000).then(() =>
+        void this.sleep(1_000, 3_000).then(() =>
           this.takeTurn(
             bot,
             "Moderation just unmuted you. A short, graceful acknowledgment is appropriate before rejoining the conversation.",
@@ -894,7 +894,7 @@ export class ConversationEngine {
         const hint =
           `A human named ${info.display} just walked into the room. ` +
           `Greet them briefly without recapping or extending the bots' existing topic.`;
-        await this.sleep(5_000, 14_000);
+        await this.sleep(1_000, 3_000);
         const addressedTo: ContentAddress[] = [
           { targetType: "actor", actorId: event.actorId },
         ];
@@ -1081,7 +1081,7 @@ export class ConversationEngine {
       }
     }
 
-    await this.sleep(3_000, 9_000);
+    await this.sleep(500, 1_500);
     const first = target ?? pick(responsePool);
     const directQuestion = ConversationEngine.asksQuestion(content);
     const greeting =
