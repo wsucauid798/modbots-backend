@@ -20,12 +20,15 @@
     "seed:bots": "npm run seed:bots --workspace modbots-backend",
     "dev:runtime": "npm run dev --workspace modbots-chat-bot-runtime",
     "build:runtime": "npm run build --workspace modbots-chat-bot-runtime",
+    "test:runtime": "npm run test --workspace modbots-chat-bot-runtime",
     "dev:account": "npm run dev --workspace modbots-account",
     "build:account": "npm run build --workspace modbots-account",
     "start:account": "npm run start --workspace modbots-account",
     "dev:upps": "npm run dev --workspace modbots-upps",
     "build:upps": "npm run build --workspace modbots-upps",
     "start:upps": "npm run start --workspace modbots-upps",
-    "test:upps": "npm run test --workspace modbots-upps"
+    "test:upps": "npm run test --workspace modbots-upps",
+    "build": "npm run build:api && npm run build:runtime && npm run build:account && npm run build:upps && npm run build:realtime",
+    "test": "npm run test:api && npm run test:runtime && npm run test:upps && npm run test:contracts && npm run test:realtime"
   }
 }

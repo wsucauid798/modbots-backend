@@ -1,0 +1,167 @@
+name: modbots-backend
+
+services:
+  api:
+    image: ghcr.io/wsucauid798/modbots-backend-api:${MODBOTS_IMAGE_TAG:-0.0.1-alpha}
+    container_name: modbots-backend-api
+    restart: unless-stopped
+    environment:
+      HOST: ${HOST:-0.0.0.0}
+      PORT: ${PORT:-3001}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_DB: ${POSTGRES_DB:-modbots}
+      POSTGRES_USER: ${POSTGRES_USER:-modbots}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      NATS_URL: ${NATS_URL:-nats://nats:4222}
+      S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
+      S3_BUCKET: ${S3_BUCKET:-modbots}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+      MODERATION_MIN_CONFIDENCE: ${MODERATION_MIN_CONFIDENCE:-0.9}
+      MODERATION_ALLOWED_ACTIONS: ${MODERATION_ALLOWED_ACTIONS:-delete_message,mute_actor,unmute_actor,remove_actor}
+      AUTH_MODE: ${AUTH_MODE:-optional}
+      SESSION_TTL_DAYS: ${SESSION_TTL_DAYS:-30}
+      ACCOUNT_URL: ${ACCOUNT_URL:-http://account:3003}
+      UPPS_PUBLIC_URL: ${UPPS_PUBLIC_URL:-http://77.68.50.14:3010}
+    ports:
+      - "${PORT:-3001}:${PORT:-3001}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      nats:
+        condition: service_started
+      minio:
+        condition: service_started
+      upps:
+        condition: service_started
+
+  realtime:
+    image: ghcr.io/wsucauid798/modbots-backend-realtime:${MODBOTS_IMAGE_TAG:-0.0.1-alpha}
+    container_name: modbots-backend-realtime
+    restart: unless-stopped
+    environment:
+      BACKEND_URL: http://api:${PORT:-3001}
+      NATS_URL: nats://nats:4222
+      WEBSOCKET_PORT: 3002
+      WEBTRANSPORT_PORT: 4433
+    ports:
+      - "${REALTIME_PORT:-3002}:3002"
+      - "${WEBTRANSPORT_PORT:-4433}:4433/udp"
+    depends_on:
+      api:
+        condition: service_started
+      nats:
+        condition: service_started
+
+  runtime:
+    image: ghcr.io/wsucauid798/modbots-backend-runtime:${MODBOTS_IMAGE_TAG:-0.0.1-alpha}
+    container_name: modbots-runtime
+    restart: unless-stopped
+    environment:
+      MODBOTS_API_URL: http://api:${PORT:-3001}
+      MODBOTS_REALTIME_URL: ws://realtime:3002
+      MODBOTS_ROOM_ID: ${MODBOTS_ROOM_ID:-global-lobby}
+      CHAT_TEMPO: ${CHAT_TEMPO:-1}
+      ML_URL: http://ml:8000
+    depends_on:
+      api:
+        condition: service_started
+      realtime:
+        condition: service_started
+      ml:
+        condition: service_started
+
+  account:
+    image: ghcr.io/wsucauid798/modbots-backend-account:${MODBOTS_IMAGE_TAG:-0.0.1-alpha}
+    container_name: modbots-account
+    restart: unless-stopped
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3003
+      BACKEND_URL: http://api:${PORT:-3001}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      ACCOUNT_ISSUER: ${ACCOUNT_ISSUER:-http://77.68.50.14:3003}
+      COOKIE_SECRET: ${COOKIE_SECRET}
+      DESKTOP_REDIRECT_URI: ${DESKTOP_REDIRECT_URI:-http://127.0.0.1:53682/callback}
+    ports:
+      - "${ACCOUNT_PORT:-3003}:3003"
+    depends_on:
+      api:
+        condition: service_started
+      redis:
+        condition: service_started
+
+  upps:
+    image: ghcr.io/wsucauid798/modbots-backend-upps:${MODBOTS_IMAGE_TAG:-0.0.1-alpha}
+    container_name: modbots-upps
+    restart: unless-stopped
+    environment:
+      MODBOTS_UPPS_HOST: 0.0.0.0
+      MODBOTS_UPPS_PORT: 3010
+    ports:
+      - "${UPPS_PORT:-3010}:3010"
+
+  ml:
+    image: ghcr.io/wsucauid798/modbots-backend-ml:${MODBOTS_IMAGE_TAG:-0.0.1-alpha}
+    container_name: modbots-ml
+    restart: unless-stopped
+    environment:
+      MODEL_URL: ${MODEL_URL:-http://model-runner.docker.internal/engines/v1}
+      MODEL_ID: ${MODEL_ID:-ai/gemma4}
+      INFERENCE_TIMEOUT_SECONDS: ${INFERENCE_TIMEOUT_SECONDS:-600}
+
+  postgres:
+    image: postgres:17-alpine
+    container_name: modbots-backend-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-modbots}
+      POSTGRES_USER: ${POSTGRES_USER:-modbots}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-modbots} -d ${POSTGRES_DB:-modbots}",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:8-alpine
+    container_name: modbots-backend-redis
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+
+  nats:
+    image: nats:2.11-alpine
+    container_name: modbots-backend-nats
+    restart: unless-stopped
+    command: ["-js", "--store_dir", "/data", "--http_port", "8222"]
+    volumes:
+      - nats-data:/data
+
+  minio:
+    image: minio/minio:RELEASE.2025-06-13T11-33-47Z
+    container_name: modbots-backend-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY}
+    volumes:
+      - minio-data:/data
+
+volumes:
+  postgres-data:
+  redis-data:
+  nats-data:
+  minio-data:
