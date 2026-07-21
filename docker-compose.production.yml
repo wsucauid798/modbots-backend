@@ -6,7 +6,6 @@ services:
     container_name: modbots-backend-api
     restart: unless-stopped
     environment:
-      MODBOTS_ENVIRONMENT: production
       HOST: ${HOST:-0.0.0.0}
       PORT: ${PORT:-3001}
       POSTGRES_HOST: postgres

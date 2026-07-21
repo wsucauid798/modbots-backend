@@ -37,7 +37,6 @@ const start = async (): Promise<void> => {
       database,
       new ModerationPolicy(config.moderation),
       config.upps.publicUrl,
-      config.environment,
     ),
     content: new PostgresContentRepository(database),
     credentials: new PostgresCredentialRepository(database),
