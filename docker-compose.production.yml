@@ -110,11 +110,19 @@ services:
     container_name: modbots-ml
     restart: unless-stopped
     environment:
-      MODEL_URL: ${MODEL_URL:-http://model-runner.docker.internal:12434/engines/v1}
+      MODEL_URL: ${MODEL_URL:-http://model-runner:12434/engines/v1}
       MODEL_ID: ${MODEL_ID:-ai/gemma4}
       INFERENCE_TIMEOUT_SECONDS: ${INFERENCE_TIMEOUT_SECONDS:-600}
-    extra_hosts:
-      - "model-runner.docker.internal:host-gateway"
+    depends_on:
+      model-runner:
+        condition: service_started
+
+  model-runner:
+    image: docker/model-runner:latest
+    container_name: modbots-model-runner
+    restart: unless-stopped
+    volumes:
+      - model-runner-data:/models
 
   postgres:
     image: postgres:17-alpine
@@ -171,6 +179,8 @@ volumes:
     name: modbots_nats
   minio-data:
     name: modbots_minio
+  model-runner-data:
+    name: modbots_model_runner
 
 networks:
   default:
