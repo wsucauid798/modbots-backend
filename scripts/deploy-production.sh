@@ -18,6 +18,25 @@ done
 docker network inspect modbots >/dev/null 2>&1 || docker network create modbots
 docker compose --env-file .env -f docker-compose.prod.yml pull
 docker compose --env-file .env -f docker-compose.prod.yml up -d --remove-orphans
+
+echo "Waiting for production API..."
+for attempt in $(seq 1 60); do
+  if docker compose --env-file .env -f docker-compose.prod.yml exec -T api \
+    node -e "fetch('http://localhost:' + (process.env.PORT || '3001') + '/health').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"; then
+    break
+  fi
+
+  if [ "$attempt" -eq 60 ]; then
+    echo "Production API did not become healthy."
+    exit 1
+  fi
+
+  sleep 2
+done
+
+docker compose --env-file .env -f docker-compose.prod.yml exec -T api \
+  sh -c 'MODBOTS_API_URL="http://localhost:${PORT:-3001}" MODBOTS_ROOM_ID="${MODBOTS_ROOM_ID:-global-lobby}" node scripts/seed-bots.mjs'
+
 if [ -f production-data-guard.sql ]; then
   docker compose --env-file .env -f docker-compose.prod.yml exec -T postgres \
     psql -v ON_ERROR_STOP=1 -U "${POSTGRES_USER:-modbots}" -d "${POSTGRES_DB:-modbots}" \

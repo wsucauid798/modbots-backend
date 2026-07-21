@@ -31,6 +31,7 @@ ENV NODE_ENV=production
 
 COPY --from=build /app/services/api/dist ./services/api/dist
 COPY --from=production-deps /app/node_modules ./node_modules
+COPY scripts/seed-bots.mjs ./scripts/seed-bots.mjs
 
 EXPOSE 3001
 
