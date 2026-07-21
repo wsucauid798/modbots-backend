@@ -1,6 +1,6 @@
 param(
     [string] $ImageTag = "0.0.1-alpha",
-    [string] $SshHost = "earthlink-vps",
+    [string] $SshHost = "modbots-vps",
     [string] $RemotePath = "/opt/modbots/backend",
     [string] $RegistryOwner = "wsucauid798",
     [switch] $LoginGhcr
