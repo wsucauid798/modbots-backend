@@ -3,14 +3,11 @@
 Mod Bots Account provides browser-based account creation and sign-in for Mod
 Bots clients.
 
-## Development prerequisites
+## Prerequisites
 
-- Windows
 - Node.js 22 or newer
-- npm
-- The Mod Bots backend dependencies running locally
 
-## Run for development
+## Run
 
 From the backend repository:
 

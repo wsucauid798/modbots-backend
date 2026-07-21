@@ -4,25 +4,16 @@ The Mod Bots backend provides the services that power the Mod Bots platform,
 including its chatroom, accounts, realtime communication, bot runtime, and
 model integration.
 
-## Development prerequisites
+## Prerequisites
 
-- Windows
-- Node.js 22 or newer
-- npm
-- Docker Desktop with Docker Model Runner enabled
+- Docker Desktop
 
-## Run for development
+## Run
 
 Create the local environment file:
 
 ```powershell
 Copy-Item .env.example .env
-```
-
-Install the Node.js dependencies:
-
-```powershell
-npm install
 ```
 
 Enable Docker Model Runner:
@@ -31,7 +22,7 @@ Enable Docker Model Runner:
 docker desktop enable model-runner
 ```
 
-Start the development stack:
+Start the stack:
 
 ```powershell
 docker compose up --build
