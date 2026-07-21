@@ -63,7 +63,7 @@ jobs:
     needs: publish
     environment:
       name: production
-      url: http://77.68.50.14:3001
+      url: http://77.68.50.14:8443
 
     steps:
       - name: Check out backend repo
@@ -102,3 +102,7 @@ jobs:
           PRODUCTION_SSH_USER: ${{ secrets.PRODUCTION_SSH_USER }}
         run: |
           ssh -i ~/.ssh/modbots-production "$PRODUCTION_SSH_USER@$PRODUCTION_HOST" "cd '$PRODUCTION_PATH' && MODBOTS_IMAGE_TAG='$MODBOTS_IMAGE_TAG' ./deploy-production.sh"
+
+      - name: Verify production API
+        run: |
+          curl --fail --show-error --silent "http://$PRODUCTION_HOST:8443/health"
