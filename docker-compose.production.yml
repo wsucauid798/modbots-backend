@@ -48,9 +48,11 @@ services:
       NATS_URL: nats://nats:4222
       WEBSOCKET_PORT: 3002
       WEBTRANSPORT_PORT: 4433
+      PUBLIC_WEBSOCKET_URL: ${PUBLIC_WEBSOCKET_URL:-ws://77.68.50.14:${REALTIME_PORT:-80}/v1/rooms/{roomId}}
+      PUBLIC_WEBTRANSPORT_URL: ${PUBLIC_WEBTRANSPORT_URL:-https://77.68.50.14:${WEBTRANSPORT_PORT:-4433}/v1/rooms/{roomId}}
     ports:
-      - "${REALTIME_PORT:-3002}:3002"
-      - "${WEBTRANSPORT_PORT:-4443}:4433/udp"
+      - "${REALTIME_PORT:-80}:3002"
+      - "${WEBTRANSPORT_PORT:-4433}:4433/udp"
     depends_on:
       api:
         condition: service_started

@@ -30,7 +30,8 @@ struct AppState {
     certificate_hash: Vec<u8>,
     http: HttpClient,
     hub: Hub,
-    webtransport_port: u16,
+    public_websocket_url: String,
+    public_webtransport_url: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -50,6 +51,10 @@ async fn main() -> Result<()> {
     let webtransport_port = env_port("WEBTRANSPORT_PORT", 4433)?;
     let nats_url = env::var("NATS_URL").unwrap_or_else(|_| "nats://localhost:4222".into());
     let backend_url = env::var("BACKEND_URL").unwrap_or_else(|_| "http://localhost:3001".into());
+    let public_websocket_url = env::var("PUBLIC_WEBSOCKET_URL")
+        .unwrap_or_else(|_| "ws://localhost:3002/v1/rooms/{roomId}".into());
+    let public_webtransport_url = env::var("PUBLIC_WEBTRANSPORT_URL")
+        .unwrap_or_else(|_| format!("https://localhost:{webtransport_port}/v1/rooms/{{roomId}}"));
     let identity = Identity::self_signed(["localhost", "127.0.0.1", "::1"])?;
     let certificate_hash = identity
         .certificate_chain()
@@ -62,7 +67,8 @@ async fn main() -> Result<()> {
         certificate_hash: certificate_hash.as_ref().to_vec(),
         http: HttpClient::new(),
         hub: Hub::default(),
-        webtransport_port,
+        public_websocket_url,
+        public_webtransport_url,
     };
     let nats = connect_nats(&nats_url).await;
 
@@ -108,10 +114,7 @@ async fn realtime_config(State(state): State<AppState>) -> Json<Value> {
         "version": 1,
         "primary": {
             "transport": "webtransport",
-            "url": format!(
-                "https://localhost:{}/v1/rooms/{{roomId}}",
-                state.webtransport_port
-            ),
+            "url": state.public_webtransport_url,
             "serverCertificateHashes": [{
                 "algorithm": "sha-256",
                 "value": state.certificate_hash
@@ -119,7 +122,7 @@ async fn realtime_config(State(state): State<AppState>) -> Json<Value> {
         },
         "fallback": {
             "transport": "websocket",
-            "url": "ws://localhost:3002/v1/rooms/{roomId}"
+            "url": state.public_websocket_url
         }
     }))
 }
