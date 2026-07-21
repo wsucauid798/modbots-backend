@@ -15,6 +15,8 @@ env:
   MODBOTS_IMAGE_TAG: 0.0.1-alpha
   PRODUCTION_HOST: 77.68.50.14
   PRODUCTION_PATH: /home/wsawyerr/modbots
+  PRODUCTION_SSH_USER: wsawyerr
+  PRODUCTION_GHCR_USERNAME: wsucauid798
 
 jobs:
   publish:
@@ -79,8 +81,6 @@ jobs:
           ssh-keyscan -H "$PRODUCTION_HOST" >> ~/.ssh/known_hosts
 
       - name: Upload deployment files
-        env:
-          PRODUCTION_SSH_USER: ${{ secrets.PRODUCTION_SSH_USER }}
         run: |
           ssh -i ~/.ssh/modbots-production "$PRODUCTION_SSH_USER@$PRODUCTION_HOST" "mkdir -p '$PRODUCTION_PATH'"
           scp -i ~/.ssh/modbots-production docker-compose.production.yml "$PRODUCTION_SSH_USER@$PRODUCTION_HOST:$PRODUCTION_PATH/docker-compose.prod.yml"
@@ -89,17 +89,13 @@ jobs:
 
       - name: Log production server in to GitHub Container Registry
         env:
-          PRODUCTION_GHCR_USERNAME: ${{ secrets.PRODUCTION_GHCR_USERNAME }}
           PRODUCTION_GHCR_TOKEN: ${{ secrets.PRODUCTION_GHCR_TOKEN }}
-          PRODUCTION_SSH_USER: ${{ secrets.PRODUCTION_SSH_USER }}
         run: |
           if [ -n "$PRODUCTION_GHCR_TOKEN" ]; then
             printf '%s' "$PRODUCTION_GHCR_TOKEN" | ssh -i ~/.ssh/modbots-production "$PRODUCTION_SSH_USER@$PRODUCTION_HOST" "docker login ghcr.io -u '$PRODUCTION_GHCR_USERNAME' --password-stdin"
           fi
 
       - name: Run production deployment
-        env:
-          PRODUCTION_SSH_USER: ${{ secrets.PRODUCTION_SSH_USER }}
         run: |
           ssh -i ~/.ssh/modbots-production "$PRODUCTION_SSH_USER@$PRODUCTION_HOST" "cd '$PRODUCTION_PATH' && MODBOTS_IMAGE_TAG='$MODBOTS_IMAGE_TAG' ./deploy-production.sh"
 
