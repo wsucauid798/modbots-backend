@@ -11,6 +11,7 @@ $ErrorActionPreference = "Stop"
 ssh $SshHost "mkdir -p '$RemotePath'"
 scp docker-compose.production.yml "${SshHost}:$RemotePath/docker-compose.prod.yml"
 scp scripts/deploy-production.sh "${SshHost}:$RemotePath/deploy-production.sh"
+scp scripts/production-data-guard.sql "${SshHost}:$RemotePath/production-data-guard.sql"
 ssh $SshHost "chmod +x '$RemotePath/deploy-production.sh'"
 
 if ($LoginGhcr) {

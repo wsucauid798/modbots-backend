@@ -18,4 +18,12 @@ done
 docker network inspect modbots >/dev/null 2>&1 || docker network create modbots
 docker compose --env-file .env -f docker-compose.prod.yml pull
 docker compose --env-file .env -f docker-compose.prod.yml up -d --remove-orphans
+if [ -f production-data-guard.sql ]; then
+  docker compose --env-file .env -f docker-compose.prod.yml exec -T postgres \
+    psql -v ON_ERROR_STOP=1 -U "${POSTGRES_USER:-modbots}" -d "${POSTGRES_DB:-modbots}" \
+    < production-data-guard.sql
+else
+  echo "Missing production-data-guard.sql in $(pwd)."
+  exit 1
+fi
 docker compose --env-file .env -f docker-compose.prod.yml ps

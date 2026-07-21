@@ -87,6 +87,7 @@ jobs:
           ssh -i ~/.ssh/modbots-production "$PRODUCTION_SSH_USER@$PRODUCTION_HOST" "mkdir -p '$PRODUCTION_PATH'"
           scp -i ~/.ssh/modbots-production docker-compose.production.yml "$PRODUCTION_SSH_USER@$PRODUCTION_HOST:$PRODUCTION_PATH/docker-compose.prod.yml"
           scp -i ~/.ssh/modbots-production scripts/deploy-production.sh "$PRODUCTION_SSH_USER@$PRODUCTION_HOST:$PRODUCTION_PATH/deploy-production.sh"
+          scp -i ~/.ssh/modbots-production scripts/production-data-guard.sql "$PRODUCTION_SSH_USER@$PRODUCTION_HOST:$PRODUCTION_PATH/production-data-guard.sql"
           ssh -i ~/.ssh/modbots-production "$PRODUCTION_SSH_USER@$PRODUCTION_HOST" "chmod +x '$PRODUCTION_PATH/deploy-production.sh'"
 
       - name: Log production server in to GitHub Container Registry

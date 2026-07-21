@@ -4,6 +4,20 @@ const realtimeBaseUrl =
 const roomId = process.env.MODBOTS_ROOM_ID ?? "global-lobby";
 const timeoutMilliseconds = 10_000;
 
+const isLocalUrl = (rawUrl) => {
+  const { hostname } = new URL(rawUrl);
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+};
+
+if (
+  (!isLocalUrl(apiBaseUrl) || !isLocalUrl(realtimeBaseUrl)) &&
+  process.env.MODBOTS_ALLOW_NONLOCAL_SMOKE !== "1"
+) {
+  throw new Error(
+    "Refusing to run smoke data against a non-local Mod Bots environment. Set MODBOTS_ALLOW_NONLOCAL_SMOKE=1 only when this is intentional.",
+  );
+}
+
 const actors = [
   {
     handle: "smoke-human",
