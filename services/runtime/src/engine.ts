@@ -1,10 +1,6 @@
 import type { Mind } from "./mind.js";
 import type { Persona } from "./personas.js";
-import {
-  activityLevelAtUtc,
-  autonomousDelayRange,
-  roomActivityLevelAtUtc,
-} from "./activity.js";
+import { autonomousDelayRange } from "./activity.js";
 import { PlatformError } from "./platform.js";
 import type { PlatformClient } from "./platform.js";
 import type { ContentAddress, RoomEvent } from "./platform.js";
@@ -129,10 +125,8 @@ export class ConversationEngine {
     return this.bots.filter((bot) => !bot.muted);
   }
 
-  private preferredBots(at: Date = this.now()): BotState[] {
-    return this.availableBots().filter((bot) =>
-      activityLevelAtUtc(bot.persona.activity, at) !== "low",
-    );
+  private preferredBots(): BotState[] {
+    return this.availableBots();
   }
 
   private addressesIn(content: string): {
@@ -535,9 +529,7 @@ export class ConversationEngine {
 
   public async run(): Promise<void> {
     while (!this.stopped) {
-      const [minimumWait, maximumWait] = autonomousDelayRange(
-        roomActivityLevelAtUtc(this.now()),
-      );
+      const [minimumWait, maximumWait] = autonomousDelayRange();
       await this.sleep(minimumWait, maximumWait);
 
       const preferred = this.preferredBots();
@@ -739,16 +731,6 @@ export class ConversationEngine {
   ): Promise<boolean> {
     if (bot.muted || this.stopped) {
       return false;
-    }
-
-    // Never talk over another resident.
-    const sinceLast = this.now().getTime() - this.lastBotMessageAt;
-    const minimumGap = 2_000 * this.tempo;
-
-    if (sinceLast < minimumGap) {
-      await new Promise((resolve) =>
-        setTimeout(resolve, minimumGap - sinceLast),
-      );
     }
 
     try {

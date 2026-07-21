@@ -268,7 +268,7 @@ test("uses one fallback resident when the first resident passes", async () => {
   assert.equal(platform.posts[0]?.content, "I can take that one.");
 });
 
-test("uses an active resident for an unaddressed human message", async () => {
+test("keeps residents eligible regardless of room time", async () => {
   const platform = new FakePlatform({
     "human-one": makeActor("human-one", "Mina"),
   });
@@ -287,7 +287,8 @@ test("uses an active resident for an unaddressed human message", async () => {
     humanMessage("5", "human-one", "Anyone want to hear a strange story?"),
   );
 
-  assert.deepEqual(mind.considered, ["Arwen"]);
+  assert.equal(mind.considered.length, 1);
+  assert.ok(["Arwen", "Jakob"].includes(mind.considered[0] ?? ""));
   assert.deepEqual(mind.roomTimesUtc, ["2026-07-18T05:00:00.000Z"]);
   assert.equal(platform.posts.length, 1);
 });
