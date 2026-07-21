@@ -1,6 +1,5 @@
 import type { Mind } from "./mind.js";
 import type { Persona } from "./personas.js";
-import { autonomousDelayRange } from "./activity.js";
 import { PlatformError } from "./platform.js";
 import type { PlatformClient } from "./platform.js";
 import type { ContentAddress, RoomEvent } from "./platform.js";
@@ -48,8 +47,8 @@ const pick = <Item>(items: Item[]): Item =>
 // The residents' life in the room. Nothing here scripts what a bot says:
 // on each turn a bot perceives the recent conversation and its mind decides
 // whether to speak, whom to address, and whether to change the subject.
-// The engine only provides rhythm (turns, pacing, no talking over each
-// other) and obedience (a muted bot does not speak).
+// The engine keeps the resident loop running and obeys hard room state such
+// as muting. Scheduled turns do not pause for artificial chat limits.
 export class ConversationEngine {
   private readonly bots: BotState[];
   private readonly transcript: string[] = [];
@@ -529,9 +528,6 @@ export class ConversationEngine {
 
   public async run(): Promise<void> {
     while (!this.stopped) {
-      const [minimumWait, maximumWait] = autonomousDelayRange();
-      await this.sleep(minimumWait, maximumWait);
-
       const preferred = this.preferredBots();
       const candidates =
         preferred.length > 0 ? preferred : this.availableBots();
