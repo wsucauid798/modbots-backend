@@ -7,6 +7,7 @@ describe("loadConfig", () => {
     const config = loadConfig({});
 
     assert.equal(config.server.port, 3001);
+    assert.equal(config.environment, "development");
     assert.equal(config.database.host, "localhost");
     assert.equal(config.redisUrl, "redis://localhost:6379");
     assert.equal(config.upps.publicUrl, "http://localhost:3010/");
@@ -44,6 +45,19 @@ describe("loadConfig", () => {
     assert.throws(
       () => loadConfig({ SESSION_TTL_DAYS: "0" }),
       /SESSION_TTL_DAYS must be an integer/,
+    );
+  });
+
+  it("loads production environment mode", () => {
+    const config = loadConfig({ MODBOTS_ENVIRONMENT: "production" });
+
+    assert.equal(config.environment, "production");
+  });
+
+  it("rejects an unknown environment mode", () => {
+    assert.throws(
+      () => loadConfig({ MODBOTS_ENVIRONMENT: "staging" }),
+      /MODBOTS_ENVIRONMENT must be 'development' or 'production'/,
     );
   });
 });

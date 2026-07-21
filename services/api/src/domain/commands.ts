@@ -30,6 +30,7 @@ import {
   notFound,
 } from "./errors.js";
 import { ModerationPolicy } from "./moderation-policy.js";
+import { devActorIdentityReason } from "./productionData.js";
 
 interface EventRow {
   sequence: string;
@@ -838,9 +839,34 @@ export class CommandService implements CommandHandler {
     private readonly database: Pool,
     private readonly moderationPolicy: ModerationPolicy,
     private readonly uppsBaseUrl: string,
+    private readonly environment: "development" | "production" = "development",
   ) {}
 
+  private requireAllowedActorIdentity(input: {
+    id?: string | null;
+    displayName: string;
+    handle?: string | null;
+  }): void {
+    if (this.environment !== "production") {
+      return;
+    }
+
+    const reason = devActorIdentityReason(input);
+
+    if (reason !== null) {
+      throw badRequest(
+        "dev_actor_forbidden",
+        `Production cannot use dev/test actors: ${reason}`,
+      );
+    }
+  }
+
   public async createActor(command: CreateActorCommand): Promise<Actor> {
+    this.requireAllowedActorIdentity({
+      displayName: command.displayName,
+      handle: command.handle,
+    });
+
     const isHuman = command.type === "human";
     let width = discriminatorStartWidth;
     let attemptsAtWidth = 0;
@@ -931,6 +957,12 @@ export class CommandService implements CommandHandler {
     if (actor.display_name === command.displayName) {
       return actorFromRow(actor, this.uppsBaseUrl);
     }
+
+    this.requireAllowedActorIdentity({
+      id: actor.id,
+      displayName: command.displayName,
+      handle: actor.handle,
+    });
 
     const isHuman = actor.actor_type === "human";
     let width = discriminatorStartWidth;
@@ -1059,6 +1091,12 @@ export class CommandService implements CommandHandler {
           `Actor '${command.actorId}' does not exist`,
         );
       }
+
+      this.requireAllowedActorIdentity({
+        id: actor.id,
+        displayName: actor.display_name,
+        handle: actor.handle,
+      });
 
       return actorFromRow(actor, this.uppsBaseUrl);
     } catch (error) {

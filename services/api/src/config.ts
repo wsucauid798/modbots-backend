@@ -1,6 +1,8 @@
 export type AuthMode = "optional" | "required";
+export type AppEnvironment = "development" | "production";
 
 export interface AppConfig {
+  environment: AppEnvironment;
   server: {
     host: string;
     port: number;
@@ -93,6 +95,20 @@ const authMode = (
   return value;
 };
 
+const appEnvironment = (
+  environment: NodeJS.ProcessEnv,
+  name: string,
+  fallback: string,
+): AppEnvironment => {
+  const value = required(environment, name, fallback);
+
+  if (value !== "development" && value !== "production") {
+    throw new Error(`${name} must be 'development' or 'production'`);
+  }
+
+  return value;
+};
+
 const days = (
   environment: NodeJS.ProcessEnv,
   name: string,
@@ -124,6 +140,11 @@ const confidence = (
 export const loadConfig = (
   environment: NodeJS.ProcessEnv = process.env,
 ): AppConfig => ({
+  environment: appEnvironment(
+    environment,
+    "MODBOTS_ENVIRONMENT",
+    "development",
+  ),
   server: {
     host: required(environment, "HOST", "0.0.0.0"),
     port: port(environment, "PORT", "3001"),
