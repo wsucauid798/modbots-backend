@@ -35,6 +35,10 @@ export interface RoomRepository {
     roomId: string,
     options: { after: number; limit: number },
   ): Promise<RoomEvent[] | null>;
+  listRecentEvents(
+    roomId: string,
+    options: { limit: number },
+  ): Promise<RoomEvent[] | null>;
 }
 
 interface OverviewRow {
@@ -200,6 +204,43 @@ export class PostgresRoomRepository implements RoomRepository {
         LIMIT $3
       `,
       [roomId, options.after, options.limit],
+    );
+
+    return result.rows.map((event) => ({
+      sequence: event.sequence,
+      type: event.event_type,
+      actorId: event.actor_id,
+      payload: event.payload,
+      occurredAt: event.occurred_at.toISOString(),
+    }));
+  }
+
+  public async listRecentEvents(
+    roomId: string,
+    options: { limit: number },
+  ): Promise<RoomEvent[] | null> {
+    const room = await this.database.query<{ exists: boolean }>(
+      "SELECT EXISTS (SELECT 1 FROM rooms WHERE id = $1) AS exists",
+      [roomId],
+    );
+
+    if (!room.rows[0]?.exists) {
+      return null;
+    }
+
+    const result = await this.database.query<EventRow>(
+      `
+        SELECT sequence, event_type, actor_id, payload, occurred_at
+        FROM (
+          SELECT sequence, event_type, actor_id, payload, occurred_at
+          FROM room_events
+          WHERE room_id = $1
+          ORDER BY sequence DESC
+          LIMIT $2
+        ) recent_events
+        ORDER BY sequence ASC
+      `,
+      [roomId, options.limit],
     );
 
     return result.rows.map((event) => ({

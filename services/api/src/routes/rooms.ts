@@ -8,6 +8,7 @@ interface RoomParams {
 
 interface EventsQuery {
   after?: string;
+  latest?: string;
   limit?: string;
 }
 
@@ -21,6 +22,25 @@ const parseNonNegativeInteger = (
 
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
+};
+
+const parseBoolean = (
+  value: string | undefined,
+  fallback: boolean,
+): boolean | null => {
+  if (value === undefined) {
+    return fallback;
+  }
+
+  if (value === "true") {
+    return true;
+  }
+
+  if (value === "false") {
+    return false;
+  }
+
+  return null;
 };
 
 export const roomRoutes = (
@@ -71,19 +91,30 @@ export const roomRoutes = (
       "/api/rooms/:roomId/events",
       async (request, reply) => {
         const after = parseNonNegativeInteger(request.query.after, 0);
+        const latest = parseBoolean(request.query.latest, false);
         const requestedLimit = parseNonNegativeInteger(request.query.limit, 100);
 
-        if (after === null || requestedLimit === null || requestedLimit === 0) {
+        if (
+          after === null ||
+          latest === null ||
+          requestedLimit === null ||
+          requestedLimit === 0
+        ) {
           return reply.code(400).send({
             error: "invalid_pagination",
-            message: "'after' must be non-negative and 'limit' must be positive",
+            message:
+              "'after' must be non-negative, 'latest' must be boolean, " +
+              "and 'limit' must be positive",
           });
         }
 
-        const events = await rooms.listEvents(request.params.roomId, {
-          after,
-          limit: Math.min(requestedLimit, 500),
-        });
+        const limit = Math.min(requestedLimit, 500);
+        const events = latest
+          ? await rooms.listRecentEvents(request.params.roomId, { limit })
+          : await rooms.listEvents(request.params.roomId, {
+              after,
+              limit,
+            });
 
         if (events === null) {
           return reply.code(404).send({

@@ -120,6 +120,8 @@ const rooms: RoomRepository = {
         ]
       : null,
   listEvents: async (roomId) => (roomId === "global-lobby" ? [] : null),
+  listRecentEvents: async (roomId) =>
+    roomId === "global-lobby" ? [event] : null,
 };
 
 const moderation: ModerationRepository = {
@@ -341,6 +343,20 @@ describe("room routes", () => {
 
     assert.equal(response.statusCode, 400);
     assert.equal(response.json().error, "invalid_pagination");
+    await app.close();
+  });
+
+  it("returns latest room events without paging through history", async () => {
+    const app = Fastify();
+    await app.register(roomRoutes(rooms, publisher));
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/rooms/global-lobby/events?latest=true&limit=100",
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.json().data[0].sequence, "1");
     await app.close();
   });
 });
