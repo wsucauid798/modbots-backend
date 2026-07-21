@@ -565,25 +565,10 @@ export class ConversationEngine {
         first,
         ...candidates.filter((candidate) => candidate !== first),
       ];
-      const topicContext = this.topics.turnContext(
-        "autonomous",
-        this.now().getTime(),
-      );
-
-      if (!topicContext.eligible) {
-        continue;
-      }
-
       // A scheduled room turn represents intended activity. Try other
-      // residents when a plan is invalid or repetitive so an internal
-      // rejection does not become a long visible silence.
+      // residents when a plan is invalid so an internal problem does not
+      // become a long visible silence.
       for (const bot of ordered.slice(0, Math.min(3, ordered.length))) {
-        if (
-          !this.topics.turnContext("autonomous", this.now().getTime()).eligible
-        ) {
-          break;
-        }
-
         const posted = await this.takeTurn(
           bot,
           this.guidanceForOpenTurn(),
@@ -615,7 +600,7 @@ export class ConversationEngine {
       this.now().getTime(),
     );
 
-    if (!topicContext.eligible) {
+    if (trigger !== "autonomous" && !topicContext.eligible) {
       return false;
     }
 
@@ -634,16 +619,6 @@ export class ConversationEngine {
         topicContext,
         !mustSpeak,
       );
-      // A human may speak while an autonomous inference request is in
-      // flight. Recheck before posting so the completed bot turn yields to
-      // the human instead of landing as an immediate pile-on.
-      if (
-        trigger === "autonomous" &&
-        !this.topics.turnContext(trigger, this.now().getTime()).eligible
-      ) {
-        return false;
-      }
-
       if (decision.speak && decision.message !== undefined) {
         // A message that is nothing but someone's name is a mimicry
         // artifact, not speech.
@@ -664,38 +639,33 @@ export class ConversationEngine {
           return false;
         }
 
-        if (this.echoesTranscript(decision.message)) {
+        if (trigger !== "autonomous" && this.echoesTranscript(decision.message)) {
           console.log(
             `${bot.persona.displayName} stayed silent because the message ` +
               `echoed the recent transcript.`,
           );
 
-          if (trigger === "autonomous") {
-            this.topics.recordPass(this.availableBots().length, this.now().getTime());
-          }
-
           return false;
         }
 
-        if (this.clonesPattern(decision.message)) {
+        if (trigger !== "autonomous" && this.clonesPattern(decision.message)) {
           console.log(
             `${bot.persona.displayName} cloned the room's sentence ` +
               `shape, staying silent: ${decision.message.slice(0, 60)}`,
           );
 
-          if (trigger === "autonomous") {
-            this.topics.recordPass(this.availableBots().length, this.now().getTime());
-          }
-
           return false;
         }
 
-        const evaluated = this.topics.evaluate(
-          decision,
-          decision.message,
-          trigger,
-          this.now().getTime(),
-        );
+        const evaluated =
+          trigger === "autonomous"
+            ? { accepted: true, message: decision.message }
+            : this.topics.evaluate(
+                decision,
+                decision.message,
+                trigger,
+                this.now().getTime(),
+              );
 
         if (!evaluated.accepted || evaluated.message === undefined) {
           console.log(
