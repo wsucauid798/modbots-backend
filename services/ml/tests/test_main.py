@@ -101,7 +101,7 @@ class CpuInferenceTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
         self.assertEqual(payload["max_tokens"], 40)
-        self.assertTrue(payload["cache_prompt"])
+        self.assertFalse(payload["cache_prompt"])
         self.assertFalse(payload["chat_template_kwargs"]["enable_thinking"])
         self.assertEqual(payload["reasoning_format"], "none")
         self.assertEqual(result.content, "Hello.")
