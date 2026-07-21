@@ -1,7 +1,7 @@
 param(
     [string] $ImageTag = "0.0.1-alpha",
     [string] $SshHost = "modbots-vps",
-    [string] $RemotePath = "/opt/modbots/backend",
+    [string] $RemotePath = "/home/wsawyerr/modbots",
     [string] $RegistryOwner = "wsucauid798",
     [switch] $LoginGhcr
 )
@@ -9,7 +9,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 ssh $SshHost "mkdir -p '$RemotePath'"
-scp docker-compose.production.yml "${SshHost}:$RemotePath/docker-compose.yml"
+scp docker-compose.production.yml "${SshHost}:$RemotePath/docker-compose.prod.yml"
 scp scripts/deploy-production.sh "${SshHost}:$RemotePath/deploy-production.sh"
 ssh $SshHost "chmod +x '$RemotePath/deploy-production.sh'"
 

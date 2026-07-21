@@ -15,6 +15,7 @@ for variable in POSTGRES_PASSWORD S3_ACCESS_KEY S3_SECRET_KEY COOKIE_SECRET; do
   fi
 done
 
-docker compose --env-file .env pull
-docker compose --env-file .env up -d --remove-orphans
-docker compose --env-file .env ps
+docker network inspect modbots >/dev/null 2>&1 || docker network create modbots
+docker compose --env-file .env -f docker-compose.prod.yml pull
+docker compose --env-file .env -f docker-compose.prod.yml up -d --remove-orphans
+docker compose --env-file .env -f docker-compose.prod.yml ps

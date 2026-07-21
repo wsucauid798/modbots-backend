@@ -24,9 +24,9 @@ services:
       AUTH_MODE: ${AUTH_MODE:-optional}
       SESSION_TTL_DAYS: ${SESSION_TTL_DAYS:-30}
       ACCOUNT_URL: ${ACCOUNT_URL:-http://account:3003}
-      UPPS_PUBLIC_URL: ${UPPS_PUBLIC_URL:-http://77.68.50.14:3010}
+      UPPS_PUBLIC_URL: ${UPPS_PUBLIC_URL:-http://77.68.50.14:${UPPS_PORT:-3010}}
     ports:
-      - "${PORT:-3001}:${PORT:-3001}"
+      - "${API_PORT:-8443}:3001"
     depends_on:
       postgres:
         condition: service_healthy
@@ -50,7 +50,7 @@ services:
       WEBTRANSPORT_PORT: 4433
     ports:
       - "${REALTIME_PORT:-3002}:3002"
-      - "${WEBTRANSPORT_PORT:-4433}:4433/udp"
+      - "${WEBTRANSPORT_PORT:-4443}:4433/udp"
     depends_on:
       api:
         condition: service_started
@@ -84,11 +84,11 @@ services:
       PORT: 3003
       BACKEND_URL: http://api:${PORT:-3001}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
-      ACCOUNT_ISSUER: ${ACCOUNT_ISSUER:-http://77.68.50.14:3003}
+      ACCOUNT_ISSUER: ${ACCOUNT_ISSUER:-http://77.68.50.14:${ACCOUNT_PORT:-8447}}
       COOKIE_SECRET: ${COOKIE_SECRET}
       DESKTOP_REDIRECT_URI: ${DESKTOP_REDIRECT_URI:-http://127.0.0.1:53682/callback}
     ports:
-      - "${ACCOUNT_PORT:-3003}:3003"
+      - "${ACCOUNT_PORT:-8447}:3003"
     depends_on:
       api:
         condition: service_started
@@ -110,9 +110,11 @@ services:
     container_name: modbots-ml
     restart: unless-stopped
     environment:
-      MODEL_URL: ${MODEL_URL:-http://model-runner.docker.internal/engines/v1}
+      MODEL_URL: ${MODEL_URL:-http://model-runner.docker.internal:12434/engines/v1}
       MODEL_ID: ${MODEL_ID:-ai/gemma4}
       INFERENCE_TIMEOUT_SECONDS: ${INFERENCE_TIMEOUT_SECONDS:-600}
+    extra_hosts:
+      - "model-runner.docker.internal:host-gateway"
 
   postgres:
     image: postgres:17-alpine
@@ -162,6 +164,15 @@ services:
 
 volumes:
   postgres-data:
+    name: modbots_postgres
   redis-data:
+    name: modbots_redis
   nats-data:
+    name: modbots_nats
   minio-data:
+    name: modbots_minio
+
+networks:
+  default:
+    name: modbots
+    external: true

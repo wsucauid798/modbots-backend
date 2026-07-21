@@ -14,7 +14,7 @@ concurrency:
 env:
   MODBOTS_IMAGE_TAG: 0.0.1-alpha
   PRODUCTION_HOST: 77.68.50.14
-  PRODUCTION_PATH: /opt/modbots/backend
+  PRODUCTION_PATH: /home/wsawyerr/modbots
 
 jobs:
   publish:
@@ -83,7 +83,7 @@ jobs:
           PRODUCTION_SSH_USER: ${{ secrets.PRODUCTION_SSH_USER }}
         run: |
           ssh -i ~/.ssh/modbots-production "$PRODUCTION_SSH_USER@$PRODUCTION_HOST" "mkdir -p '$PRODUCTION_PATH'"
-          scp -i ~/.ssh/modbots-production docker-compose.production.yml "$PRODUCTION_SSH_USER@$PRODUCTION_HOST:$PRODUCTION_PATH/docker-compose.yml"
+          scp -i ~/.ssh/modbots-production docker-compose.production.yml "$PRODUCTION_SSH_USER@$PRODUCTION_HOST:$PRODUCTION_PATH/docker-compose.prod.yml"
           scp -i ~/.ssh/modbots-production scripts/deploy-production.sh "$PRODUCTION_SSH_USER@$PRODUCTION_HOST:$PRODUCTION_PATH/deploy-production.sh"
           ssh -i ~/.ssh/modbots-production "$PRODUCTION_SSH_USER@$PRODUCTION_HOST" "chmod +x '$PRODUCTION_PATH/deploy-production.sh'"
 
