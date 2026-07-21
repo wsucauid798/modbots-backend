@@ -46,7 +46,7 @@ test("uses UTC for the room-wide activity rhythm", () => {
 });
 
 test("keeps autonomous chat active at every activity level", () => {
-  assert.deepEqual(autonomousDelayRange("high"), [4_000, 8_000]);
-  assert.deepEqual(autonomousDelayRange("mid"), [6_000, 12_000]);
-  assert.deepEqual(autonomousDelayRange("low"), [10_000, 18_000]);
+  assert.deepEqual(autonomousDelayRange("high"), [2_000, 4_000]);
+  assert.deepEqual(autonomousDelayRange("mid"), [3_000, 6_000]);
+  assert.deepEqual(autonomousDelayRange("low"), [4_000, 8_000]);
 });

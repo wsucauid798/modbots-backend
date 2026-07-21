@@ -32,9 +32,10 @@ test("returns a model-grounded topic decision", async () => {
     ) as Record<string, unknown>;
     requestBodies.push(requestBody);
     const content =
-      requestBodies.length === 1
-        ? "MOVE=continue|SOURCE=conversation|TOPIC=rainy bike commutes|ANGLE=keeping belongings dry|GROUNDING=Mira said she cycled through the rain"
-        : "Getting caught in rain is rough. Did your bag stay dry?";
+      "MOVE=continue|SOURCE=conversation|TOPIC=rainy bike commutes|" +
+      "ANGLE=keeping belongings dry|" +
+      "GROUNDING=Mira said she cycled through the rain|" +
+      "MESSAGE=Getting caught in rain is rough. Did your bag stay dry?";
 
     return new Response(
       JSON.stringify({ content }),
@@ -61,13 +62,13 @@ test("returns a model-grounded topic decision", async () => {
       topicGrounding: "Mira said she cycled through the rain",
       topicContribution: "keeping belongings dry",
     });
-    assert.equal(requestBodies.length, 2);
+    assert.equal(requestBodies.length, 1);
     assert.match(
-      JSON.stringify(requestBodies[1]),
-      /Chosen topic: rainy bike commutes/,
+      JSON.stringify(requestBodies[0]),
+      /Cadence for MESSAGE/,
     );
     assert.match(
-      JSON.stringify(requestBodies[1]),
+      JSON.stringify(requestBodies[0]),
       /never write a message in all caps/,
     );
   } finally {
@@ -109,9 +110,10 @@ test("treats a participant-named source as conversation grounding", async () => 
   globalThis.fetch = async () => {
     requestCount += 1;
     const content =
-      requestCount === 1
-        ? "MOVE=start|SOURCE=Mira|TOPIC=rainy bike commutes|ANGLE=wet brakes need extra stopping distance|GROUNDING=Mira said she cycled through the rain"
-        : "Wet brakes can make the trip home surprisingly tense.";
+      "MOVE=start|SOURCE=Mira|TOPIC=rainy bike commutes|" +
+      "ANGLE=wet brakes need extra stopping distance|" +
+      "GROUNDING=Mira said she cycled through the rain|" +
+      "MESSAGE=Wet brakes can make the trip home surprisingly tense.";
 
     return new Response(
       JSON.stringify({ content }),
@@ -132,7 +134,7 @@ test("treats a participant-named source as conversation grounding", async () => 
 
     assert.equal(result.speak, true);
     assert.equal(result.topicSource, "conversation");
-    assert.equal(requestCount, 2);
+    assert.equal(requestCount, 1);
   } finally {
     globalThis.fetch = originalFetch;
   }
