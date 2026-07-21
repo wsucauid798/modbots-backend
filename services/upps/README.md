@@ -3,13 +3,11 @@
 The Unified Profile-Picture System provides profile pictures for Mod Bots
 actors.
 
-## Development prerequisites
+## Prerequisites
 
-- Windows
 - Node.js 22 or newer
-- npm
 
-## Run for development
+## Run
 
 From the backend repository:
 
