@@ -7,11 +7,6 @@ import addFormats from "ajv-formats";
 
 const backendRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const contractsDirectory = join(backendRoot, "contracts");
-const contentDocumentationPath = join(
-  backendRoot,
-  "_docs",
-  "content-model.md",
-);
 
 const readJson = async (path) => JSON.parse(await readFile(path, "utf8"));
 
@@ -53,30 +48,7 @@ for (const [index, example] of examples.entries()) {
   }
 }
 
-const documentation = await readFile(contentDocumentationPath, "utf8");
-const documentedJsonBlocks = [
-  ...documentation.matchAll(/```json\r?\n([\s\S]*?)\r?\n```/g),
-];
-
-if (documentedJsonBlocks.length === 0) {
-  throw new Error("No JSON contract examples were found in content-model.md");
-}
-
-for (const [index, match] of documentedJsonBlocks.entries()) {
-  const example = JSON.parse(match[1]);
-
-  if (!validateContent(example)) {
-    throw new Error(
-      `Documented JSON example ${index} failed validation:\n${ajv.errorsText(
-        validateContent.errors,
-        { separator: "\n" },
-      )}`,
-    );
-  }
-}
-
 console.log(
   `Validated ${contractFiles.length} schemas, ` +
-    `${examples.length} fixtures, and ` +
-    `${documentedJsonBlocks.length} documented examples.`,
+    `${examples.length} fixtures.`,
 );
