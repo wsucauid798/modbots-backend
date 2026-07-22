@@ -3,6 +3,7 @@ mod protocol;
 mod replay;
 
 use std::env;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
@@ -72,8 +73,18 @@ async fn main() -> Result<()> {
     };
     let nats = connect_nats(&nats_url).await;
 
+    // Bind IPv4 explicitly: a dual-stack wildcard socket answers IPv4
+    // clients from an IPv6-mapped source, which Docker's userland UDP proxy
+    // fails to match back to the client's flow, so handshake replies vanish.
+    let webtransport_address =
+        SocketAddr::from((Ipv4Addr::UNSPECIFIED, webtransport_port));
+
     tokio::spawn(run_nats_subscription(nats, state.hub.clone()));
-    tokio::spawn(run_webtransport(webtransport_port, identity, state.clone()));
+    tokio::spawn(run_webtransport(
+        webtransport_address,
+        identity,
+        state.clone(),
+    ));
 
     let app = Router::new()
         .route("/health", get(health))
@@ -229,9 +240,9 @@ async fn run_nats_subscription(nats: NatsClient, hub: Hub) {
     }
 }
 
-async fn run_webtransport(port: u16, identity: Identity, state: AppState) {
+async fn run_webtransport(address: SocketAddr, identity: Identity, state: AppState) {
     let config = ServerConfig::builder()
-        .with_bind_default(port)
+        .with_bind_address(address)
         .with_identity(identity)
         .keep_alive_interval(Some(Duration::from_secs(10)))
         .build();
@@ -243,7 +254,7 @@ async fn run_webtransport(port: u16, identity: Identity, state: AppState) {
         }
     };
 
-    info!(port, "WebTransport listening");
+    info!(%address, "WebTransport listening");
 
     loop {
         let incoming = endpoint.accept().await;
