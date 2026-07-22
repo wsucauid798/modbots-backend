@@ -390,7 +390,9 @@ export const buildApp = async (
     acceptPolicy?: string;
   }
 
-  app.post<{ Body: GuestLoginBody }>("/guest-login", async (request, reply) => {
+  // Under /login so the OIDC interaction cookie (scoped to the /login
+  // interaction path) reaches the handler; a sibling path never sees it.
+  app.post<{ Body: GuestLoginBody }>("/login/guest", async (request, reply) => {
     const uid = request.body.uid ?? null;
     const screen = screenMode(request.body.screen);
     const displayName = (request.body.displayName ?? "").trim();
