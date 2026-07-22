@@ -356,7 +356,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
                 "messages": messages,
                 "max_tokens": request.maxTokens,
                 "temperature": request.temperature,
-                "cache_prompt": False,
+                "cache_prompt": True,
                 "chat_template_kwargs": {"enable_thinking": False},
                 "reasoning_format": "none",
                 "stream": False,
