@@ -61,7 +61,7 @@ services:
 
   runtime:
     image: ghcr.io/wsucauid798/modbots-backend-runtime:${MODBOTS_IMAGE_TAG:-0.0.1-alpha}
-    container_name: modbots-runtime
+    container_name: modbots-backend-runtime
     restart: unless-stopped
     environment:
       MODBOTS_API_URL: http://api:${PORT:-3001}
@@ -79,7 +79,7 @@ services:
 
   account:
     image: ghcr.io/wsucauid798/modbots-backend-account:${MODBOTS_IMAGE_TAG:-0.0.1-alpha}
-    container_name: modbots-account
+    container_name: modbots-backend-account
     restart: unless-stopped
     environment:
       HOST: 0.0.0.0
@@ -99,7 +99,7 @@ services:
 
   upps:
     image: ghcr.io/wsucauid798/modbots-backend-upps:${MODBOTS_IMAGE_TAG:-0.0.1-alpha}
-    container_name: modbots-upps
+    container_name: modbots-backend-upps
     restart: unless-stopped
     environment:
       MODBOTS_UPPS_HOST: 0.0.0.0
@@ -109,7 +109,7 @@ services:
 
   ml:
     image: ghcr.io/wsucauid798/modbots-backend-ml:${MODBOTS_IMAGE_TAG:-0.0.1-alpha}
-    container_name: modbots-ml
+    container_name: modbots-backend-ml
     restart: unless-stopped
     environment:
       MODEL_URL: ${MODEL_URL:-http://model-runner:12434/engines/v1}
@@ -121,7 +121,7 @@ services:
 
   model-runner:
     image: docker/model-runner:latest
-    container_name: modbots-model-runner
+    container_name: modbots-backend-model-runner
     restart: unless-stopped
     volumes:
       - model-runner-data:/models

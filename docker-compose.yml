@@ -68,7 +68,7 @@ services:
     build:
       context: .
       dockerfile: services/runtime/Dockerfile
-    container_name: modbots-runtime
+    container_name: modbots-backend-runtime
     restart: unless-stopped
     environment:
       MODBOTS_API_URL: http://api:${PORT:-3001}
@@ -89,7 +89,7 @@ services:
     build:
       context: .
       dockerfile: services/account/Dockerfile
-    container_name: modbots-account
+    container_name: modbots-backend-account
     restart: unless-stopped
     environment:
       HOST: 0.0.0.0
@@ -112,7 +112,7 @@ services:
     build:
       context: .
       dockerfile: services/upps/Dockerfile
-    container_name: modbots-upps
+    container_name: modbots-backend-upps
     restart: unless-stopped
     environment:
       MODBOTS_UPPS_HOST: 0.0.0.0
@@ -125,7 +125,7 @@ services:
     build:
       context: ./services/ml
       dockerfile: Dockerfile
-    container_name: modbots-ml
+    container_name: modbots-backend-ml
     restart: unless-stopped
     environment:
       INFERENCE_TIMEOUT_SECONDS: ${INFERENCE_TIMEOUT_SECONDS:-600}
