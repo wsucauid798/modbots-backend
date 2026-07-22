@@ -15,6 +15,8 @@ export interface AppConfig {
     // during the browser sign-in exchange.
     accountUrl: string;
   };
+  // Browser origins allowed to call the API cross-origin (the web app).
+  webOrigins: string[];
   database: {
     host: string;
     port: number;
@@ -140,6 +142,10 @@ export const loadConfig = (
     sessionTtlDays: days(environment, "SESSION_TTL_DAYS", "30"),
     accountUrl: url(environment, "ACCOUNT_URL", "http://localhost:3003"),
   },
+  webOrigins: required(environment, "WEB_ORIGINS", "http://localhost:3000")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter((origin) => origin !== ""),
   database: {
     host: required(environment, "POSTGRES_HOST", "localhost"),
     port: port(environment, "POSTGRES_PORT", "5432"),

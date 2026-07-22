@@ -8,6 +8,7 @@ export interface AccountConfig {
   // Secret for signing the account session cookie and OIDC cookies.
   cookieSecret: string;
   desktopRedirectUri: string;
+  webRedirectUri: string;
 }
 
 export const loadConfig = (
@@ -25,5 +26,7 @@ export const loadConfig = (
       environment.COOKIE_SECRET ?? "dev-only-cookie-secret-change-me",
     desktopRedirectUri:
       environment.DESKTOP_REDIRECT_URI ?? "http://127.0.0.1:53682/callback",
+    webRedirectUri:
+      environment.WEB_REDIRECT_URI ?? "http://localhost:3000/login/callback",
   };
 };

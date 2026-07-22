@@ -13,6 +13,7 @@
     "seed:bots": "node ../../scripts/seed-bots.mjs"
   },
   "dependencies": {
+    "@fastify/cors": "^11.3.0",
     "@nats-io/jetstream": "^3.4.0",
     "@nats-io/transport-node": "^3.4.0",
     "argon2": "^0.44.0",

@@ -28,6 +28,7 @@ services:
       SESSION_TTL_DAYS: ${SESSION_TTL_DAYS:-30}
       ACCOUNT_URL: ${ACCOUNT_URL:-http://account:3003}
       UPPS_PUBLIC_URL: ${UPPS_PUBLIC_URL:-http://localhost:3010}
+      WEB_ORIGINS: ${WEB_ORIGINS:-http://localhost:3000}
     ports:
       - "${PORT:-3001}:${PORT:-3001}"
     depends_on:
@@ -99,6 +100,7 @@ services:
       ACCOUNT_ISSUER: ${ACCOUNT_ISSUER:-http://localhost:3003}
       COOKIE_SECRET: ${COOKIE_SECRET:-dev-only-cookie-secret-change-me}
       DESKTOP_REDIRECT_URI: ${DESKTOP_REDIRECT_URI:-http://127.0.0.1:53682/callback}
+      WEB_REDIRECT_URI: ${WEB_REDIRECT_URI:-http://localhost:3000/login/callback}
     ports:
       - "3003:3003"
     depends_on:

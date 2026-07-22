@@ -1,3 +1,4 @@
+import cors from "@fastify/cors";
 import Fastify, { type FastifyInstance } from "fastify";
 import type { Pool } from "pg";
 import type { WriteAuthorizer } from "./domain/auth.js";
@@ -23,6 +24,8 @@ import { sessionRoutes } from "./routes/sessions.js";
 
 export interface AppDependencies {
   accountUrl: string;
+  // Browser origins allowed to call the API cross-origin (the web app).
+  corsOrigins?: string[];
   database: Pool;
   actors: ActorRepository;
   auth: WriteAuthorizer;
@@ -39,6 +42,11 @@ export interface AppDependencies {
 export const buildApp = (dependencies: AppDependencies): FastifyInstance => {
   const app = Fastify({
     logger: true,
+  });
+
+  app.register(cors, {
+    origin: dependencies.corsOrigins ?? [],
+    methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
   });
 
   app.setErrorHandler((error, _request, reply) => {

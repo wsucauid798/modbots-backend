@@ -31,6 +31,7 @@ const start = async (): Promise<void> => {
   );
   const app = buildApp({
     accountUrl: config.auth.accountUrl,
+    corsOrigins: config.webOrigins,
     actors,
     auth: new SessionWriteAuthorizer(sessions, actors, config.auth.mode),
     commands: new CommandService(

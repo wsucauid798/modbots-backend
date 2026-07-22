@@ -201,7 +201,12 @@ export const buildApp = async (
     );
 
     return reply.view("continue.njk", {
-      clientName: clientId === "modbots-desktop" ? "Mod Bots Desktop" : clientId,
+      clientName:
+        clientId === "modbots-desktop"
+          ? "Mod Bots Desktop"
+          : clientId === "modbots-web"
+            ? "Mod Bots Web"
+            : clientId,
       recoveryCode,
       recoveryMinutes: Math.floor(recoveryCodeTtlSeconds / 60),
       resumeUrl,

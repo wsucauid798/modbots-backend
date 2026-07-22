@@ -144,7 +144,7 @@ const createAdapterClass = (redis: Redis) =>
 
 // First-party clients skip the consent screen: the platform's own apps do
 // not ask the user to grant the platform access to itself.
-const firstPartyClients = new Set(["modbots-desktop"]);
+const firstPartyClients = new Set(["modbots-desktop", "modbots-web"]);
 const desktopCorsOrigins = new Set([
   "tauri://localhost",
   "http://tauri.localhost",
@@ -194,6 +194,15 @@ export const createOidcProvider = async (
         grant_types: ["authorization_code"],
         response_types: ["code"],
         redirect_uris: [config.desktopRedirectUri],
+      },
+      {
+        client_id: "modbots-web",
+        client_name: "Mod Bots Web",
+        application_type: "web",
+        token_endpoint_auth_method: "none",
+        grant_types: ["authorization_code"],
+        response_types: ["code"],
+        redirect_uris: [config.webRedirectUri],
       },
     ],
     cookies: {
