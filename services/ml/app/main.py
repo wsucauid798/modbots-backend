@@ -20,7 +20,7 @@ MODEL_URL = os.environ.get(
     "MODEL_URL",
     "http://model-runner.docker.internal/engines/v1",
 )
-MODEL_ID = os.environ.get("MODEL_ID", "ai/smollm2:360M-Q4_K_M")
+MODEL_ID = os.environ.get("MODEL_ID", "ai/gemma4")
 INFERENCE_TIMEOUT_SECONDS = float(
     os.environ.get("INFERENCE_TIMEOUT_SECONDS", "600")
 )

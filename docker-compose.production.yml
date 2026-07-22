@@ -113,7 +113,7 @@ services:
     restart: unless-stopped
     environment:
       MODEL_URL: ${MODEL_URL:-http://model-runner:12434/engines/v1}
-      MODEL_ID: ${MODEL_ID:-ai/smollm2:360M-Q4_K_M}
+      MODEL_ID: ${MODEL_ID:-ai/gemma4}
       INFERENCE_TIMEOUT_SECONDS: ${INFERENCE_TIMEOUT_SECONDS:-600}
     depends_on:
       model-runner:
