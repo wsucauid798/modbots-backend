@@ -200,7 +200,7 @@ volumes:
 
 models:
   gemma:
-    model: ${MODEL_ID:-ai/gemma4}
+    model: ${MODEL_ID:-ai/smollm2:360M-Q4_K_M}
     runtime_flags:
       - --ctx-size
       - ${MODEL_CONTEXT_SIZE:-4096}
