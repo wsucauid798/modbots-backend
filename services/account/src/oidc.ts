@@ -203,6 +203,8 @@ export const createOidcProvider = async (
         grant_types: ["authorization_code"],
         response_types: ["code"],
         redirect_uris: [config.webRedirectUri],
+        // Web logout ends the provider session and lands back on the app.
+        post_logout_redirect_uris: [new URL("/", config.webRedirectUri).toString()],
       },
     ],
     cookies: {
@@ -235,6 +237,22 @@ export const createOidcProvider = async (
     extraParams: ["screen"],
     features: {
       devInteractions: { enabled: false },
+      rpInitiatedLogout: {
+        enabled: true,
+        // A website's logout is one action, not a questionnaire: submit the
+        // provider's confirmation form automatically.
+        logoutSource: async (ctx, form) => {
+          ctx.body = [
+            "<!DOCTYPE html><html><head><title>Signing out</title></head>",
+            '<body onload="document.forms[0].submit()">',
+            form.replace(
+              "</form>",
+              '<input type="hidden" name="logout" value="yes"/></form>',
+            ),
+            "</body></html>",
+          ].join("");
+        },
+      },
     },
     clientBasedCORS(ctx, origin, client) {
       if (

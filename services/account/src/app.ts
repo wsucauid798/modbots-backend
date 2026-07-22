@@ -167,6 +167,20 @@ export const buildApp = async (
       throw new Error(`OIDC client '${clientId}' was not found`);
     }
 
+    // A web client returns by same-tab redirect, which cannot miss: resume
+    // the flow immediately. The continue page and recovery code exist only
+    // for the desktop hand-off, whose loopback return can fail.
+    if (clientId === "modbots-web") {
+      const resumeUrl = await provider.interactionResult(
+        request.raw,
+        reply.raw,
+        { login: { accountId: actorId } },
+        { mergeWithLastSubmission: false },
+      );
+
+      return reply.redirect(resumeUrl);
+    }
+
     let grantId = interaction.grantId;
 
     if (grantId === undefined) {
