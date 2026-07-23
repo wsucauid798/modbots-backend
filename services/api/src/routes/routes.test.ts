@@ -17,6 +17,13 @@ import { mediaRoutes } from "./media.js";
 import { roomRoutes } from "./rooms.js";
 import { sessionRoutes } from "./sessions.js";
 
+const emptyProfile = {
+  bio: null,
+  pronouns: null,
+  location: null,
+  links: [],
+};
+
 const actors: ActorRepository = {
   getById: async (actorId) => {
     if (actorId === "human-1") {
@@ -29,6 +36,7 @@ const actors: ActorRepository = {
         display: "Test Human-0001",
         profilePictureId: null,
         profilePictureUrl: null,
+        ...emptyProfile,
         type: "human",
         policyVersionAccepted: null,
         policyAcceptedAt: null,
@@ -47,6 +55,7 @@ const actors: ActorRepository = {
         display: "Helper",
         profilePictureId: null,
         profilePictureUrl: null,
+        ...emptyProfile,
         type: "chat_bot",
         policyVersionAccepted: null,
         policyAcceptedAt: null,
@@ -111,6 +120,7 @@ const rooms: RoomRepository = {
             display: "Helper",
             profilePictureId: null,
             profilePictureUrl: null,
+            ...emptyProfile,
             type: "chat_bot",
             policyVersionAccepted: null,
             policyAcceptedAt: null,
@@ -174,6 +184,7 @@ const commands: CommandHandler = {
         : command.displayName,
     profilePictureId: null,
     profilePictureUrl: null,
+    ...emptyProfile,
     type: command.type,
     policyVersionAccepted: command.policyVersionAccepted ?? null,
     policyAcceptedAt:
@@ -192,6 +203,26 @@ const commands: CommandHandler = {
     display: `${command.displayName}-0002`,
     profilePictureId: null,
     profilePictureUrl: null,
+    ...emptyProfile,
+    type: "human",
+    policyVersionAccepted: null,
+    policyAcceptedAt: null,
+    retiredAt: null,
+    createdAt: "2026-01-01T00:00:00.000Z",
+  }),
+  updateActorProfile: async (command) => ({
+    id: command.actorId,
+    handle: "profile-user",
+    displayName: "Profile User",
+    discriminator: "0005",
+    registered: true,
+    display: "Profile User#0005",
+    profilePictureId: null,
+    profilePictureUrl: null,
+    bio: command.bio,
+    pronouns: command.pronouns,
+    location: command.location,
+    links: command.links,
     type: "human",
     policyVersionAccepted: null,
     policyAcceptedAt: null,
@@ -207,6 +238,7 @@ const commands: CommandHandler = {
     display: "Retired-0003",
     profilePictureId: null,
     profilePictureUrl: null,
+    ...emptyProfile,
     type: "human",
     policyVersionAccepted: null,
     policyAcceptedAt: null,
@@ -222,6 +254,7 @@ const commands: CommandHandler = {
     display: "Restored-0004",
     profilePictureId: null,
     profilePictureUrl: null,
+    ...emptyProfile,
     type: "human",
     policyVersionAccepted: null,
     policyAcceptedAt: null,
@@ -393,6 +426,52 @@ describe("command routes", () => {
 
     assert.equal(response.statusCode, 201);
     assert.equal(response.json().displayName, "Second Human");
+    await app.close();
+  });
+
+  it("updates a person's profile through their authenticated session", async () => {
+    const app = Fastify();
+    await app.register(
+      commandRoutes(commands, sessions, requiredAuth, credentials),
+    );
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/api/actors/human-1/profile",
+      headers: { authorization: "Bearer human-1-token" },
+      payload: {
+        bio: "I build careful bots.",
+        pronouns: "they/them",
+        location: "Shanghai",
+        links: ["https://example.com/me"],
+      },
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.json().bio, "I build careful bots.");
+    assert.deepEqual(response.json().links, ["https://example.com/me"]);
+    await app.close();
+  });
+
+  it("rejects non-web profile links", async () => {
+    const app = Fastify();
+    await app.register(
+      commandRoutes(commands, sessions, requiredAuth, credentials),
+    );
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/api/actors/human-1/profile",
+      headers: { authorization: "Bearer human-1-token" },
+      payload: {
+        bio: null,
+        pronouns: null,
+        location: null,
+        links: ["javascript:alert(1)"],
+      },
+    });
+
+    assert.equal(response.statusCode, 400);
     await app.close();
   });
 

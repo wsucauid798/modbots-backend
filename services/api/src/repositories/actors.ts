@@ -22,6 +22,10 @@ export interface Actor {
   display: string;
   profilePictureId: string | null;
   profilePictureUrl: string | null;
+  bio: string | null;
+  pronouns: string | null;
+  location: string | null;
+  links: string[];
   type: ActorType;
   policyVersionAccepted: string | null;
   policyAcceptedAt: string | null;
@@ -46,6 +50,10 @@ export interface ActorRow {
   registered: boolean;
   actor_type: ActorType;
   profile_picture_id: string | null;
+  profile_bio: string | null;
+  profile_pronouns: string | null;
+  profile_location: string | null;
+  profile_links: string[];
   policy_version_accepted: string | null;
   policy_accepted_at: Date | null;
   retired_at: Date | null;
@@ -100,6 +108,10 @@ export const actorFromRow = (actor: ActorRow, uppsBaseUrl: string): Actor => ({
     actor.profile_picture_id,
     uppsBaseUrl,
   ),
+  bio: actor.profile_bio,
+  pronouns: actor.profile_pronouns,
+  location: actor.profile_location,
+  links: actor.profile_links,
   type: actor.actor_type,
   policyVersionAccepted: actor.policy_version_accepted,
   policyAcceptedAt: actor.policy_accepted_at?.toISOString() ?? null,
@@ -107,7 +119,7 @@ export const actorFromRow = (actor: ActorRow, uppsBaseUrl: string): Actor => ({
   createdAt: actor.created_at.toISOString(),
 });
 
-export const selectColumns = `id, handle, display_name, discriminator, registered, actor_type, profile_picture_id, policy_version_accepted, policy_accepted_at, retired_at, created_at`;
+export const selectColumns = `id, handle, display_name, discriminator, registered, actor_type, profile_picture_id, profile_bio, profile_pronouns, profile_location, profile_links, policy_version_accepted, policy_accepted_at, retired_at, created_at`;
 
 export class PostgresActorRepository implements ActorRepository {
   public constructor(

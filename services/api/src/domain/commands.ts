@@ -47,6 +47,10 @@ interface ActorRow {
   registered: boolean;
   actor_type: ActorType;
   profile_picture_id: string | null;
+  profile_bio: string | null;
+  profile_pronouns: string | null;
+  profile_location: string | null;
+  profile_links: string[];
   policy_version_accepted: string | null;
   policy_accepted_at: Date | null;
   retired_at: Date | null;
@@ -82,6 +86,14 @@ export interface CreateActorCommand {
 export interface RenameActorCommand {
   actorId: string;
   displayName: string;
+}
+
+export interface UpdateActorProfileCommand {
+  actorId: string;
+  bio: string | null;
+  pronouns: string | null;
+  location: string | null;
+  links: string[];
 }
 
 export interface RetireActorCommand {
@@ -166,6 +178,7 @@ export interface DecideModerationProposalCommand {
 export interface CommandHandler {
   createActor(command: CreateActorCommand): Promise<Actor>;
   renameActor(command: RenameActorCommand): Promise<Actor>;
+  updateActorProfile(command: UpdateActorProfileCommand): Promise<Actor>;
   retireActor(command: RetireActorCommand): Promise<Actor>;
   restoreActor(command: RestoreActorCommand): Promise<Actor>;
   setPresence(command: PresenceCommand): Promise<RoomEvent>;
@@ -199,6 +212,10 @@ const actorFromRow = (actor: ActorRow, uppsBaseUrl: string): Actor => ({
     actor.profile_picture_id,
     uppsBaseUrl,
   ),
+  bio: actor.profile_bio,
+  pronouns: actor.profile_pronouns,
+  location: actor.profile_location,
+  links: actor.profile_links,
   type: actor.actor_type,
   policyVersionAccepted: actor.policy_version_accepted,
   policyAcceptedAt: actor.policy_accepted_at?.toISOString() ?? null,
@@ -206,7 +223,7 @@ const actorFromRow = (actor: ActorRow, uppsBaseUrl: string): Actor => ({
   createdAt: actor.created_at.toISOString(),
 });
 
-const actorColumns = `id, handle, display_name, discriminator, registered, actor_type, profile_picture_id, policy_version_accepted, policy_accepted_at, retired_at, created_at`;
+const actorColumns = `id, handle, display_name, discriminator, registered, actor_type, profile_picture_id, profile_bio, profile_pronouns, profile_location, profile_links, policy_version_accepted, policy_accepted_at, retired_at, created_at`;
 
 const uniqueViolation = (error: unknown): string | null => {
   if (
@@ -984,6 +1001,39 @@ export class CommandService implements CommandHandler {
         throw error;
       }
     }
+  }
+
+  public async updateActorProfile(
+    command: UpdateActorProfileCommand,
+  ): Promise<Actor> {
+    const result = await this.database.query<ActorRow>(
+      `
+        UPDATE actors
+        SET profile_bio = $2,
+            profile_pronouns = $3,
+            profile_location = $4,
+            profile_links = $5
+        WHERE id = $1
+        RETURNING ${actorColumns}
+      `,
+      [
+        command.actorId,
+        command.bio,
+        command.pronouns,
+        command.location,
+        command.links,
+      ],
+    );
+    const actor = result.rows[0];
+
+    if (actor === undefined) {
+      throw notFound(
+        "actor_not_found",
+        `Actor '${command.actorId}' does not exist`,
+      );
+    }
+
+    return actorFromRow(actor, this.uppsBaseUrl);
   }
 
   public async retireActor(command: RetireActorCommand): Promise<Actor> {

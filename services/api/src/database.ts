@@ -341,6 +341,14 @@ const mediaAssetsMigration = `
     ON media_assets (room_id, created_at);
 `;
 
+const actorProfilesMigration = `
+  ALTER TABLE actors ADD COLUMN IF NOT EXISTS profile_bio text;
+  ALTER TABLE actors ADD COLUMN IF NOT EXISTS profile_pronouns text;
+  ALTER TABLE actors ADD COLUMN IF NOT EXISTS profile_location text;
+  ALTER TABLE actors
+    ADD COLUMN IF NOT EXISTS profile_links text[] NOT NULL DEFAULT '{}';
+`;
+
 const migrations = [
   { version: 1, sql: initialMigration },
   { version: 2, sql: outboxMigration },
@@ -356,6 +364,7 @@ const migrations = [
   { version: 14, sql: profilePicturesMigration },
   { version: 15, sql: contentAddressingMigration },
   { version: 16, sql: mediaAssetsMigration },
+  { version: 17, sql: actorProfilesMigration },
 ] as const;
 
 export const createDatabase = (config: PoolConfig): Pool =>

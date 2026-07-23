@@ -79,6 +79,69 @@ const string = (
   return trimmed;
 };
 
+const optionalProfileString = (
+  body: Record<string, unknown>,
+  field: string,
+  maximum: number,
+): string | null => {
+  const value = body[field];
+
+  if (value === null || value === "") {
+    return null;
+  }
+
+  if (typeof value !== "string") {
+    throw badRequest("invalid_body", `'${field}' must be a string or null`);
+  }
+
+  const trimmed = value.trim();
+
+  if (trimmed.length === 0) {
+    return null;
+  }
+
+  if (trimmed.length > maximum) {
+    throw badRequest(
+      "invalid_body",
+      `'${field}' must not exceed ${maximum} characters`,
+    );
+  }
+
+  return trimmed;
+};
+
+const profileLinks = (body: Record<string, unknown>): string[] => {
+  if (!Array.isArray(body.links) || body.links.length > 4) {
+    throw badRequest("invalid_body", "'links' must be an array of up to 4 URLs");
+  }
+
+  return body.links.map((value, index) => {
+    if (typeof value !== "string" || value.length > 2048) {
+      throw badRequest(
+        "invalid_body",
+        `'links[${index}]' must be a URL of at most 2048 characters`,
+      );
+    }
+
+    let url: URL;
+
+    try {
+      url = new URL(value);
+    } catch {
+      throw badRequest("invalid_body", `'links[${index}]' must be a valid URL`);
+    }
+
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      throw badRequest(
+        "invalid_body",
+        `'links[${index}]' must use HTTP or HTTPS`,
+      );
+    }
+
+    return url.toString();
+  });
+};
+
 const actorId = (body: Record<string, unknown>, field: string): string => {
   const value = string(body, field, { maximum: 64 });
 
@@ -542,6 +605,26 @@ export const commandRoutes = (
         const actor = await commands.renameActor({
           actorId: request.params.actorId,
           displayName: string(body, "displayName", { maximum: 100 }),
+        });
+
+        return reply.code(200).send(actor);
+      },
+    );
+
+    app.patch<{ Params: ActorParams; Body: unknown }>(
+      "/api/actors/:actorId/profile",
+      async (request, reply) => {
+        await auth.authorizeActor(
+          request.headers.authorization,
+          request.params.actorId,
+        );
+        const body = record(request.body);
+        const actor = await commands.updateActorProfile({
+          actorId: request.params.actorId,
+          bio: optionalProfileString(body, "bio", 160),
+          pronouns: optionalProfileString(body, "pronouns", 40),
+          location: optionalProfileString(body, "location", 80),
+          links: profileLinks(body),
         });
 
         return reply.code(200).send(actor);
