@@ -152,6 +152,15 @@ export class Mind {
       `Shared conversation policy:\n${topicContext.guidance}\n\n` +
       `${hint === null ? "" : `Turn context: ${hint}\n\n`}`;
     const participantNames = [...roster.residents, ...roster.humans];
+    const humanTurn = /^The human\b/i.test(hint ?? "");
+    const humanTurnRule = humanTurn
+      ? `For this human-triggered turn, MESSAGE must first respond to ` +
+        `the human's actual words in plain terms. If they asked a direct ` +
+        `question, the first sentence must answer it. Persona can shape ` +
+        `the wording after that, but it cannot replace the answer, dodge ` +
+        `the question, or continue the residents' previous topic as if ` +
+        `the human had not spoken. `
+      : "";
 
     const planningSystem =
       `Choose and write one grounded contribution for a chatroom resident. The room ` +
@@ -166,6 +175,7 @@ export class Mind {
       `ANGLE must state the distinct new contribution this turn adds. It ` +
       `cannot merely restate an angle already covered. MESSAGE must be the ` +
       `exact chat message to post. ` +
+      humanTurnRule +
       (topicContext.questionAllowed
         ? `A question is optional. Ask one only when it genuinely helps and someone is present to answer it. `
         : `Do not ask a question in MESSAGE. End with a statement. `) +

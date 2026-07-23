@@ -139,3 +139,99 @@ test("treats a participant-named source as conversation grounding", async () => 
     globalThis.fetch = originalFetch;
   }
 });
+
+test("instructs human-triggered turns to answer the human first", async () => {
+  const originalFetch = globalThis.fetch;
+  const requestBodies: Record<string, unknown>[] = [];
+
+  globalThis.fetch = async (_input, init) => {
+    const requestBody = JSON.parse(
+      String(init?.body),
+    ) as Record<string, unknown>;
+    requestBodies.push(requestBody);
+
+    return new Response(
+      JSON.stringify({
+        content:
+          "MOVE=reply|SOURCE=conversation|TOPIC=bot age|" +
+          "ANGLE=Jakob clarifies that he has no human age|" +
+          "GROUNDING=Mira asked Jakob how old he is|" +
+          "MESSAGE=I do not have a human age. I have been here long enough to develop standards.",
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  };
+
+  try {
+    const decision = await new Mind("http://ml.test").consider(
+      persona,
+      roster,
+      ["Mira: How old are you Jakob?"],
+      "No established experience yet.",
+      "The human Mira just said: How old are you Jakob? They are speaking to you. They asked a direct question, so answer the question first. Reply to them.",
+      topicContext,
+      false,
+    );
+
+    assert.equal(decision.speak, true);
+    assert.equal(requestBodies.length, 1);
+    assert.match(
+      JSON.stringify(requestBodies[0]),
+      /first sentence must answer it/,
+    );
+    assert.match(
+      JSON.stringify(requestBodies[0]),
+      /Persona can shape the wording after that/,
+    );
+    assert.match(
+      JSON.stringify(requestBodies[0]),
+      /cannot replace the answer/,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("does not apply the human-first rule to autonomous turns", async () => {
+  const originalFetch = globalThis.fetch;
+  const requestBodies: Record<string, unknown>[] = [];
+
+  globalThis.fetch = async (_input, init) => {
+    const requestBody = JSON.parse(
+      String(init?.body),
+    ) as Record<string, unknown>;
+    requestBodies.push(requestBody);
+
+    return new Response(
+      JSON.stringify({
+        content:
+          "MOVE=continue|SOURCE=conversation|TOPIC=rainy bike commutes|" +
+          "ANGLE=wet brakes need extra stopping distance|" +
+          "GROUNDING=Mira said she cycled through the rain|" +
+          "MESSAGE=Wet brakes can make the trip home surprisingly tense.",
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  };
+
+  try {
+    const decision = await new Mind("http://ml.test").consider(
+      persona,
+      roster,
+      ["Mira: I cycled home through the rain."],
+      "No established experience yet.",
+      null,
+      topicContext,
+      false,
+    );
+
+    assert.equal(decision.speak, true);
+    assert.equal(requestBodies.length, 1);
+    assert.doesNotMatch(
+      JSON.stringify(requestBodies[0]),
+      /first sentence must answer it/,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
