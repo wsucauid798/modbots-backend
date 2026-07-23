@@ -3,12 +3,23 @@ set -eu
 
 : "${MODBOTS_IMAGE_TAG:?Set MODBOTS_IMAGE_TAG before running production deploy.}"
 
+if [ "${MODBOTS_DEPLOY_SOURCE:-}" != "github-actions" ]; then
+  echo "Production deploys must run through GitHub CI."
+  exit 1
+fi
+
 if [ ! -f .env ]; then
   echo "Missing .env in $(pwd). Create it on the server before deploying."
   exit 1
 fi
 
-for variable in POSTGRES_PASSWORD S3_ACCESS_KEY S3_SECRET_KEY COOKIE_SECRET; do
+for variable in \
+  PRODUCTION_POSTGRES_PASSWORD \
+  PRODUCTION_S3_ACCESS_KEY \
+  PRODUCTION_S3_SECRET_KEY \
+  PRODUCTION_COOKIE_SECRET \
+  PRODUCTION_WEB_ORIGINS \
+  PRODUCTION_WEB_REDIRECT_URI; do
   if ! grep -Eq "^${variable}=.+" .env; then
     echo "Missing required ${variable} in $(pwd)/.env."
     exit 1

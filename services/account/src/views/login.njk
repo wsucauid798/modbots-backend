@@ -6,6 +6,7 @@
 {% block content %}
   <form method="post" action="/login" novalidate>
     {% if uid %}<input type="hidden" name="uid" value="{{ uid }}" />{% endif %}
+    {% if returnTo %}<input type="hidden" name="returnTo" value="{{ returnTo }}" />{% endif %}
     <input type="hidden" name="screen" value="login" />
 
     <label class="flex cursor-pointer items-start gap-3" for="acceptPolicy">
@@ -97,6 +98,6 @@
   {% endif %}
   <p class="mt-5 text-center text-sm text-zinc-500">
     New here?
-    <a class="font-medium text-zinc-300 hover:text-white" href="/login?screen=register{% if uid %}&uid={{ uid }}{% endif %}">Create an account</a>
+    <a class="font-medium text-zinc-300 hover:text-white" href="/register{% if uid %}?uid={{ uid }}{% endif %}">Create an account</a>
   </p>
 {% endblock %}

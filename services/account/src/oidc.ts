@@ -270,9 +270,9 @@ export const createOidcProvider = async (
     },
     interactions: {
       url: (ctx, interaction) =>
-        `/login?uid=${interaction.uid}${
-          ctx.oidc.params?.screen === "register" ? "&screen=register" : ""
-        }`,
+        ctx.oidc.params?.screen === "register"
+          ? `/register?uid=${interaction.uid}`
+          : `/login?uid=${interaction.uid}`,
     },
     async findAccount(_ctx, id) {
       try {

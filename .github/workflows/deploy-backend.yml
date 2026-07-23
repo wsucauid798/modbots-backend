@@ -100,7 +100,7 @@ jobs:
 
       - name: Run production deployment
         run: |
-          ssh -i ~/.ssh/modbots-production "$PRODUCTION_SSH_USER@$PRODUCTION_HOST" "cd '$PRODUCTION_PATH' && MODBOTS_IMAGE_TAG='$MODBOTS_IMAGE_TAG' ./deploy-production.sh"
+          ssh -i ~/.ssh/modbots-production "$PRODUCTION_SSH_USER@$PRODUCTION_HOST" "cd '$PRODUCTION_PATH' && MODBOTS_IMAGE_TAG='$MODBOTS_IMAGE_TAG' MODBOTS_DEPLOY_SOURCE=github-actions ./deploy-production.sh"
 
       - name: Verify production API
         run: |

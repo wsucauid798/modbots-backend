@@ -1,26 +1,3 @@
-param(
-    [string] $ImageTag = "0.0.1-alpha",
-    [string] $SshHost = "modbots-vps",
-    [string] $RemotePath = "/home/wsawyerr/modbots",
-    [string] $RegistryOwner = "wsucauid798",
-    [switch] $LoginGhcr
-)
-
 $ErrorActionPreference = "Stop"
 
-ssh $SshHost "mkdir -p '$RemotePath'"
-scp docker-compose.production.yml "${SshHost}:$RemotePath/docker-compose.prod.yml"
-scp scripts/deploy-production.sh "${SshHost}:$RemotePath/deploy-production.sh"
-scp scripts/production-data-guard.sql "${SshHost}:$RemotePath/production-data-guard.sql"
-ssh $SshHost "chmod +x '$RemotePath/deploy-production.sh'"
-
-if ($LoginGhcr) {
-    $token = gh auth token
-    if (-not $token) {
-        throw "GitHub CLI is not authenticated. Run gh auth login first."
-    }
-
-    $token | ssh $SshHost "docker login ghcr.io -u '$RegistryOwner' --password-stdin"
-}
-
-ssh $SshHost "cd '$RemotePath' && MODBOTS_IMAGE_TAG='$ImageTag' ./deploy-production.sh"
+throw "Production deploys must run through GitHub CI. Test locally, push to GitHub, let CI pass, then run the Deploy Backend workflow."

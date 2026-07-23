@@ -40,6 +40,13 @@ interface PageValues {
   acceptPolicy?: boolean;
 }
 
+interface AuthViewModel {
+  uid: string | null;
+  returnTo: string | null;
+  errors: Record<string, string>;
+  values: PageValues;
+}
+
 const isExpiredInteraction = (error: unknown): boolean =>
   error instanceof Error && error.name === "SessionNotFound";
 
@@ -78,6 +85,9 @@ export const buildApp = async (
 ): Promise<FastifyInstance> => {
   const app = Fastify({ logger: true });
   const redis = new Redis(config.redisUrl);
+  type OidcClient = NonNullable<
+    Awaited<ReturnType<typeof provider.Client.find>>
+  >;
 
   // The provider is mounted as middleware ahead of Fastify's body parsing:
   // its endpoints read the raw request stream themselves, and a parsed
@@ -138,11 +148,7 @@ export const buildApp = async (
   const renderAuthView = (
     reply: { view: Function; code: (statusCode: number) => { view: Function } },
     screen: ScreenMode,
-    model: {
-      uid: string | null;
-      errors: Record<string, string>;
-      values: PageValues;
-    },
+    model: AuthViewModel,
     statusCode?: number,
   ) => {
     const viewName = screen === "register" ? "register.njk" : "login.njk";
@@ -154,32 +160,54 @@ export const buildApp = async (
     return reply.code(statusCode).view(viewName, model);
   };
 
-  const beginDesktopHandoff = async (
+  const appReturnPath = (raw: string | undefined): string | null => {
+    const value = raw?.trim();
+
+    if (value === undefined || value.length === 0) {
+      return null;
+    }
+
+    try {
+      const issuer = new URL(config.issuer);
+      const parsed = new URL(value, issuer);
+
+      if (
+        parsed.origin !== issuer.origin ||
+        parsed.pathname !== "/oidc/auth" ||
+        parsed.searchParams.get("client_id") !== "modbots-web"
+      ) {
+        return null;
+      }
+
+      return `${parsed.pathname}${parsed.search}`;
+    } catch {
+      return null;
+    }
+  };
+
+  const completeWebHandoff = async (
     request: FastifyRequest,
     reply: FastifyReply,
     actorId: string,
   ) => {
+    const resumeUrl = await provider.interactionResult(
+      request.raw,
+      reply.raw,
+      { login: { accountId: actorId } },
+      { mergeWithLastSubmission: false },
+    );
+
+    return reply.redirect(resumeUrl);
+  };
+
+  const completeDesktopHandoff = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+    actorId: string,
+    clientId: string,
+    client: OidcClient,
+  ) => {
     const interaction = await provider.interactionDetails(request.raw, reply.raw);
-    const clientId = String(interaction.params.client_id ?? "");
-    const client = await provider.Client.find(clientId);
-
-    if (client === undefined) {
-      throw new Error(`OIDC client '${clientId}' was not found`);
-    }
-
-    // A web client returns by same-tab redirect, which cannot miss: resume
-    // the flow immediately. The continue page and recovery code exist only
-    // for the desktop hand-off, whose loopback return can fail.
-    if (clientId === "modbots-web") {
-      const resumeUrl = await provider.interactionResult(
-        request.raw,
-        reply.raw,
-        { login: { accountId: actorId } },
-        { mergeWithLastSubmission: false },
-      );
-
-      return reply.redirect(resumeUrl);
-    }
 
     let grantId = interaction.grantId;
 
@@ -218,13 +246,31 @@ export const buildApp = async (
       clientName:
         clientId === "modbots-desktop"
           ? "Mod Bots Desktop"
-          : clientId === "modbots-web"
-            ? "Mod Bots Web"
-            : clientId,
+          : clientId,
       recoveryCode,
       recoveryMinutes: Math.floor(recoveryCodeTtlSeconds / 60),
       resumeUrl,
     });
+  };
+
+  const completeAppHandoff = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+    actorId: string,
+  ) => {
+    const interaction = await provider.interactionDetails(request.raw, reply.raw);
+    const clientId = String(interaction.params.client_id ?? "");
+    const client = await provider.Client.find(clientId);
+
+    if (client === undefined) {
+      throw new Error(`OIDC client '${clientId}' was not found`);
+    }
+
+    if (clientId === "modbots-web") {
+      return completeWebHandoff(request, reply, actorId);
+    }
+
+    return completeDesktopHandoff(request, reply, actorId, clientId, client);
   };
 
   app.get("/health", async () => ({ status: "ok", service: "account" }));
@@ -238,15 +284,22 @@ export const buildApp = async (
 
   interface LoginQuery {
     uid?: string;
+    returnTo?: string;
     screen?: string;
   }
 
-  // One front door: /login. Registration is a mode of the same surface
-  // (?screen=register), never a separately routed destination. When the
-  // pending interaction asks for consent (a native client is completing
-  // sign-in), the page is the continue confirmation instead of a form.
-  app.get<{ Querystring: LoginQuery }>("/login", async (request, reply) => {
-    const { uid, screen } = request.query;
+  // Logging in and registering are two destinations with two addresses:
+  // /login and /register. Both resume a pending OIDC interaction the same
+  // way, so the interaction handling is shared. When that interaction asks
+  // for consent (a native client is completing sign-in), the page is the
+  // continue confirmation instead of a form.
+  const renderAuthPage = async (
+    request: FastifyRequest<{ Querystring: LoginQuery }>,
+    reply: FastifyReply,
+    screen: ScreenMode,
+  ) => {
+    const { uid } = request.query;
+    const returnTo = appReturnPath(request.query.returnTo);
 
     if (uid !== undefined) {
       try {
@@ -278,6 +331,26 @@ export const buildApp = async (
           );
           return reply;
         }
+
+        const actorId = sessionActorId(request);
+
+        if (actorId !== null) {
+          try {
+            const actor = await backend.getActor(actorId);
+
+            if (actor.retiredAt === null) {
+              return await completeAppHandoff(request, reply, actor.id);
+            }
+
+            reply.clearCookie(sessionCookie, { path: "/" });
+          } catch (error) {
+            if (!(error instanceof BackendError && error.status === 404)) {
+              throw error;
+            }
+
+            reply.clearCookie(sessionCookie, { path: "/" });
+          }
+        }
       } catch (error) {
         if (!isExpiredInteraction(error)) {
           throw error;
@@ -302,15 +375,47 @@ export const buildApp = async (
       }
     }
 
-    return renderAuthView(reply, screenMode(screen), {
+    return renderAuthView(reply, screen, {
       uid: uid ?? null,
+      returnTo,
       errors: {},
       values: {},
     });
+  };
+
+  app.get<{ Querystring: LoginQuery }>("/login", async (request, reply) => {
+    // The old address for registration. Kept as a redirect so links already
+    // in the wild, and any client still sending the hint, land on /register.
+    if (screenMode(request.query.screen) === "register") {
+      const query = new URLSearchParams();
+
+      if (request.query.uid !== undefined) {
+        query.set("uid", request.query.uid);
+      }
+
+      const returnTo = appReturnPath(request.query.returnTo);
+
+      if (returnTo !== null) {
+        query.set("returnTo", returnTo);
+      }
+
+      const queryString = query.toString();
+
+      return reply.redirect(
+        queryString.length === 0 ? "/register" : `/register?${queryString}`,
+      );
+    }
+
+    return renderAuthPage(request, reply, "login");
   });
+
+  app.get<{ Querystring: LoginQuery }>("/register", async (request, reply) =>
+    renderAuthPage(request, reply, "register"),
+  );
 
   interface LoginBody {
     uid?: string;
+    returnTo?: string;
     screen?: string;
     username?: string;
     password?: string;
@@ -319,6 +424,7 @@ export const buildApp = async (
 
   app.post<{ Body: LoginBody }>("/login", async (request, reply) => {
     const uid = request.body.uid ?? null;
+    const returnTo = appReturnPath(request.body.returnTo);
     const screen = screenMode(request.body.screen);
     const username = (request.body.username ?? "").trim();
     const password = request.body.password ?? "";
@@ -358,6 +464,7 @@ export const buildApp = async (
         screen,
         {
           uid,
+          returnTo,
           errors: byField(errors),
           values: { username, acceptPolicy: accepted },
         },
@@ -369,7 +476,7 @@ export const buildApp = async (
 
     if (uid !== null) {
       try {
-        return await beginDesktopHandoff(request, reply, actor.id);
+        return await completeAppHandoff(request, reply, actor.id);
       } catch (error) {
         if (!isExpiredInteraction(error)) {
           throw error;
@@ -394,11 +501,12 @@ export const buildApp = async (
       }
     }
 
-    return reply.redirect("/account");
+    return reply.redirect(returnTo ?? "/account");
   });
 
   interface GuestLoginBody {
     uid?: string;
+    returnTo?: string;
     screen?: string;
     displayName?: string;
     acceptPolicy?: string;
@@ -408,6 +516,7 @@ export const buildApp = async (
   // interaction path) reaches the handler; a sibling path never sees it.
   app.post<{ Body: GuestLoginBody }>("/login/guest", async (request, reply) => {
     const uid = request.body.uid ?? null;
+    const returnTo = appReturnPath(request.body.returnTo);
     const screen = screenMode(request.body.screen);
     const displayName = (request.body.displayName ?? "").trim();
     const accepted = request.body.acceptPolicy === "on";
@@ -423,6 +532,7 @@ export const buildApp = async (
     if (errors.length > 0) {
       return renderAuthView(reply, screen, {
         uid,
+        returnTo,
         errors: byField(errors),
         values: { displayName, acceptPolicy: accepted },
       });
@@ -435,7 +545,7 @@ export const buildApp = async (
 
     if (uid !== null) {
       try {
-        return await beginDesktopHandoff(request, reply, outcome.actor.id);
+        return await completeAppHandoff(request, reply, outcome.actor.id);
       } catch (error) {
         if (!isExpiredInteraction(error)) {
           throw error;
@@ -459,7 +569,7 @@ export const buildApp = async (
       }
     }
 
-    return reply.redirect("/account");
+    return reply.redirect(returnTo ?? "/account");
   });
 
   interface CancelBody {
@@ -539,6 +649,7 @@ export const buildApp = async (
 
   interface RegisterBody {
     uid?: string;
+    returnTo?: string;
     username?: string;
     displayName?: string;
     password?: string;
@@ -547,6 +658,7 @@ export const buildApp = async (
 
   app.post<{ Body: RegisterBody }>("/register", async (request, reply) => {
     const uid = request.body.uid ?? null;
+    const returnTo = appReturnPath(request.body.returnTo);
     const username = (request.body.username ?? "").trim();
     const displayName = (request.body.displayName ?? "").trim();
     const password = request.body.password ?? "";
@@ -578,6 +690,7 @@ export const buildApp = async (
     const renderErrors = (code: number) =>
       reply.code(code).view("register.njk", {
         uid,
+        returnTo,
         errors: byField(errors),
         values: { username, displayName, acceptPolicy: accepted },
       });
@@ -613,7 +726,7 @@ export const buildApp = async (
 
     if (uid !== null) {
       try {
-        return await beginDesktopHandoff(request, reply, actorId);
+        return await completeAppHandoff(request, reply, actorId);
       } catch (error) {
         if (!isExpiredInteraction(error)) {
           throw error;
@@ -638,7 +751,7 @@ export const buildApp = async (
       }
     }
 
-    return reply.redirect("/account");
+    return reply.redirect(returnTo ?? "/account");
   });
 
   app.get("/account", async (request, reply) => {
