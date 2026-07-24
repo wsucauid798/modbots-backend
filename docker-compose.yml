@@ -28,6 +28,8 @@ services:
       SESSION_TTL_DAYS: ${SESSION_TTL_DAYS:-30}
       ACCOUNT_URL: ${ACCOUNT_URL:-http://account:3003}
       UPPS_PUBLIC_URL: ${UPPS_PUBLIC_URL:-http://localhost:3010}
+      UPPS_INTERNAL_URL: http://upps:3010
+      UPPS_SERVICE_TOKEN: ${UPPS_SERVICE_TOKEN:-dev-only-upps-service-token-change-me}
       WEB_ORIGINS: ${WEB_ORIGINS:-http://localhost:3000}
     ports:
       - "${PORT:-3001}:${PORT:-3001}"
@@ -119,8 +121,11 @@ services:
     environment:
       MODBOTS_UPPS_HOST: 0.0.0.0
       MODBOTS_UPPS_PORT: 3010
+      MODBOTS_UPPS_SERVICE_TOKEN: ${UPPS_SERVICE_TOKEN:-dev-only-upps-service-token-change-me}
     ports:
       - "3010:3010"
+    volumes:
+      - upps-profile-pictures:/app/services/upps/public/profile-pictures/uploads
 
   ml:
     image: modbots-ml:local
@@ -199,6 +204,7 @@ volumes:
   redis-data:
   nats-data:
   minio-data:
+  upps-profile-pictures:
 
 models:
   gemma:

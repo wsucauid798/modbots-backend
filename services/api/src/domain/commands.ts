@@ -96,6 +96,11 @@ export interface UpdateActorProfileCommand {
   links: string[];
 }
 
+export interface UpdateActorProfilePictureCommand {
+  actorId: string;
+  profilePictureId: string | null;
+}
+
 export interface RetireActorCommand {
   actorId: string;
 }
@@ -179,6 +184,9 @@ export interface CommandHandler {
   createActor(command: CreateActorCommand): Promise<Actor>;
   renameActor(command: RenameActorCommand): Promise<Actor>;
   updateActorProfile(command: UpdateActorProfileCommand): Promise<Actor>;
+  updateActorProfilePicture(
+    command: UpdateActorProfilePictureCommand,
+  ): Promise<Actor>;
   retireActor(command: RetireActorCommand): Promise<Actor>;
   restoreActor(command: RestoreActorCommand): Promise<Actor>;
   setPresence(command: PresenceCommand): Promise<RoomEvent>;
@@ -1023,6 +1031,30 @@ export class CommandService implements CommandHandler {
         command.location,
         command.links,
       ],
+    );
+    const actor = result.rows[0];
+
+    if (actor === undefined) {
+      throw notFound(
+        "actor_not_found",
+        `Actor '${command.actorId}' does not exist`,
+      );
+    }
+
+    return actorFromRow(actor, this.uppsBaseUrl);
+  }
+
+  public async updateActorProfilePicture(
+    command: UpdateActorProfilePictureCommand,
+  ): Promise<Actor> {
+    const result = await this.database.query<ActorRow>(
+      `
+        UPDATE actors
+        SET profile_picture_id = $2
+        WHERE id = $1
+        RETURNING ${actorColumns}
+      `,
+      [command.actorId, command.profilePictureId],
     );
     const actor = result.rows[0];
 

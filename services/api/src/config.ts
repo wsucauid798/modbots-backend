@@ -7,6 +7,8 @@ export interface AppConfig {
   };
   upps: {
     publicUrl: string;
+    internalUrl: string;
+    serviceToken: string;
   };
   auth: {
     mode: AuthMode;
@@ -135,6 +137,16 @@ export const loadConfig = (
       environment,
       "UPPS_PUBLIC_URL",
       "http://localhost:3010",
+    ),
+    internalUrl: url(
+      environment,
+      "UPPS_INTERNAL_URL",
+      "http://localhost:3010",
+    ),
+    serviceToken: required(
+      environment,
+      "UPPS_SERVICE_TOKEN",
+      "dev-only-upps-service-token-change-me",
     ),
   },
   auth: {

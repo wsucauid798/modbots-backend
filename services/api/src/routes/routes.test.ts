@@ -8,12 +8,14 @@ import type { CredentialRepository } from "../repositories/credentials.js";
 import type { EventPublisher } from "../events/outbox-publisher.js";
 import type { ModerationRepository } from "../repositories/moderation.js";
 import type { MediaRepository } from "../repositories/media.js";
+import type { ProfilePictureStore } from "../repositories/profile-pictures.js";
 import type { RoomRepository } from "../repositories/rooms.js";
 import type { SessionRepository } from "../repositories/sessions.js";
 import { actorRoutes } from "./actors.js";
 import { commandRoutes } from "./commands.js";
 import { moderationRoutes } from "./moderation.js";
 import { mediaRoutes } from "./media.js";
+import { profilePictureRoutes } from "./profile-pictures.js";
 import { roomRoutes } from "./rooms.js";
 import { sessionRoutes } from "./sessions.js";
 
@@ -157,6 +159,15 @@ const media: MediaRepository = {
   data: async () => null,
 };
 
+const profilePictures: ProfilePictureStore = {
+  upload: async () => ({
+    profilePictureId: "user-11111111-1111-4111-8111-111111111111",
+    contentType: "image/png",
+    byteLength: 32,
+  }),
+  remove: async () => true,
+};
+
 const publisher: EventPublisher = {
   start: () => undefined,
   stop: async () => undefined,
@@ -223,6 +234,25 @@ const commands: CommandHandler = {
     pronouns: command.pronouns,
     location: command.location,
     links: command.links,
+    type: "human",
+    policyVersionAccepted: null,
+    policyAcceptedAt: null,
+    retiredAt: null,
+    createdAt: "2026-01-01T00:00:00.000Z",
+  }),
+  updateActorProfilePicture: async (command) => ({
+    id: command.actorId,
+    handle: "profile-user",
+    displayName: "Profile User",
+    discriminator: "0005",
+    registered: true,
+    display: "Profile User#0005",
+    profilePictureId: command.profilePictureId,
+    profilePictureUrl:
+      command.profilePictureId === null
+        ? null
+        : `http://localhost:3010/profile-pictures/${command.profilePictureId}`,
+    ...emptyProfile,
     type: "human",
     policyVersionAccepted: null,
     policyAcceptedAt: null,
@@ -644,6 +674,96 @@ describe("command routes", () => {
       kind: "image",
       mediaAssetId: "asset-1",
     });
+    await app.close();
+  });
+});
+
+describe("profile picture routes", () => {
+  it("uploads to UPPS, assigns the new picture, and removes the replaced picture", async () => {
+    const previousActor = await actors.getById("human-1");
+    assert.notEqual(previousActor, null);
+    const actorRepository: ActorRepository = {
+      ...actors,
+      getById: async () => ({
+        ...previousActor!,
+        profilePictureId: "user-previous",
+        profilePictureUrl:
+          "http://localhost:3010/profile-pictures/user-previous",
+      }),
+    };
+    const removed: string[] = [];
+    const store: ProfilePictureStore = {
+      ...profilePictures,
+      remove: async (profilePictureId) => {
+        removed.push(profilePictureId);
+        return true;
+      },
+    };
+    const app = Fastify();
+    await app.register(
+      profilePictureRoutes(
+        actorRepository,
+        requiredAuth,
+        commands,
+        store,
+      ),
+    );
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/actors/human-1/profile-picture",
+      headers: { authorization: "Bearer human-1-token" },
+      payload: { data: "iVBORw0KGgo=" },
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(
+      response.json().profilePictureId,
+      "user-11111111-1111-4111-8111-111111111111",
+    );
+    assert.deepEqual(removed, ["user-previous"]);
+    await app.close();
+  });
+
+  it("clears the actor picture and removes its UPPS file", async () => {
+    const previousActor = await actors.getById("human-1");
+    assert.notEqual(previousActor, null);
+    const actorRepository: ActorRepository = {
+      ...actors,
+      getById: async () => ({
+        ...previousActor!,
+        profilePictureId: "user-previous",
+        profilePictureUrl:
+          "http://localhost:3010/profile-pictures/user-previous",
+      }),
+    };
+    const removed: string[] = [];
+    const store: ProfilePictureStore = {
+      ...profilePictures,
+      remove: async (profilePictureId) => {
+        removed.push(profilePictureId);
+        return true;
+      },
+    };
+    const app = Fastify();
+    await app.register(
+      profilePictureRoutes(
+        actorRepository,
+        requiredAuth,
+        commands,
+        store,
+      ),
+    );
+
+    const response = await app.inject({
+      method: "DELETE",
+      url: "/api/actors/human-1/profile-picture",
+      headers: { authorization: "Bearer human-1-token" },
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.json().profilePictureId, null);
+    assert.deepEqual(removed, ["user-previous"]);
     await app.close();
   });
 });

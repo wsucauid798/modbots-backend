@@ -13,6 +13,7 @@ import {
   MediaObjectStorage,
   PostgresMediaRepository,
 } from "./repositories/media.js";
+import { UppsProfilePictureStore } from "./repositories/profile-pictures.js";
 import { PostgresRoomRepository } from "./repositories/rooms.js";
 import { PostgresSessionRepository } from "./repositories/sessions.js";
 
@@ -44,6 +45,10 @@ const start = async (): Promise<void> => {
     database,
     moderation: new PostgresModerationRepository(database),
     media,
+    profilePictures: new UppsProfilePictureStore(
+      config.upps.internalUrl,
+      config.upps.serviceToken,
+    ),
     publisher,
     rooms: new PostgresRoomRepository(database, config.upps.publicUrl),
     sessions,

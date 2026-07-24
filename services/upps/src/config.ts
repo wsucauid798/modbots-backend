@@ -11,6 +11,7 @@ export interface UppsConfig {
     port: number;
   };
   publicDir: string;
+  serviceToken: string;
 }
 
 export const loadConfig = (): UppsConfig => ({
@@ -21,4 +22,7 @@ export const loadConfig = (): UppsConfig => ({
   publicDir:
     process.env.MODBOTS_UPPS_PUBLIC_DIR ??
     path.join(projectRoot, "public"),
+  serviceToken:
+    process.env.MODBOTS_UPPS_SERVICE_TOKEN ??
+    "dev-only-upps-service-token-change-me",
 });

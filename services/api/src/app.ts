@@ -2,7 +2,7 @@ import cors from "@fastify/cors";
 import Fastify, { type FastifyInstance } from "fastify";
 import type { Pool } from "pg";
 import type { WriteAuthorizer } from "./domain/auth.js";
-import type { CommandService } from "./domain/commands.js";
+import type { CommandHandler } from "./domain/commands.js";
 import { DomainError } from "./domain/errors.js";
 import type { EventPublisher } from "./events/outbox-publisher.js";
 import type { ActorRepository } from "./repositories/actors.js";
@@ -10,6 +10,7 @@ import type { ContentRepository } from "./repositories/content.js";
 import type { CredentialRepository } from "./repositories/credentials.js";
 import type { ModerationRepository } from "./repositories/moderation.js";
 import type { MediaRepository } from "./repositories/media.js";
+import type { ProfilePictureStore } from "./repositories/profile-pictures.js";
 import type { RoomRepository } from "./repositories/rooms.js";
 import type { SessionRepository } from "./repositories/sessions.js";
 import { actorRoutes } from "./routes/actors.js";
@@ -19,6 +20,7 @@ import { credentialRoutes } from "./routes/credentials.js";
 import { healthRoutes } from "./routes/health.js";
 import { moderationRoutes } from "./routes/moderation.js";
 import { mediaRoutes } from "./routes/media.js";
+import { profilePictureRoutes } from "./routes/profile-pictures.js";
 import { roomRoutes } from "./routes/rooms.js";
 import { sessionRoutes } from "./routes/sessions.js";
 
@@ -29,11 +31,12 @@ export interface AppDependencies {
   database: Pool;
   actors: ActorRepository;
   auth: WriteAuthorizer;
-  commands: CommandService;
+  commands: CommandHandler;
   content: ContentRepository;
   credentials: CredentialRepository;
   moderation: ModerationRepository;
   media: MediaRepository;
+  profilePictures: ProfilePictureStore;
   publisher: EventPublisher;
   rooms: RoomRepository;
   sessions: SessionRepository;
@@ -86,6 +89,14 @@ export const buildApp = (dependencies: AppDependencies): FastifyInstance => {
   app.register(contentRoutes(dependencies.content));
   app.register(moderationRoutes(dependencies.moderation));
   app.register(mediaRoutes(dependencies.media, dependencies.auth));
+  app.register(
+    profilePictureRoutes(
+      dependencies.actors,
+      dependencies.auth,
+      dependencies.commands,
+      dependencies.profilePictures,
+    ),
+  );
   app.register(
     sessionRoutes(
       dependencies.sessions,
