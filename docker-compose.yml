@@ -57,6 +57,7 @@ services:
       NATS_URL: nats://nats:4222
       WEBSOCKET_PORT: 3002
       WEBTRANSPORT_PORT: 4433
+      PUBLIC_WEBTRANSPORT_URL: https://127.0.0.1:4433/v1/rooms/{roomId}
     ports:
       - "3002:3002"
       - "4433:4433/udp"
