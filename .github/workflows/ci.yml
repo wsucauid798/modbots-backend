@@ -1,4 +1,4 @@
-name: Backend CI
+name: Backend Pipeline
 
 on:
   push:
@@ -13,10 +13,18 @@ on:
 
 permissions:
   contents: read
+  packages: write
 
 concurrency:
-  group: backend-ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: backend-pipeline-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  MODBOTS_IMAGE_TAG: 0.0.1-alpha
+  PRODUCTION_HOST: 77.68.50.14
+  PRODUCTION_PATH: /home/wsawyerr/modbots
+  PRODUCTION_SSH_USER: wsawyerr
+  PRODUCTION_GHCR_USERNAME: wsucauid798
 
 jobs:
   verify:
@@ -46,3 +54,93 @@ jobs:
 
       - name: Test backend
         run: npm test
+
+  publish:
+    name: Publish backend images
+    if: ${{ github.ref == 'refs/heads/release/v0.0.1-alpha' && github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    needs: verify
+
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - name: api
+            context: .
+            file: services/api/Dockerfile
+          - name: runtime
+            context: .
+            file: services/runtime/Dockerfile
+          - name: account
+            context: .
+            file: services/account/Dockerfile
+          - name: upps
+            context: .
+            file: services/upps/Dockerfile
+          - name: realtime
+            context: services/realtime
+            file: services/realtime/Dockerfile
+          - name: ml
+            context: services/ml
+            file: services/ml/Dockerfile
+
+    steps:
+      - name: Check out backend repo
+        uses: actions/checkout@v6
+
+      - name: Log in to GitHub Container Registry
+        env:
+          PRODUCTION_GHCR_TOKEN: ${{ secrets.PRODUCTION_GHCR_TOKEN }}
+        run: printf '%s' "$PRODUCTION_GHCR_TOKEN" | docker login ghcr.io -u "$PRODUCTION_GHCR_USERNAME" --password-stdin
+
+      - name: Build and publish ${{ matrix.image.name }} image
+        run: |
+          image="ghcr.io/${{ github.repository_owner }}/modbots-backend-${{ matrix.image.name }}:${MODBOTS_IMAGE_TAG}"
+          docker build --file "${{ matrix.image.file }}" --tag "$image" "${{ matrix.image.context }}"
+          docker push "$image"
+
+  deploy:
+    name: Deploy backend to production
+    if: ${{ github.ref == 'refs/heads/release/v0.0.1-alpha' && github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    needs: publish
+    environment:
+      name: production
+      url: http://77.68.50.14:8443
+
+    steps:
+      - name: Check out backend repo
+        uses: actions/checkout@v6
+
+      - name: Configure SSH
+        env:
+          PRODUCTION_SSH_KEY: ${{ secrets.PRODUCTION_SSH_KEY }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$PRODUCTION_SSH_KEY" > ~/.ssh/modbots-production
+          chmod 600 ~/.ssh/modbots-production
+          ssh-keyscan -H "$PRODUCTION_HOST" >> ~/.ssh/known_hosts
+
+      - name: Upload deployment files
+        run: |
+          ssh -i ~/.ssh/modbots-production "$PRODUCTION_SSH_USER@$PRODUCTION_HOST" "mkdir -p '$PRODUCTION_PATH'"
+          scp -i ~/.ssh/modbots-production docker-compose.production.yml "$PRODUCTION_SSH_USER@$PRODUCTION_HOST:$PRODUCTION_PATH/docker-compose.prod.yml"
+          scp -i ~/.ssh/modbots-production scripts/deploy-production.sh "$PRODUCTION_SSH_USER@$PRODUCTION_HOST:$PRODUCTION_PATH/deploy-production.sh"
+          scp -i ~/.ssh/modbots-production scripts/production-data-guard.sql "$PRODUCTION_SSH_USER@$PRODUCTION_HOST:$PRODUCTION_PATH/production-data-guard.sql"
+          ssh -i ~/.ssh/modbots-production "$PRODUCTION_SSH_USER@$PRODUCTION_HOST" "chmod +x '$PRODUCTION_PATH/deploy-production.sh'"
+
+      - name: Log production server in to GitHub Container Registry
+        env:
+          PRODUCTION_GHCR_TOKEN: ${{ secrets.PRODUCTION_GHCR_TOKEN }}
+        run: |
+          if [ -n "$PRODUCTION_GHCR_TOKEN" ]; then
+            printf '%s' "$PRODUCTION_GHCR_TOKEN" | ssh -i ~/.ssh/modbots-production "$PRODUCTION_SSH_USER@$PRODUCTION_HOST" "docker login ghcr.io -u '$PRODUCTION_GHCR_USERNAME' --password-stdin"
+          fi
+
+      - name: Run production deployment
+        run: |
+          ssh -i ~/.ssh/modbots-production "$PRODUCTION_SSH_USER@$PRODUCTION_HOST" "cd '$PRODUCTION_PATH' && MODBOTS_IMAGE_TAG='$MODBOTS_IMAGE_TAG' MODBOTS_DEPLOY_SOURCE=github-actions ./deploy-production.sh"
+
+      - name: Verify production API
+        run: |
+          curl --fail --show-error --silent "http://$PRODUCTION_HOST:8443/health"

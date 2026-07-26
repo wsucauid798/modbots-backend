@@ -1,3 +1,3 @@
 $ErrorActionPreference = "Stop"
 
-throw "Production deploys must run through GitHub CI. Test locally, push to GitHub, let CI pass, then run the Deploy Backend workflow."
+throw "Production deploys must run through GitHub CI. Test locally, then push the release branch so the backend pipeline verifies and deploys it."
