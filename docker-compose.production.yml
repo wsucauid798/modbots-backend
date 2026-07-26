@@ -184,3 +184,21 @@ networks:
 models:
   gemma:
     model: ${MODEL_ID:-ai/gemma4}
+    runtime_flags:
+      - --ctx-size
+      - ${MODEL_CONTEXT_SIZE:-4096}
+      - --threads
+      - ${MODEL_THREADS:-8}
+      - --threads-batch
+      - ${MODEL_THREADS_BATCH:-8}
+      - --parallel
+      - ${MODEL_PARALLEL:-4}
+      - --cache-ram
+      - ${MODEL_CACHE_RAM:-4096}
+      - --n-gpu-layers
+      - "0"
+      - --no-mmproj-offload
+      - --image-max-tokens
+      - ${MODEL_IMAGE_MAX_TOKENS:-560}
+      - --reasoning-budget
+      - "0"
