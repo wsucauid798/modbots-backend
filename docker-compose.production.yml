@@ -192,9 +192,9 @@ models:
       - --threads-batch
       - ${MODEL_THREADS_BATCH:-8}
       - --parallel
-      - ${MODEL_PARALLEL:-1}
+      - ${MODEL_PARALLEL:-4}
       - --cache-ram
-      - "0"
+      - ${MODEL_CACHE_RAM:-4096}
       - --n-gpu-layers
       - "0"
       - --no-mmproj-offload
