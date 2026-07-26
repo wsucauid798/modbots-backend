@@ -28,6 +28,12 @@ done
 
 docker network inspect modbots >/dev/null 2>&1 || docker network create modbots
 docker compose --env-file .env -f docker-compose.prod.yml pull
+
+# Release any loaded model before Compose configures it. The runner refuses a
+# configure while it is active, so without this the model keeps whatever
+# runtime flags it first started with and model config changes never deploy.
+docker model unload --all >/dev/null 2>&1 || true
+
 docker compose --env-file .env -f docker-compose.prod.yml up -d --remove-orphans
 
 echo "Waiting for production API..."
