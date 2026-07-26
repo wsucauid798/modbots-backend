@@ -192,10 +192,13 @@ export class AgentExperience {
       .sort((a, b) => b[1].weight - a[1].weight || a[0].localeCompare(b[0]))
       .slice(0, 5)
       .map(([person]) => person);
-    const impressions = this.state.impressions.slice(-10);
-    const responsive = this.state.responsiveMoments.slice(-4);
-    const confusing = this.state.confusingMoments.slice(-3);
-    const quiet = this.state.quietMoments.slice(-3);
+    // Retrieval stays selective even though the durable experience keeps a
+    // much deeper history. Every inference turn gets the most useful recent
+    // examples instead of repeatedly re-reading the full working set.
+    const impressions = this.state.impressions.slice(-4);
+    const responsive = this.state.responsiveMoments.slice(-2);
+    const confusing = this.state.confusingMoments.slice(-1);
+    const quiet = this.state.quietMoments.slice(-1);
     const lines = [
       familiarPeople.length === 0
         ? "People feel mostly unfamiliar so far."

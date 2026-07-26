@@ -349,6 +349,24 @@ const actorProfilesMigration = `
     ADD COLUMN IF NOT EXISTS profile_links text[] NOT NULL DEFAULT '{}';
 `;
 
+const outboxNotificationMigration = `
+  CREATE OR REPLACE FUNCTION notify_event_outbox_inserted()
+  RETURNS trigger
+  LANGUAGE plpgsql
+  AS $$
+  BEGIN
+    PERFORM pg_notify('event_outbox_inserted', '');
+    RETURN NULL;
+  END;
+  $$;
+
+  DROP TRIGGER IF EXISTS event_outbox_inserted_notification ON event_outbox;
+  CREATE TRIGGER event_outbox_inserted_notification
+  AFTER INSERT ON event_outbox
+  FOR EACH STATEMENT
+  EXECUTE FUNCTION notify_event_outbox_inserted();
+`;
+
 const migrations = [
   { version: 1, sql: initialMigration },
   { version: 2, sql: outboxMigration },
@@ -365,6 +383,7 @@ const migrations = [
   { version: 15, sql: contentAddressingMigration },
   { version: 16, sql: mediaAssetsMigration },
   { version: 17, sql: actorProfilesMigration },
+  { version: 18, sql: outboxNotificationMigration },
 ] as const;
 
 export const createDatabase = (config: PoolConfig): Pool =>

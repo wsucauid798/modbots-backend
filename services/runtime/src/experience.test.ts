@@ -64,3 +64,31 @@ test("remembers real conversational moments for model interpretation", async () 
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("retrieves only the freshest lived moments for a turn", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "modbots-experience-"));
+
+  try {
+    const experience = await AgentExperience.load(directory, persona);
+
+    for (let index = 0; index < 6; index += 1) {
+      experience.perceive({
+        speaker: "Mira",
+        type: "human",
+        content: `distinct lived moment ${index}`,
+        occurredAt: `2026-07-18T12:00:0${index}.000Z`,
+        addressedToSelf: false,
+        addressedToRoom: true,
+        fromSelf: false,
+      });
+    }
+
+    const view = experience.view();
+    assert.doesNotMatch(view, /distinct lived moment [01]/);
+    assert.match(view, /distinct lived moment 2/);
+    assert.match(view, /distinct lived moment 5/);
+    await experience.flush();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});

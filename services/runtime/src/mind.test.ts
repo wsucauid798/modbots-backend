@@ -235,3 +235,62 @@ test("does not apply the human-first rule to autonomous turns", async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+test("reuses a stable planning prefix and sends only recent transcript", async () => {
+  const originalFetch = globalThis.fetch;
+  const requestBodies: Array<{
+    system: string;
+    messages: Array<{ content: string }>;
+  }> = [];
+
+  globalThis.fetch = async (_input, init) => {
+    requestBodies.push(JSON.parse(String(init?.body)));
+
+    return new Response(
+      JSON.stringify({
+        content:
+          "MESSAGE=Fresh detail.|MOVE=continue|SOURCE=conversation|" +
+          "TOPIC=recent detail|ANGLE=fresh detail|" +
+          "GROUNDING=the recent conversation",
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  };
+
+  const transcript = Array.from(
+    { length: 12 },
+    (_, index) => `Speaker-${index}: message-${index}`,
+  );
+
+  try {
+    const mind = new Mind("http://ml.test", () => 0.5);
+    await mind.consider(
+      persona,
+      roster,
+      transcript,
+      "No established experience yet.",
+      null,
+      topicContext,
+      false,
+    );
+    await mind.consider(
+      persona,
+      roster,
+      transcript,
+      "No established experience yet.",
+      "The human Mira just said: hello. Reply to them.",
+      topicContext,
+      false,
+    );
+
+    assert.equal(requestBodies.length, 2);
+    assert.equal(requestBodies[0]?.system, requestBodies[1]?.system);
+    const userContext = requestBodies[0]?.messages[0]?.content ?? "";
+    assert.equal(userContext.includes("Speaker-0: message-0\n"), false);
+    assert.equal(userContext.includes("Speaker-1: message-1\n"), false);
+    assert.match(userContext, /message-2/);
+    assert.match(userContext, /message-11/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

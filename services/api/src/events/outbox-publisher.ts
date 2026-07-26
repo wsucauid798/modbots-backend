@@ -10,7 +10,7 @@ import {
   type NatsConnection,
 } from "@nats-io/transport-node";
 import type { FastifyBaseLogger } from "fastify";
-import type { Pool } from "pg";
+import type { Notification, Pool, PoolClient } from "pg";
 
 type PublisherStatus = "stopped" | "connecting" | "connected";
 
@@ -20,6 +20,8 @@ interface OutboxRow {
   payload: unknown;
   attempts: number;
 }
+
+const outboxNotificationChannel = "event_outbox_inserted";
 
 export interface EventPublisher {
   start(logger: FastifyBaseLogger): void;
@@ -31,7 +33,11 @@ export class JetStreamOutboxPublisher implements EventPublisher {
   private connection?: NatsConnection;
   private client?: JetStreamClient;
   private timer?: NodeJS.Timeout;
+  private listenerRetry?: NodeJS.Timeout;
+  private listenerStart?: Promise<void>;
+  private listener?: PoolClient;
   private activeTick?: Promise<void>;
+  private tickPending = false;
   private state: PublisherStatus = "stopped";
   private logger?: FastifyBaseLogger;
   private readonly encoder = new TextEncoder();
@@ -51,12 +57,39 @@ export class JetStreamOutboxPublisher implements EventPublisher {
     this.timer = setInterval(() => this.scheduleTick(), 1_000);
     this.timer.unref();
     this.scheduleTick();
+    this.beginListenerStart();
   }
 
   public async stop(): Promise<void> {
     if (this.timer !== undefined) {
       clearInterval(this.timer);
       this.timer = undefined;
+    }
+
+    if (this.listenerRetry !== undefined) {
+      clearTimeout(this.listenerRetry);
+      this.listenerRetry = undefined;
+    }
+
+    await this.listenerStart;
+
+    const listener = this.listener;
+    this.listener = undefined;
+
+    if (listener !== undefined) {
+      listener.removeListener("notification", this.onNotification);
+      listener.removeListener("error", this.onListenerError);
+
+      try {
+        await listener.query(`UNLISTEN ${outboxNotificationChannel}`);
+      } catch (error) {
+        this.logger?.error(
+          { err: error },
+          "Failed to stop event outbox listener",
+        );
+      } finally {
+        listener.release();
+      }
     }
 
     this.state = "stopped";
@@ -130,13 +163,115 @@ export class JetStreamOutboxPublisher implements EventPublisher {
   }
 
   private scheduleTick(): void {
-    if (this.activeTick !== undefined || this.timer === undefined) {
+    if (this.timer === undefined) {
+      return;
+    }
+
+    if (this.activeTick !== undefined) {
+      this.tickPending = true;
       return;
     }
 
     this.activeTick = this.tick().finally(() => {
       this.activeTick = undefined;
+
+      if (this.tickPending) {
+        this.tickPending = false;
+        this.scheduleTick();
+      }
     });
+  }
+
+  private readonly onNotification = (notification: Notification): void => {
+    if (notification.channel === outboxNotificationChannel) {
+      this.scheduleTick();
+    }
+  };
+
+  private readonly onListenerError = (error: Error): void => {
+    const listener = this.listener;
+
+    if (listener === undefined) {
+      return;
+    }
+
+    this.listener = undefined;
+    listener.removeListener("notification", this.onNotification);
+    listener.removeListener("error", this.onListenerError);
+    listener.release(error);
+    this.logger?.error(
+      { err: error },
+      "Event outbox listener disconnected",
+    );
+    this.scheduleListenerRetry();
+  };
+
+  private scheduleListenerRetry(): void {
+    if (
+      this.timer === undefined ||
+      this.listener !== undefined ||
+      this.listenerRetry !== undefined
+    ) {
+      return;
+    }
+
+    this.listenerRetry = setTimeout(() => {
+      this.listenerRetry = undefined;
+      this.beginListenerStart();
+    }, 1_000);
+    this.listenerRetry.unref();
+  }
+
+  private beginListenerStart(): void {
+    if (this.listenerStart !== undefined) {
+      return;
+    }
+
+    this.listenerStart = this.startListener().finally(() => {
+      this.listenerStart = undefined;
+    });
+  }
+
+  private async startListener(): Promise<void> {
+    if (this.timer === undefined || this.listener !== undefined) {
+      return;
+    }
+
+    let listener: PoolClient | undefined;
+
+    try {
+      listener = await this.database.connect();
+
+      if (this.timer === undefined) {
+        listener.release();
+        return;
+      }
+
+      this.listener = listener;
+      listener.on("notification", this.onNotification);
+      listener.on("error", this.onListenerError);
+      await listener.query(`LISTEN ${outboxNotificationChannel}`);
+      this.logger?.info("Listening for committed event outbox work");
+
+      // Close the gap between the initial poll and LISTEN becoming active.
+      this.scheduleTick();
+    } catch (error) {
+      if (this.listener === listener) {
+        this.listener = undefined;
+      }
+
+      if (listener !== undefined) {
+        listener.removeListener("notification", this.onNotification);
+        listener.removeListener("error", this.onListenerError);
+        listener.release(error instanceof Error ? error : true);
+      }
+
+      this.logger?.error(
+        { err: error },
+        "Failed to start event outbox listener",
+      );
+      this.scheduleListenerRetry();
+    }
   }
 
   private async tick(): Promise<void> {

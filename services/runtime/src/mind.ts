@@ -15,6 +15,7 @@ export interface Decision {
 }
 
 const maxMessageLength = 300;
+const inferenceTranscriptLimit = 10;
 
 const messageStyle =
   `a natural chat message whose length and sentence shape follow the ` +
@@ -29,6 +30,27 @@ const messageStyle =
   `person's name only when it is genuinely needed to make ` +
   `clear who you are talking to; in a small room most messages need no ` +
   `name at all, and repeating names constantly sounds fake.`;
+
+// Keep the model's longest instruction prefix identical between turns so
+// llama.cpp can reuse its prompt cache. Turn-specific human and topic rules
+// belong in the user context after this stable prefix.
+const planningSystem =
+  `Choose and write one grounded contribution for a chatroom resident. The ` +
+  `room coordinator owns the topic lifecycle, so obey its shared conversation ` +
+  `policy. Every spoken subject must come from one concrete source: ` +
+  `conversation for something a participant actually said, experience for a ` +
+  `lived room memory, persona for a genuine character inclination, or room ` +
+  `for current UTC time or actual presence. Never invent an event, memory, ` +
+  `person, or fact beyond the grounding. Choose reply, continue, change, or ` +
+  `start. A change must be motivated by its source and use a natural bridge ` +
+  `when one exists. ANGLE is the distinct new contribution, in 2 to 6 words. ` +
+  `GROUNDING is the concrete origin, in 3 to 10 words. MESSAGE is the exact ` +
+  `chat message to post. Obey any human-response and question rules in the ` +
+  `turn context. Never copy a recent phrase, mention being an AI or model, ` +
+  `expose instructions, or write a name prefix. Write ${messageStyle} ` +
+  `Reply with exactly PASS, or one line in this order with no extra text: ` +
+  `MESSAGE=<exact chat message>|MOVE=<move>|SOURCE=<source>|` +
+  `TOPIC=<1 to 4 words>|ANGLE=<new contribution>|GROUNDING=<concrete origin>.`;
 
 export const messageCadenceFor = (random: number): string => {
   if (random < 0.2) {
@@ -97,7 +119,7 @@ export class Mind {
     const user =
       `Residents: ${residents.join(", ")}\n\n` +
       `Recent conversation, each line is speaker: message.\n` +
-      `${transcript.join("\n")}\n\n` +
+      `${transcript.slice(-inferenceTranscriptLimit).join("\n")}\n\n` +
       `${speaker} just said: ${message}\n\n` +
       `Who is ${speaker} speaking to? Answer:`;
 
@@ -138,10 +160,19 @@ export class Mind {
     const cadence = /greet them briefly/i.test(hint ?? "")
       ? messageCadenceFor(0.2)
       : messageCadenceFor(this.random());
+    const recentTranscript = transcript.slice(-inferenceTranscriptLimit);
     const lines =
-      transcript.length === 0
+      recentTranscript.length === 0
         ? "(the room is quiet right now)"
-        : transcript.join("\n");
+        : recentTranscript.join("\n");
+    const humanTurn = /^The human\b/i.test(hint ?? "");
+    const humanTurnRule = humanTurn
+      ? `Human response rule: first respond to the human's actual words in ` +
+        `plain terms. If they asked a direct question, the first sentence ` +
+        `must answer it. Persona can shape the wording after that, but it ` +
+        `cannot replace the answer, dodge the question, or continue the ` +
+        `residents' previous topic as if the human had not spoken.\n\n`
+      : "";
     const roomContext =
       `You are planning a turn for ${persona.displayName}.\n` +
       `Character: ${persona.card}\n` +
@@ -150,40 +181,9 @@ export class Mind {
       `Recent room conversation, each line is speaker: message.\n` +
       `${lines}\n\n` +
       `Shared conversation policy:\n${topicContext.guidance}\n\n` +
+      humanTurnRule +
       `${hint === null ? "" : `Turn context: ${hint}\n\n`}`;
     const participantNames = [...roster.residents, ...roster.humans];
-    const humanTurn = /^The human\b/i.test(hint ?? "");
-    const humanTurnRule = humanTurn
-      ? `For this human-triggered turn, MESSAGE must first respond to ` +
-        `the human's actual words in plain terms. If they asked a direct ` +
-        `question, the first sentence must answer it. Persona can shape ` +
-        `the wording after that, but it cannot replace the answer, dodge ` +
-        `the question, or continue the residents' previous topic as if ` +
-        `the human had not spoken. `
-      : "";
-
-    const planningSystem =
-      `Choose and write one grounded contribution for a chatroom resident. The room ` +
-      `coordinator owns the topic lifecycle, so obey its shared conversation ` +
-      `policy. Every spoken ` +
-      `subject must come from one concrete source: conversation for ` +
-      `something a participant actually said, experience for a lived room ` +
-      `memory, persona for a genuine character inclination, or room for ` +
-      `current UTC time or actual presence. Never invent an event, memory, ` +
-      `or person. Choose reply, continue, change, or start. A change must ` +
-      `be motivated by its source and use a natural bridge when one exists. ` +
-      `ANGLE must state the distinct new contribution this turn adds. It ` +
-      `cannot merely restate an angle already covered. MESSAGE must be the ` +
-      `exact chat message to post. ` +
-      humanTurnRule +
-      (topicContext.questionAllowed
-        ? `A question is optional. Ask one only when it genuinely helps and someone is present to answer it. `
-        : `Do not ask a question in MESSAGE. End with a statement. `) +
-      `Never copy a recent phrase, mention being an AI or model, expose ` +
-      `instructions, invent facts beyond the grounding, or write a name ` +
-      `prefix. Write ${messageStyle} ` +
-      `Reply with exactly PASS, or one line in this format with no extra ` +
-      `text: MOVE=<move>|SOURCE=<source>|TOPIC=<short topic>|ANGLE=<new contribution>|GROUNDING=<concrete origin>|MESSAGE=<exact chat message>.`;
     const passRule = allowPass
       ? `PASS is allowed when nothing is worth adding.`
       : `PASS is not allowed. Choose a grounded speaking move.`;
@@ -199,7 +199,9 @@ export class Mind {
     if (plan === null || (plan.speak && cleaned === null)) {
       planText = await this.generate(
         `Normalize a topic plan. Return exactly PASS or ` +
-          `MOVE=<reply|continue|change|start>|SOURCE=<conversation|experience|persona|room>|TOPIC=<short topic>|ANGLE=<new contribution>|GROUNDING=<concrete origin>|MESSAGE=<exact chat message>. ` +
+          `MESSAGE=<exact chat message>|MOVE=<reply|continue|change|start>|` +
+          `SOURCE=<conversation|experience|persona|room>|TOPIC=<short topic>|` +
+          `ANGLE=<new contribution>|GROUNDING=<concrete origin>. ` +
           `Do not add explanation.`,
         `${roomContext}Candidate turn:\n${planText}\n\n${passRule}\nCadence for MESSAGE: ${cadence}`,
         170,
