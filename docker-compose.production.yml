@@ -114,11 +114,11 @@ services:
     container_name: modbots-backend-ml
     restart: unless-stopped
     environment:
-      INFERENCE_TIMEOUT_SECONDS: ${INFERENCE_TIMEOUT_SECONDS:-600}
-    models:
-      gemma:
-        endpoint_var: MODEL_URL
-        model_var: MODEL_ID
+      MODEL_BACKEND: openai
+      MODEL_URL: ${MODEL_URL:-https://api.openai.com/v1}
+      MODEL_ID: ${MODEL_ID:?Set MODEL_ID to the hosted model to run}
+      MODEL_API_KEY: ${PRODUCTION_MODEL_API_KEY:?Set PRODUCTION_MODEL_API_KEY}
+      INFERENCE_TIMEOUT_SECONDS: ${INFERENCE_TIMEOUT_SECONDS:-120}
 
   postgres:
     image: postgres:17-alpine
@@ -180,25 +180,3 @@ networks:
   default:
     name: modbots
     external: true
-
-models:
-  gemma:
-    model: ${MODEL_ID:-ai/gemma4}
-    runtime_flags:
-      - --ctx-size
-      - ${MODEL_CONTEXT_SIZE:-8192}
-      - --threads
-      - ${MODEL_THREADS:-6}
-      - --threads-batch
-      - ${MODEL_THREADS_BATCH:-6}
-      - --batch-size
-      - ${MODEL_BATCH_SIZE:-1024}
-      - --parallel
-      - ${MODEL_PARALLEL:-2}
-      - --n-gpu-layers
-      - "0"
-      - --no-mmproj-offload
-      - --image-max-tokens
-      - ${MODEL_IMAGE_MAX_TOKENS:-560}
-      - --reasoning-budget
-      - "0"

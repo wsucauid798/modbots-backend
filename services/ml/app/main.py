@@ -16,23 +16,73 @@ from .media import (
     process_video,
 )
 
-MODEL_URL = os.environ.get(
-    "MODEL_URL",
-    "http://model-runner.docker.internal/engines/v1",
+LOCAL_BACKEND = "local"
+OPENAI_BACKEND = "openai"
+
+# "local" is Docker Model Runner's llama.cpp server: no credentials, and it
+# accepts llama.cpp sampling extensions. "openai" is the OpenAI API: it needs a
+# bearer key and rejects body parameters it does not recognize.
+MODEL_BACKEND = os.environ.get("MODEL_BACKEND", LOCAL_BACKEND).strip().lower()
+MODEL_API_KEY = os.environ.get("MODEL_API_KEY", "").strip()
+
+DEFAULT_MODEL_URLS = {
+    LOCAL_BACKEND: "http://model-runner.docker.internal/engines/v1",
+    OPENAI_BACKEND: "https://api.openai.com/v1",
+}
+DEFAULT_MODEL_IDS = {LOCAL_BACKEND: "ai/gemma4"}
+# CPU generation is slow enough to need a long ceiling. A hosted call that has
+# not answered in two minutes is a failure, not a slow answer.
+DEFAULT_TIMEOUT_SECONDS = {LOCAL_BACKEND: "600", OPENAI_BACKEND: "120"}
+
+MODEL_URL = (
+    os.environ.get("MODEL_URL", "").strip()
+    or DEFAULT_MODEL_URLS.get(MODEL_BACKEND, "")
 )
-MODEL_ID = os.environ.get("MODEL_ID", "ai/gemma4")
+MODEL_ID = (
+    os.environ.get("MODEL_ID", "").strip()
+    or DEFAULT_MODEL_IDS.get(MODEL_BACKEND, "")
+)
 INFERENCE_TIMEOUT_SECONDS = float(
-    os.environ.get("INFERENCE_TIMEOUT_SECONDS", "600")
+    os.environ.get("INFERENCE_TIMEOUT_SECONDS", "").strip()
+    or DEFAULT_TIMEOUT_SECONDS.get(MODEL_BACKEND, "600")
 )
 
 state: dict[str, httpx.AsyncClient | None] = {"client": None}
 
 
+def _validate_backend() -> None:
+    if MODEL_BACKEND not in (LOCAL_BACKEND, OPENAI_BACKEND):
+        raise RuntimeError(
+            f"MODEL_BACKEND must be '{LOCAL_BACKEND}' or '{OPENAI_BACKEND}', "
+            f"got '{MODEL_BACKEND}'."
+        )
+
+    if MODEL_BACKEND == OPENAI_BACKEND and not MODEL_API_KEY:
+        raise RuntimeError(
+            "MODEL_BACKEND=openai requires MODEL_API_KEY to be set."
+        )
+
+    if not MODEL_ID:
+        raise RuntimeError(
+            f"MODEL_BACKEND={MODEL_BACKEND} requires MODEL_ID to be set."
+        )
+
+
+def _auth_headers() -> dict[str, str]:
+    if not MODEL_API_KEY:
+        return {}
+
+    return {"Authorization": f"Bearer {MODEL_API_KEY}"}
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    _validate_backend()
+
     async with httpx.AsyncClient(
         base_url=f"{MODEL_URL.rstrip('/')}/",
         timeout=INFERENCE_TIMEOUT_SECONDS,
+        headers=_auth_headers(),
     ) as client:
         state["client"] = client
         yield
@@ -283,6 +333,10 @@ def _prepare_message(
     return {"role": message.role, "content": prepared_content}, observations
 
 
+def _execution() -> str:
+    return "cpu" if MODEL_BACKEND == LOCAL_BACKEND else "hosted"
+
+
 def _client() -> httpx.AsyncClient:
     client = state["client"]
     if client is None:
@@ -308,7 +362,7 @@ async def health() -> JSONResponse:
             content={
                 "status": "starting",
                 "service": "ml",
-                "execution": "cpu",
+                "execution": _execution(),
                 "model": MODEL_ID,
                 "message": "Chat bots are still getting ready.",
             },
@@ -318,7 +372,7 @@ async def health() -> JSONResponse:
         content={
             "status": "ok",
             "service": "ml",
-            "execution": "cpu",
+            "execution": _execution(),
             "model": MODEL_ID,
             "inputModalities": ["text", "image", "audio", "video", "file"],
         }
@@ -348,20 +402,23 @@ async def chat(request: ChatRequest) -> ChatResponse:
             detail="A media attachment could not be prepared.",
         ) from exception
 
+    payload: dict = {
+        "model": MODEL_ID,
+        "messages": messages,
+        "max_tokens": request.maxTokens,
+        "temperature": request.temperature,
+        "stream": False,
+    }
+
+    if MODEL_BACKEND == LOCAL_BACKEND:
+        # llama.cpp server extensions. The OpenAI API rejects body parameters
+        # it does not recognize, so these only go to the local runner.
+        payload["cache_prompt"] = True
+        payload["chat_template_kwargs"] = {"enable_thinking": False}
+        payload["reasoning_format"] = "none"
+
     try:
-        response = await _client().post(
-            "chat/completions",
-            json={
-                "model": MODEL_ID,
-                "messages": messages,
-                "max_tokens": request.maxTokens,
-                "temperature": request.temperature,
-                "cache_prompt": True,
-                "chat_template_kwargs": {"enable_thinking": False},
-                "reasoning_format": "none",
-                "stream": False,
-            },
-        )
+        response = await _client().post("chat/completions", json=payload)
     except HTTPException:
         raise
     except httpx.TimeoutException as exception:
@@ -378,10 +435,22 @@ async def chat(request: ChatRequest) -> ChatResponse:
     if response.status_code == 429:
         raise HTTPException(status_code=429, detail="Chat bots are busy.")
 
+    if response.status_code in (401, 403):
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                f"Inference rejected the credentials for {MODEL_BACKEND} "
+                f"(HTTP {response.status_code}). Check MODEL_API_KEY."
+            ),
+        )
+
     if response.status_code >= 400:
         raise HTTPException(
             status_code=502,
-            detail=f"Local inference returned HTTP {response.status_code}.",
+            detail=(
+                f"Inference backend {MODEL_BACKEND} returned HTTP "
+                f"{response.status_code}."
+            ),
         )
 
     try:
@@ -390,7 +459,10 @@ async def chat(request: ChatRequest) -> ChatResponse:
     except (AttributeError, IndexError, KeyError, TypeError, ValueError) as exception:
         raise HTTPException(
             status_code=502,
-            detail="Local inference returned an invalid response.",
+            detail=(
+                f"Inference backend {MODEL_BACKEND} returned an invalid "
+                "response."
+            ),
         ) from exception
 
     if not content:

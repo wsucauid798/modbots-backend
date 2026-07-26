@@ -1,5 +1,6 @@
 import base64
 import unittest
+from unittest import mock
 
 import httpx
 from fastapi import HTTPException
@@ -182,6 +183,109 @@ class CpuInferenceTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result.status_code, 503)
         self.assertIn(b"Chat bots are still getting ready", result.body)
+
+
+class HostedInferenceTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.backend = mock.patch.object(
+            main, "MODEL_BACKEND", main.OPENAI_BACKEND
+        )
+        self.backend.start()
+
+    def tearDown(self):
+        self.backend.stop()
+        main.state["client"] = None
+
+    async def test_hosted_payload_omits_llama_cpp_extensions(self):
+        client = FakeClient(
+            chat_response=response(
+                200,
+                {"choices": [{"message": {"content": "Hello."}}]},
+            )
+        )
+        main.state["client"] = client
+
+        await main.chat(
+            main.ChatRequest(
+                system="You are Iris.",
+                messages=[main.ChatMessage(role="user", content="Hello")],
+                maxTokens=40,
+                temperature=0.4,
+            )
+        )
+
+        payload = client.last_chat_request[1]
+        self.assertEqual(payload["max_tokens"], 40)
+        self.assertNotIn("cache_prompt", payload)
+        self.assertNotIn("chat_template_kwargs", payload)
+        self.assertNotIn("reasoning_format", payload)
+
+    async def test_hosted_health_reports_hosted_execution(self):
+        main.state["client"] = FakeClient(
+            health_response=response(200, {"data": []})
+        )
+
+        result = await main.health()
+
+        self.assertEqual(result.status_code, 200)
+        self.assertIn(b'"execution":"hosted"', result.body)
+
+    async def test_rejected_credentials_name_the_key_to_check(self):
+        main.state["client"] = FakeClient(
+            chat_response=response(401, {"error": {"message": "bad key"}})
+        )
+
+        with self.assertRaises(HTTPException) as captured:
+            await main.chat(
+                main.ChatRequest(
+                    system="You are Iris.",
+                    messages=[main.ChatMessage(role="user", content="Hello")],
+                )
+            )
+
+        self.assertEqual(captured.exception.status_code, 502)
+        self.assertIn("MODEL_API_KEY", captured.exception.detail)
+
+
+class BackendConfigTests(unittest.TestCase):
+    def test_api_key_becomes_a_bearer_header(self):
+        with mock.patch.object(main, "MODEL_API_KEY", "sk-test"):
+            self.assertEqual(
+                main._auth_headers(),
+                {"Authorization": "Bearer sk-test"},
+            )
+
+    def test_local_backend_sends_no_authorization_header(self):
+        with mock.patch.object(main, "MODEL_API_KEY", ""):
+            self.assertEqual(main._auth_headers(), {})
+
+    def test_hosted_backend_without_a_key_fails_at_startup(self):
+        with (
+            mock.patch.object(main, "MODEL_BACKEND", main.OPENAI_BACKEND),
+            mock.patch.object(main, "MODEL_API_KEY", ""),
+        ):
+            with self.assertRaises(RuntimeError) as captured:
+                main._validate_backend()
+
+        self.assertIn("MODEL_API_KEY", str(captured.exception))
+
+    def test_unknown_backend_fails_at_startup(self):
+        with mock.patch.object(main, "MODEL_BACKEND", "somewhere-else"):
+            with self.assertRaises(RuntimeError) as captured:
+                main._validate_backend()
+
+        self.assertIn("MODEL_BACKEND", str(captured.exception))
+
+    def test_missing_model_id_fails_at_startup(self):
+        with (
+            mock.patch.object(main, "MODEL_BACKEND", main.OPENAI_BACKEND),
+            mock.patch.object(main, "MODEL_API_KEY", "sk-test"),
+            mock.patch.object(main, "MODEL_ID", ""),
+        ):
+            with self.assertRaises(RuntimeError) as captured:
+                main._validate_backend()
+
+        self.assertIn("MODEL_ID", str(captured.exception))
 
 
 if __name__ == "__main__":

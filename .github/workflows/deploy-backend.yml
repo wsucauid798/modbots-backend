@@ -41,10 +41,12 @@ jobs:
           free -h
           echo '=== LOAD ==='
           cat /proc/loadavg
-          echo '=== MODEL CONFIGURATION ==='
-          docker model configure show ai/gemma4
-          echo '=== RUNNING MODELS ==='
-          docker model ps
-          echo '=== LLAMA.CPP RUNTIME ==='
-          docker model logs ai/gemma4 2>&1 | grep -E 'n_ctx|n_parallel|slots|cache state|print_timing|CPU|Vulkan|CUDA|offload' | tail -n 200 || true
+          echo '=== INFERENCE CONFIGURATION ==='
+          docker inspect modbots-backend-ml \
+            --format '{{range .Config.Env}}{{println .}}{{end}}' \
+            | grep -E '^(MODEL_BACKEND|MODEL_URL|MODEL_ID|INFERENCE_TIMEOUT_SECONDS)=' || true
+          echo '=== INFERENCE HEALTH ==='
+          docker exec modbots-backend-ml python -c "import urllib.request; print(urllib.request.urlopen('http://localhost:8000/health', timeout=10).read().decode())" || true
+          echo '=== INFERENCE LOGS ==='
+          docker logs --tail 200 modbots-backend-ml 2>&1 || true
           EOF
