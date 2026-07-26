@@ -32,6 +32,9 @@ docker compose --env-file .env -f docker-compose.prod.yml pull
 # Release any loaded model before Compose configures it. The runner refuses a
 # configure while it is active, so without this the model keeps whatever
 # runtime flags it first started with and model config changes never deploy.
+# The bot runtime reloads the model the moment it is released, so it has to
+# stop first. The up below starts it again.
+docker compose --env-file .env -f docker-compose.prod.yml stop runtime >/dev/null 2>&1 || true
 docker model unload --all >/dev/null 2>&1 || true
 
 docker compose --env-file .env -f docker-compose.prod.yml up -d --remove-orphans
