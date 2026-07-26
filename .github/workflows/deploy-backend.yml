@@ -2,6 +2,12 @@ name: Deploy Backend
 
 on:
   workflow_dispatch:
+    inputs:
+      diagnose_only:
+        description: Read production runtime diagnostics without deploying
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -21,6 +27,7 @@ env:
 jobs:
   publish:
     name: Publish backend images
+    if: ${{ !inputs.diagnose_only }}
     runs-on: ubuntu-latest
 
     strategy:
@@ -63,6 +70,7 @@ jobs:
 
   deploy:
     name: Deploy backend to production
+    if: ${{ !inputs.diagnose_only }}
     runs-on: ubuntu-latest
     needs: publish
     environment:
@@ -105,3 +113,38 @@ jobs:
       - name: Verify production API
         run: |
           curl --fail --show-error --silent "http://$PRODUCTION_HOST:8443/health"
+
+  diagnose:
+    name: Diagnose production runtime
+    if: ${{ inputs.diagnose_only }}
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+
+    steps:
+      - name: Configure SSH
+        env:
+          PRODUCTION_SSH_KEY: ${{ secrets.PRODUCTION_SSH_KEY }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$PRODUCTION_SSH_KEY" > ~/.ssh/modbots-production
+          chmod 600 ~/.ssh/modbots-production
+          ssh-keyscan -H "$PRODUCTION_HOST" >> ~/.ssh/known_hosts
+
+      - name: Read production runtime diagnostics
+        run: |
+          ssh -i ~/.ssh/modbots-production "$PRODUCTION_SSH_USER@$PRODUCTION_HOST" <<'EOF'
+          set -eu
+          echo '=== CPU ==='
+          lscpu | grep -E 'Model name|CPU\(s\)|Thread|Core|Socket'
+          echo '=== MEMORY ==='
+          free -h
+          echo '=== LOAD ==='
+          cat /proc/loadavg
+          echo '=== MODEL CONFIGURATION ==='
+          docker model configure show ai/gemma4
+          echo '=== RUNNING MODELS ==='
+          docker model ps
+          echo '=== LLAMA.CPP RUNTIME ==='
+          docker model logs ai/gemma4 2>&1 | grep -E 'n_ctx|n_parallel|slots|cache state|print_timing|CPU|Vulkan|CUDA|offload' | tail -n 200 || true
+          EOF
