@@ -29,15 +29,33 @@ done
 docker network inspect modbots >/dev/null 2>&1 || docker network create modbots
 docker compose --env-file .env -f docker-compose.prod.yml pull
 
-# Release any loaded model before Compose configures it. The runner refuses a
-# configure while it is active, so without this the model keeps whatever
-# runtime flags it first started with and model config changes never deploy.
-# The bot runtime reloads the model the moment it is released, so it has to
-# stop first. The up below starts it again.
-docker compose --env-file .env -f docker-compose.prod.yml stop runtime >/dev/null 2>&1 || true
-docker model unload --all >/dev/null 2>&1 || true
+# Model Runner refuses configuration while a model is active. Stop both model
+# consumers, and restart the existing services if deployment exits early.
+restart_model_consumers() {
+  docker compose --env-file .env -f docker-compose.prod.yml start ml runtime \
+    >/dev/null 2>&1 || true
+}
+
+trap restart_model_consumers EXIT
+docker compose --env-file .env -f docker-compose.prod.yml stop runtime ml
+docker model unload --all
+
+for attempt in $(seq 1 30); do
+  if [ -z "$(docker model ps | sed -n '2p')" ]; then
+    break
+  fi
+
+  if [ "$attempt" -eq 30 ]; then
+    echo "The model did not unload before reconfiguration."
+    docker model ps || true
+    exit 1
+  fi
+
+  sleep 1
+done
 
 docker compose --env-file .env -f docker-compose.prod.yml up -d --remove-orphans
+trap - EXIT
 
 echo "Waiting for production API..."
 for attempt in $(seq 1 60); do
