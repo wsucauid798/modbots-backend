@@ -136,13 +136,13 @@ services:
     container_name: modbots-backend-ml
     restart: unless-stopped
     environment:
-      INFERENCE_TIMEOUT_SECONDS: ${INFERENCE_TIMEOUT_SECONDS:-600}
+      MODEL_BACKEND: ${MODEL_BACKEND}
+      MODEL_URL: ${MODEL_URL}
+      MODEL_ID: ${MODEL_ID}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      INFERENCE_TIMEOUT_SECONDS: ${INFERENCE_TIMEOUT_SECONDS}
     ports:
       - "8000:8000"
-    models:
-      gemma:
-        endpoint_var: MODEL_URL
-        model_var: MODEL_ID
 
   postgres:
     image: postgres:17-alpine
@@ -207,24 +207,3 @@ volumes:
   minio-data:
   upps-profile-pictures:
 
-models:
-  gemma:
-    model: ${MODEL_ID:-ai/gemma4}
-    runtime_flags:
-      - --ctx-size
-      - ${MODEL_CONTEXT_SIZE:-8192}
-      - --threads
-      - ${MODEL_THREADS:-6}
-      - --threads-batch
-      - ${MODEL_THREADS_BATCH:-6}
-      - --batch-size
-      - ${MODEL_BATCH_SIZE:-1024}
-      - --parallel
-      - ${MODEL_PARALLEL:-2}
-      - --n-gpu-layers
-      - "0"
-      - --no-mmproj-offload
-      - --image-max-tokens
-      - ${MODEL_IMAGE_MAX_TOKENS:-560}
-      - --reasoning-budget
-      - "0"

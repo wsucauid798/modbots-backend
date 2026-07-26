@@ -39,8 +39,31 @@ def response(status_code, payload):
     )
 
 
+def environment(**overrides):
+    values = dict(
+        MODEL_BACKEND=main.OPENAI_BACKEND,
+        MODEL_URL="https://api.openai.com/v1",
+        MODEL_ID="hosted-model",
+        OPENAI_API_KEY="sk-test",
+        INFERENCE_TIMEOUT_SECONDS=120.0,
+    )
+    values.update(overrides)
+    return mock.patch.multiple(main, **values)
+
+
 class CpuInferenceTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.env = environment(
+            MODEL_BACKEND=main.LOCAL_BACKEND,
+            MODEL_URL="http://model-runner.docker.internal/engines/v1",
+            MODEL_ID="ai/gemma4",
+            OPENAI_API_KEY="",
+            INFERENCE_TIMEOUT_SECONDS=600.0,
+        )
+        self.env.start()
+
     def tearDown(self):
+        self.env.stop()
         main.state["client"] = None
 
     async def test_health_reports_cpu_model_when_ready(self):
@@ -187,13 +210,11 @@ class CpuInferenceTests(unittest.IsolatedAsyncioTestCase):
 
 class HostedInferenceTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
-        self.backend = mock.patch.object(
-            main, "MODEL_BACKEND", main.OPENAI_BACKEND
-        )
-        self.backend.start()
+        self.env = environment()
+        self.env.start()
 
     def tearDown(self):
-        self.backend.stop()
+        self.env.stop()
         main.state["client"] = None
 
     async def test_hosted_payload_omits_llama_cpp_extensions(self):
@@ -244,48 +265,68 @@ class HostedInferenceTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(captured.exception.status_code, 502)
-        self.assertIn("MODEL_API_KEY", captured.exception.detail)
+        self.assertIn("OPENAI_API_KEY", captured.exception.detail)
 
 
 class BackendConfigTests(unittest.TestCase):
     def test_api_key_becomes_a_bearer_header(self):
-        with mock.patch.object(main, "MODEL_API_KEY", "sk-test"):
+        with environment():
             self.assertEqual(
                 main._auth_headers(),
                 {"Authorization": "Bearer sk-test"},
             )
 
     def test_local_backend_sends_no_authorization_header(self):
-        with mock.patch.object(main, "MODEL_API_KEY", ""):
+        with environment(
+            MODEL_BACKEND=main.LOCAL_BACKEND, OPENAI_API_KEY=""
+        ):
             self.assertEqual(main._auth_headers(), {})
 
+    def test_a_complete_environment_validates(self):
+        with environment():
+            main._validate_backend()
+
     def test_hosted_backend_without_a_key_fails_at_startup(self):
-        with (
-            mock.patch.object(main, "MODEL_BACKEND", main.OPENAI_BACKEND),
-            mock.patch.object(main, "MODEL_API_KEY", ""),
-        ):
+        with environment(OPENAI_API_KEY=""):
             with self.assertRaises(RuntimeError) as captured:
                 main._validate_backend()
 
-        self.assertIn("MODEL_API_KEY", str(captured.exception))
+        self.assertIn("OPENAI_API_KEY", str(captured.exception))
 
     def test_unknown_backend_fails_at_startup(self):
-        with mock.patch.object(main, "MODEL_BACKEND", "somewhere-else"):
+        with environment(MODEL_BACKEND="somewhere-else"):
             with self.assertRaises(RuntimeError) as captured:
                 main._validate_backend()
 
         self.assertIn("MODEL_BACKEND", str(captured.exception))
 
+    def test_missing_backend_fails_at_startup(self):
+        with environment(MODEL_BACKEND=""):
+            with self.assertRaises(RuntimeError) as captured:
+                main._validate_backend()
+
+        self.assertIn("MODEL_BACKEND", str(captured.exception))
+
+    def test_missing_model_url_fails_at_startup(self):
+        with environment(MODEL_URL=""):
+            with self.assertRaises(RuntimeError) as captured:
+                main._validate_backend()
+
+        self.assertIn("MODEL_URL", str(captured.exception))
+
     def test_missing_model_id_fails_at_startup(self):
-        with (
-            mock.patch.object(main, "MODEL_BACKEND", main.OPENAI_BACKEND),
-            mock.patch.object(main, "MODEL_API_KEY", "sk-test"),
-            mock.patch.object(main, "MODEL_ID", ""),
-        ):
+        with environment(MODEL_ID=""):
             with self.assertRaises(RuntimeError) as captured:
                 main._validate_backend()
 
         self.assertIn("MODEL_ID", str(captured.exception))
+
+    def test_missing_timeout_fails_at_startup(self):
+        with environment(INFERENCE_TIMEOUT_SECONDS=0.0):
+            with self.assertRaises(RuntimeError) as captured:
+                main._validate_backend()
+
+        self.assertIn("INFERENCE_TIMEOUT_SECONDS", str(captured.exception))
 
 
 if __name__ == "__main__":

@@ -23,11 +23,8 @@ Create the local environment file:
 Copy-Item .env.example .env
 ```
 
-Enable Docker Model Runner:
-
-```powershell
-docker desktop enable model-runner
-```
+Set `MODEL_ID` and `OPENAI_API_KEY` in `.env` to the model and API key the chat
+bots run on.
 
 Start the stack:
 

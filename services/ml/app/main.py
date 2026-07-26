@@ -21,31 +21,16 @@ OPENAI_BACKEND = "openai"
 
 # "local" is Docker Model Runner's llama.cpp server: no credentials, and it
 # accepts llama.cpp sampling extensions. "openai" is the OpenAI API: it needs a
-# bearer key and rejects body parameters it does not recognize.
-MODEL_BACKEND = os.environ.get("MODEL_BACKEND", LOCAL_BACKEND).strip().lower()
-MODEL_API_KEY = os.environ.get("MODEL_API_KEY", "").strip()
+# bearer key and rejects body parameters it does not recognize. Every value
+# below comes from the environment file. No endpoint, model, or timeout is
+# baked in here, so local and production are configured the same way.
+MODEL_BACKEND = os.environ.get("MODEL_BACKEND", "").strip().lower()
+MODEL_URL = os.environ.get("MODEL_URL", "").strip()
+MODEL_ID = os.environ.get("MODEL_ID", "").strip()
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "").strip()
 
-DEFAULT_MODEL_URLS = {
-    LOCAL_BACKEND: "http://model-runner.docker.internal/engines/v1",
-    OPENAI_BACKEND: "https://api.openai.com/v1",
-}
-DEFAULT_MODEL_IDS = {LOCAL_BACKEND: "ai/gemma4"}
-# CPU generation is slow enough to need a long ceiling. A hosted call that has
-# not answered in two minutes is a failure, not a slow answer.
-DEFAULT_TIMEOUT_SECONDS = {LOCAL_BACKEND: "600", OPENAI_BACKEND: "120"}
-
-MODEL_URL = (
-    os.environ.get("MODEL_URL", "").strip()
-    or DEFAULT_MODEL_URLS.get(MODEL_BACKEND, "")
-)
-MODEL_ID = (
-    os.environ.get("MODEL_ID", "").strip()
-    or DEFAULT_MODEL_IDS.get(MODEL_BACKEND, "")
-)
-INFERENCE_TIMEOUT_SECONDS = float(
-    os.environ.get("INFERENCE_TIMEOUT_SECONDS", "").strip()
-    or DEFAULT_TIMEOUT_SECONDS.get(MODEL_BACKEND, "600")
-)
+_timeout = os.environ.get("INFERENCE_TIMEOUT_SECONDS", "").strip()
+INFERENCE_TIMEOUT_SECONDS = float(_timeout) if _timeout else 0.0
 
 state: dict[str, httpx.AsyncClient | None] = {"client": None}
 
@@ -57,22 +42,28 @@ def _validate_backend() -> None:
             f"got '{MODEL_BACKEND}'."
         )
 
-    if MODEL_BACKEND == OPENAI_BACKEND and not MODEL_API_KEY:
-        raise RuntimeError(
-            "MODEL_BACKEND=openai requires MODEL_API_KEY to be set."
-        )
+    if not MODEL_URL:
+        raise RuntimeError("MODEL_URL must be set.")
 
     if not MODEL_ID:
+        raise RuntimeError("MODEL_ID must be set.")
+
+    if MODEL_BACKEND == OPENAI_BACKEND and not OPENAI_API_KEY:
         raise RuntimeError(
-            f"MODEL_BACKEND={MODEL_BACKEND} requires MODEL_ID to be set."
+            "MODEL_BACKEND=openai requires OPENAI_API_KEY to be set."
+        )
+
+    if INFERENCE_TIMEOUT_SECONDS <= 0:
+        raise RuntimeError(
+            "INFERENCE_TIMEOUT_SECONDS must be set to a positive number."
         )
 
 
 def _auth_headers() -> dict[str, str]:
-    if not MODEL_API_KEY:
+    if not OPENAI_API_KEY:
         return {}
 
-    return {"Authorization": f"Bearer {MODEL_API_KEY}"}
+    return {"Authorization": f"Bearer {OPENAI_API_KEY}"}
 
 
 @asynccontextmanager
@@ -440,7 +431,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
             status_code=502,
             detail=(
                 f"Inference rejected the credentials for {MODEL_BACKEND} "
-                f"(HTTP {response.status_code}). Check MODEL_API_KEY."
+                f"(HTTP {response.status_code}). Check OPENAI_API_KEY."
             ),
         )
 
