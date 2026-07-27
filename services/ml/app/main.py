@@ -324,6 +324,23 @@ def _prepare_message(
     return {"role": message.role, "content": prepared_content}, observations
 
 
+def _upstream_error(response: httpx.Response) -> str:
+    """The backend's own explanation, so a refused request is diagnosable."""
+    try:
+        payload = response.json()
+    except ValueError:
+        return response.text.strip()[:300] or "no response body"
+
+    error = payload.get("error") if isinstance(payload, dict) else None
+    if isinstance(error, dict) and error.get("message"):
+        return str(error["message"])[:300]
+
+    if isinstance(error, str) and error:
+        return error[:300]
+
+    return str(payload)[:300]
+
+
 def _execution() -> str:
     return "cpu" if MODEL_BACKEND == LOCAL_BACKEND else "hosted"
 
@@ -396,17 +413,22 @@ async def chat(request: ChatRequest) -> ChatResponse:
     payload: dict = {
         "model": MODEL_ID,
         "messages": messages,
-        "max_tokens": request.maxTokens,
-        "temperature": request.temperature,
         "stream": False,
     }
 
     if MODEL_BACKEND == LOCAL_BACKEND:
         # llama.cpp server extensions. The OpenAI API rejects body parameters
         # it does not recognize, so these only go to the local runner.
+        payload["max_tokens"] = request.maxTokens
+        payload["temperature"] = request.temperature
         payload["cache_prompt"] = True
         payload["chat_template_kwargs"] = {"enable_thinking": False}
         payload["reasoning_format"] = "none"
+    else:
+        # The OpenAI API replaced max_tokens with max_completion_tokens and
+        # refuses the old name outright. Current models also fix temperature
+        # at their default and refuse any other value, so it is not sent.
+        payload["max_completion_tokens"] = request.maxTokens
 
     try:
         response = await _client().post("chat/completions", json=payload)
@@ -440,7 +462,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
             status_code=502,
             detail=(
                 f"Inference backend {MODEL_BACKEND} returned HTTP "
-                f"{response.status_code}."
+                f"{response.status_code}: {_upstream_error(response)}"
             ),
         )
 

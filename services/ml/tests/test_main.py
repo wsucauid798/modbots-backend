@@ -236,10 +236,39 @@ class HostedInferenceTests(unittest.IsolatedAsyncioTestCase):
         )
 
         payload = client.last_chat_request[1]
-        self.assertEqual(payload["max_tokens"], 40)
+        self.assertEqual(payload["max_completion_tokens"], 40)
+        self.assertNotIn("max_tokens", payload)
+        self.assertNotIn("temperature", payload)
         self.assertNotIn("cache_prompt", payload)
         self.assertNotIn("chat_template_kwargs", payload)
         self.assertNotIn("reasoning_format", payload)
+
+    async def test_refused_request_surfaces_the_backend_explanation(self):
+        main.state["client"] = FakeClient(
+            chat_response=response(
+                400,
+                {
+                    "error": {
+                        "message": (
+                            "Unsupported parameter: 'max_tokens' is not "
+                            "supported with this model."
+                        ),
+                        "code": "unsupported_parameter",
+                    }
+                },
+            )
+        )
+
+        with self.assertRaises(HTTPException) as captured:
+            await main.chat(
+                main.ChatRequest(
+                    system="You are Iris.",
+                    messages=[main.ChatMessage(role="user", content="Hello")],
+                )
+            )
+
+        self.assertEqual(captured.exception.status_code, 502)
+        self.assertIn("Unsupported parameter", captured.exception.detail)
 
     async def test_hosted_health_reports_hosted_execution(self):
         main.state["client"] = FakeClient(
