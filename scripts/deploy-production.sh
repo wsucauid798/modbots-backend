@@ -36,6 +36,11 @@ if [ -z "${OPENAI_API_KEY:-}" ]; then
   exit 1
 fi
 
+if [ -z "${UPPS_SERVICE_TOKEN:-}" ]; then
+  echo "Missing required UPPS_SERVICE_TOKEN in the deployment environment."
+  exit 1
+fi
+
 docker network inspect modbots >/dev/null 2>&1 || docker network create modbots
 docker compose --env-file .env -f docker-compose.prod.yml pull
 docker compose --env-file .env -f docker-compose.prod.yml up -d --remove-orphans
@@ -54,6 +59,10 @@ for attempt in $(seq 1 60); do
 
   sleep 2
 done
+
+echo "Verifying production profile-picture storage..."
+docker compose --env-file .env -f docker-compose.prod.yml exec -T api \
+  node -e "const baseUrl = 'http://upps:3010'; const headers = { authorization: 'Bearer ' + process.env.UPPS_SERVICE_TOKEN, 'content-type': 'application/json' }; let profilePictureId; fetch(baseUrl + '/internal/profile-pictures', { method: 'POST', headers, body: JSON.stringify({ data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ' }) }).then(async (response) => { if (!response.ok) throw new Error('Upload failed with HTTP ' + response.status); profilePictureId = (await response.json()).profilePictureId; const served = await fetch(baseUrl + '/profile-pictures/' + profilePictureId); if (!served.ok) throw new Error('Read failed with HTTP ' + served.status); const removed = await fetch(baseUrl + '/internal/profile-pictures/' + profilePictureId, { method: 'DELETE', headers: { authorization: headers.authorization } }); if (!removed.ok) throw new Error('Cleanup failed with HTTP ' + removed.status); }).catch((error) => { console.error(error.message); process.exit(1); });"
 
 echo "Waiting for production inference..."
 for attempt in $(seq 1 60); do
