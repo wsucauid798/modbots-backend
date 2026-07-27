@@ -427,6 +427,27 @@ async def health() -> JSONResponse:
             },
         )
 
+    if MODEL_BACKEND == OPENAI_BACKEND:
+        try:
+            models = response.json().get("data", [])
+        except (AttributeError, ValueError):
+            models = []
+
+        if not any(
+            isinstance(model, dict) and model.get("id") == MODEL_ID
+            for model in models
+        ):
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "status": "unavailable",
+                    "service": "ml",
+                    "execution": _execution(),
+                    "model": MODEL_ID,
+                    "message": "The configured chat model is unavailable.",
+                },
+            )
+
     return JSONResponse(
         content={
             "status": "ok",

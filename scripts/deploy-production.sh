@@ -19,13 +19,17 @@ for variable in \
   PRODUCTION_S3_SECRET_KEY \
   PRODUCTION_COOKIE_SECRET \
   PRODUCTION_WEB_ORIGINS \
-  PRODUCTION_WEB_REDIRECT_URI \
-  MODEL_ID; do
+  PRODUCTION_WEB_REDIRECT_URI; do
   if ! grep -Eq "^${variable}=.+" .env; then
     echo "Missing required ${variable} in $(pwd)/.env."
     exit 1
   fi
 done
+
+if [ -z "${MODEL_ID:-}" ]; then
+  echo "Missing required MODEL_ID in the deployment environment."
+  exit 1
+fi
 
 if [ -z "${OPENAI_API_KEY:-}" ]; then
   echo "Missing required OPENAI_API_KEY in the deployment environment."

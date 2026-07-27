@@ -139,16 +139,22 @@ jobs:
 
       - name: Run production deployment
         env:
+          MODEL_ID: ${{ vars.MODEL_ID }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
+          if [ -z "$MODEL_ID" ]; then
+            echo "Missing MODEL_ID in the GitHub production environment."
+            exit 1
+          fi
+
           if [ -z "$OPENAI_API_KEY" ]; then
             echo "Missing OPENAI_API_KEY in the GitHub production environment."
             exit 1
           fi
 
-          printf '%s\n' "$OPENAI_API_KEY" | \
+          printf '%s\n%s\n' "$OPENAI_API_KEY" "$MODEL_ID" | \
             ssh -i ~/.ssh/modbots-production "$PRODUCTION_SSH_USER@$PRODUCTION_HOST" \
-              "set -eu; IFS= read -r OPENAI_API_KEY; export OPENAI_API_KEY; cd '$PRODUCTION_PATH' && MODBOTS_IMAGE_TAG='$MODBOTS_IMAGE_TAG' MODBOTS_DEPLOY_SOURCE=github-actions ./deploy-production.sh"
+              "set -eu; IFS= read -r OPENAI_API_KEY; IFS= read -r MODEL_ID; export OPENAI_API_KEY MODEL_ID; cd '$PRODUCTION_PATH' && MODBOTS_IMAGE_TAG='$MODBOTS_IMAGE_TAG' MODBOTS_DEPLOY_SOURCE=github-actions ./deploy-production.sh"
 
       - name: Verify production API
         run: |

@@ -322,13 +322,23 @@ class HostedInferenceTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_hosted_health_reports_hosted_execution(self):
         main.state["client"] = FakeClient(
-            health_response=response(200, {"data": []})
+            health_response=response(200, {"data": [{"id": main.MODEL_ID}]})
         )
 
         result = await main.health()
 
         self.assertEqual(result.status_code, 200)
         self.assertIn(b'"execution":"hosted"', result.body)
+
+    async def test_hosted_health_rejects_an_unavailable_model(self):
+        main.state["client"] = FakeClient(
+            health_response=response(200, {"data": [{"id": "another-model"}]})
+        )
+
+        result = await main.health()
+
+        self.assertEqual(result.status_code, 503)
+        self.assertIn(b"configured chat model is unavailable", result.body)
 
     async def test_rejected_credentials_name_the_key_to_check(self):
         main.state["client"] = FakeClient(
