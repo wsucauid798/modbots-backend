@@ -10,12 +10,12 @@ export interface TranslationService {
   translate(request: TranslationRequest): Promise<string[]>;
 }
 
-export class MlTranslationService implements TranslationService {
+export class LibreTranslationService implements TranslationService {
   private readonly cache = new Map<string, string>();
   private readonly pending = new Map<string, Promise<string>>();
 
   public constructor(
-    private readonly mlUrl: string,
+    private readonly translationUrl: string,
     private readonly maximumCacheEntries = 5_000,
   ) {}
 
@@ -72,7 +72,7 @@ export class MlTranslationService implements TranslationService {
           const value = translations[batchIndex];
 
           if (value === undefined) {
-            throw new Error("ML translation returned an invalid response");
+            throw new Error("Translation service returned an invalid response");
           }
 
           this.store(key, value);
@@ -129,28 +129,41 @@ export class MlTranslationService implements TranslationService {
   private async requestTranslations(
     request: TranslationRequest,
   ): Promise<string[]> {
-    const response = await fetch(new URL("/v1/translate", this.mlUrl), {
+    const response = await fetch(new URL("/translate", this.translationUrl), {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(request),
+      body: JSON.stringify({
+        q: request.texts,
+        source: this.languageCode(request.sourceLanguage),
+        target: this.languageCode(request.targetLanguage),
+        format: "text",
+      }),
     });
 
     if (!response.ok) {
-      throw new Error(`ML translation returned HTTP ${response.status}`);
+      throw new Error(`Translation service returned HTTP ${response.status}`);
     }
 
-    const payload = (await response.json()) as { translations?: unknown };
+    const payload = (await response.json()) as { translatedText?: unknown };
+    const translatedText =
+      typeof payload.translatedText === "string" && request.texts.length === 1
+        ? [payload.translatedText]
+        : payload.translatedText;
 
     if (
-      !Array.isArray(payload.translations) ||
-      payload.translations.length !== request.texts.length ||
-      payload.translations.some(
+      !Array.isArray(translatedText) ||
+      translatedText.length !== request.texts.length ||
+      translatedText.some(
         (text) => typeof text !== "string" || text.trim().length === 0,
       )
     ) {
-      throw new Error("ML translation returned an invalid response");
+      throw new Error("Translation service returned an invalid response");
     }
 
-    return payload.translations as string[];
+    return translatedText as string[];
+  }
+
+  private languageCode(language: string): string {
+    return language === "zh-CN" ? "zh-Hans" : language;
   }
 }

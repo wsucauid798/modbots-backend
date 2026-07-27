@@ -24,7 +24,7 @@ services:
       AUTH_MODE: ${AUTH_MODE:-optional}
       SESSION_TTL_DAYS: ${SESSION_TTL_DAYS:-30}
       ACCOUNT_URL: ${ACCOUNT_URL:-http://account:3003}
-      ML_URL: ${ML_URL:-http://ml:8000}
+      TRANSLATION_URL: ${TRANSLATION_URL:-http://translation:5000}
       UPPS_PUBLIC_URL: ${PRODUCTION_UPPS_PUBLIC_URL:-https://upps.modbots.ai}
       WEB_ORIGINS: ${PRODUCTION_WEB_ORIGINS:?Set PRODUCTION_WEB_ORIGINS to the production web origin}
     ports:
@@ -40,6 +40,8 @@ services:
         condition: service_started
       upps:
         condition: service_started
+      translation:
+        condition: service_healthy
 
   realtime:
     image: ghcr.io/wsucauid798/modbots-backend-realtime:${MODBOTS_IMAGE_TAG:-0.0.1-alpha}
@@ -121,6 +123,50 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:?Set OPENAI_API_KEY}
       INFERENCE_TIMEOUT_SECONDS: ${INFERENCE_TIMEOUT_SECONDS:-120}
 
+  translation-models-init:
+    image: libretranslate/libretranslate:v1.9.6
+    container_name: modbots-backend-translation-models-init
+    user: "0:0"
+    entrypoint:
+      [
+        "sh",
+        "-c",
+        "mkdir -p /home/libretranslate/.local/share/argos-translate && chown -R 1032:1032 /home/libretranslate/.local/share/argos-translate",
+      ]
+    volumes:
+      - translation-models:/home/libretranslate/.local/share/argos-translate
+    restart: "no"
+
+  translation:
+    image: libretranslate/libretranslate:v1.9.6
+    container_name: modbots-backend-translation
+    restart: unless-stopped
+    environment:
+      LT_HOST: 0.0.0.0
+      LT_PORT: 5000
+      LT_LOAD_ONLY: en,zh
+      LT_DISABLE_WEB_UI: "true"
+      LT_DISABLE_FILES_TRANSLATION: "true"
+      LT_CHAR_LIMIT: 40000
+      LT_BATCH_LIMIT: 50
+    volumes:
+      - translation-models:/home/libretranslate/.local/share/argos-translate
+    depends_on:
+      translation-models-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:5000/languages', timeout=5)",
+        ]
+      interval: 10s
+      timeout: 6s
+      retries: 30
+      start_period: 60s
+
   postgres:
     image: postgres:17-alpine
     container_name: modbots-backend-postgres
@@ -176,6 +222,8 @@ volumes:
     name: modbots_nats
   minio-data:
     name: modbots_minio
+  translation-models:
+    name: modbots_translation_models
 
 networks:
   default:

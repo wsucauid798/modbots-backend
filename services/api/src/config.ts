@@ -17,7 +17,7 @@ export interface AppConfig {
     // during the browser sign-in exchange.
     accountUrl: string;
   };
-  mlUrl: string;
+  translationUrl: string;
   // Browser origins allowed to call the API cross-origin (the web app).
   webOrigins: string[];
   database: {
@@ -155,7 +155,11 @@ export const loadConfig = (
     sessionTtlDays: days(environment, "SESSION_TTL_DAYS", "30"),
     accountUrl: url(environment, "ACCOUNT_URL", "http://localhost:3003"),
   },
-  mlUrl: url(environment, "ML_URL", "http://localhost:8000"),
+  translationUrl: url(
+    environment,
+    "TRANSLATION_URL",
+    "http://localhost:5000",
+  ),
   webOrigins: required(environment, "WEB_ORIGINS", "http://localhost:3000")
     .split(",")
     .map((origin) => origin.trim())

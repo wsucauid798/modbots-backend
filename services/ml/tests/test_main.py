@@ -1,5 +1,4 @@
 import base64
-import json
 import unittest
 from unittest import mock
 
@@ -248,58 +247,6 @@ class OpenAIInferenceTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result.status_code, 503)
         self.assertIn(b"Chat bots are still getting ready", result.body)
-
-    async def test_translation_preserves_batch_order(self):
-        client = FakeClient(
-            chat_response=response(
-                200,
-                {
-                    "choices": [
-                        {
-                            "message": {
-                                "content": json.dumps(
-                                    ["你好。", "你好吗？"],
-                                    ensure_ascii=False,
-                                )
-                            }
-                        }
-                    ],
-                },
-            )
-        )
-        main.state["client"] = client
-
-        result = await main.translate(
-            main.TranslationRequest(
-                texts=["Hello.", "How are you?"],
-                sourceLanguage="en",
-                targetLanguage="zh-CN",
-            )
-        )
-
-        path, payload = client.last_chat_request
-        self.assertEqual(path, "chat/completions")
-        self.assertIn("Simplified Chinese", payload["messages"][0]["content"])
-        self.assertEqual(result.translations, ["你好。", "你好吗？"])
-
-    async def test_translation_rejects_an_invalid_provider_batch(self):
-        main.state["client"] = FakeClient(
-            chat_response=response(
-                200,
-                {"choices": [{"message": {"content": '["only one"]'}}]},
-            )
-        )
-
-        with self.assertRaises(HTTPException) as captured:
-            await main.translate(
-                main.TranslationRequest(
-                    texts=["one", "two"],
-                    targetLanguage="zh-CN",
-                )
-            )
-
-        self.assertEqual(captured.exception.status_code, 502)
-
 
 class OpenAIErrorTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):

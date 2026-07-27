@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { MlTranslationService } from "./translation.js";
+import { LibreTranslationService } from "./translation.js";
 
 test("caches translations across repeated requests", async () => {
   const originalFetch = globalThis.fetch;
@@ -8,17 +8,17 @@ test("caches translations across repeated requests", async () => {
 
   globalThis.fetch = async (_input, init) => {
     requestCount += 1;
-    const request = JSON.parse(String(init?.body)) as { texts: string[] };
+    const request = JSON.parse(String(init?.body)) as { q: string[] };
     return new Response(
       JSON.stringify({
-        translations: request.texts.map((text) => `中文：${text}`),
+        translatedText: request.q.map((text) => `中文：${text}`),
       }),
       { status: 200, headers: { "content-type": "application/json" } },
     );
   };
 
   try {
-    const translations = new MlTranslationService("http://ml.test");
+    const translations = new LibreTranslationService("http://translate.test");
     const request = {
       texts: ["Hello", "Hello", "How are you?"],
       sourceLanguage: "en",
@@ -43,14 +43,14 @@ test("coalesces concurrent requests for the same translation", async () => {
   globalThis.fetch = async () => {
     requestCount += 1;
     await new Promise((resolve) => setTimeout(resolve, 10));
-    return new Response(JSON.stringify({ translations: ["你好"] }), {
+    return new Response(JSON.stringify({ translatedText: ["你好"] }), {
       status: 200,
       headers: { "content-type": "application/json" },
     });
   };
 
   try {
-    const translations = new MlTranslationService("http://ml.test");
+    const translations = new LibreTranslationService("http://translate.test");
     const request = {
       texts: ["Hello"],
       sourceLanguage: "en",
@@ -79,7 +79,7 @@ test("does not call inference when source and target languages match", async () 
   };
 
   try {
-    const translations = new MlTranslationService("http://ml.test");
+    const translations = new LibreTranslationService("http://translate.test");
     const result = await translations.translate({
       texts: ["Already English"],
       sourceLanguage: "en",
@@ -88,6 +88,39 @@ test("does not call inference when source and target languages match", async () 
 
     assert.deepEqual(result, ["Already English"]);
     assert.equal(requestCount, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("uses LibreTranslate language codes without OpenAI request fields", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestBody: Record<string, unknown> | undefined;
+
+  globalThis.fetch = async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return new Response(JSON.stringify({ translatedText: ["Hello"] }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  try {
+    const translations = new LibreTranslationService("http://translate.test");
+    await translations.translate({
+      texts: ["你好"],
+      sourceLanguage: "zh-CN",
+      targetLanguage: "en",
+    });
+
+    assert.deepEqual(requestBody, {
+      q: ["你好"],
+      source: "zh-Hans",
+      target: "en",
+      format: "text",
+    });
+    assert.equal("model" in (requestBody ?? {}), false);
+    assert.equal("messages" in (requestBody ?? {}), false);
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -16,7 +16,7 @@ import {
 import { UppsProfilePictureStore } from "./repositories/profile-pictures.js";
 import { PostgresRoomRepository } from "./repositories/rooms.js";
 import { PostgresSessionRepository } from "./repositories/sessions.js";
-import { MlTranslationService } from "./translation.js";
+import { LibreTranslationService } from "./translation.js";
 
 const start = async (): Promise<void> => {
   const config = loadConfig();
@@ -53,7 +53,7 @@ const start = async (): Promise<void> => {
     publisher,
     rooms: new PostgresRoomRepository(database, config.upps.publicUrl),
     sessions,
-    translations: new MlTranslationService(config.mlUrl),
+    translations: new LibreTranslationService(config.translationUrl),
   });
 
   try {
