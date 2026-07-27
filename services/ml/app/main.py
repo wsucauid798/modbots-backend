@@ -341,6 +341,20 @@ def _upstream_error(response: httpx.Response) -> str:
     return str(payload)[:300]
 
 
+def _upstream_error_code(response: httpx.Response) -> str:
+    """Return the provider's machine-readable failure code when present."""
+    try:
+        payload = response.json()
+    except ValueError:
+        return ""
+
+    error = payload.get("error") if isinstance(payload, dict) else None
+    if isinstance(error, dict) and isinstance(error.get("code"), str):
+        return error["code"]
+
+    return ""
+
+
 def _execution() -> str:
     return "cpu" if MODEL_BACKEND == LOCAL_BACKEND else "hosted"
 
@@ -450,7 +464,27 @@ async def chat(request: ChatRequest) -> ChatResponse:
         ) from exception
 
     if response.status_code == 429:
-        raise HTTPException(status_code=429, detail="Chat bots are busy.")
+        code = _upstream_error_code(response)
+
+        if code == "insufficient_quota":
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "code": "insufficient_quota",
+                    "message": (
+                        "Hosted inference quota is exhausted. Check the API "
+                        "project's billing and usage limits."
+                    ),
+                },
+            )
+
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "code": "rate_limited",
+                "message": "Inference is rate limited. Try again later.",
+            },
+        )
 
     if response.status_code in (401, 403):
         raise HTTPException(

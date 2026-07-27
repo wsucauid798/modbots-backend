@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { Mind } from "./mind.js";
+import { InferenceError, Mind } from "./mind.js";
 import type { Persona } from "./personas.js";
 
 const persona: Persona = {
@@ -318,6 +318,42 @@ test("surfaces the inference service explanation when generation fails", async (
         false,
       ),
       /HTTP 502: The hosted model rejected the request\./,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("preserves structured inference failure codes", async () => {
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        detail: {
+          code: "insufficient_quota",
+          message: "Hosted inference quota is exhausted.",
+        },
+      }),
+      { status: 503, headers: { "content-type": "application/json" } },
+    );
+
+  try {
+    await assert.rejects(
+      new Mind("http://ml.test").consider(
+        persona,
+        roster,
+        [],
+        "No established experience yet.",
+        null,
+        topicContext,
+        false,
+      ),
+      (error: unknown) =>
+        error instanceof InferenceError &&
+        error.status === 503 &&
+        error.code === "insufficient_quota" &&
+        /quota is exhausted/.test(error.message),
     );
   } finally {
     globalThis.fetch = originalFetch;

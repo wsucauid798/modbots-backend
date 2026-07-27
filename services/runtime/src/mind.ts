@@ -17,20 +17,50 @@ export interface Decision {
 const maxMessageLength = 300;
 const inferenceTranscriptLimit = 10;
 
+export class InferenceError extends Error {
+  public constructor(
+    public readonly status: number,
+    public readonly code: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = "InferenceError";
+  }
+}
+
 const inferenceFailure = async (response: Response): Promise<Error> => {
   let detail = "";
+  let code = "inference_failed";
 
   try {
     const payload = (await response.json()) as { detail?: unknown };
 
     if (typeof payload.detail === "string") {
       detail = payload.detail.trim().slice(0, 500);
+    } else if (
+      typeof payload.detail === "object" &&
+      payload.detail !== null
+    ) {
+      const structured = payload.detail as {
+        code?: unknown;
+        message?: unknown;
+      };
+
+      if (typeof structured.code === "string") {
+        code = structured.code;
+      }
+
+      if (typeof structured.message === "string") {
+        detail = structured.message.trim().slice(0, 500);
+      }
     }
   } catch {
     // The status remains useful when the service did not return JSON.
   }
 
-  return new Error(
+  return new InferenceError(
+    response.status,
+    code,
     `ML service returned HTTP ${response.status}` +
       (detail.length > 0 ? `: ${detail}` : ""),
   );

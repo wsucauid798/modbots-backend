@@ -1,3 +1,4 @@
+import { InferenceError } from "./mind.js";
 import type { Mind } from "./mind.js";
 import type { Persona } from "./personas.js";
 import {
@@ -66,6 +67,8 @@ export class ConversationEngine {
   private eventWork: Promise<void> = Promise.resolve();
   private stopped = false;
   private lastBotMessageAt = 0;
+  private inferenceBackoffMs = 0;
+  private inferencePausedUntil = 0;
   private readonly topics: TopicCoordinator;
 
   public constructor(
@@ -123,6 +126,10 @@ export class ConversationEngine {
     const scaled = (minMs + Math.random() * (maxMs - minMs)) * this.tempo;
 
     return new Promise((resolve) => setTimeout(resolve, scaled));
+  }
+
+  private pause(milliseconds: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, milliseconds));
   }
 
   private availableBots(): BotState[] {
@@ -533,9 +540,16 @@ export class ConversationEngine {
 
   public async run(): Promise<void> {
     while (!this.stopped) {
-      const activityLevel = roomActivityLevelAtUtc(this.now());
-      const [minimumWait, maximumWait] = autonomousDelayRange(activityLevel);
-      await this.sleep(minimumWait, maximumWait);
+      const now = this.now().getTime();
+      const pausedFor = Math.max(0, this.inferencePausedUntil - now);
+
+      if (pausedFor > 0) {
+        await this.pause(pausedFor);
+      } else {
+        const activityLevel = roomActivityLevelAtUtc(this.now());
+        const [minimumWait, maximumWait] = autonomousDelayRange(activityLevel);
+        await this.sleep(minimumWait, maximumWait);
+      }
 
       const preferred = this.preferredBots();
       const candidates =
@@ -576,6 +590,10 @@ export class ConversationEngine {
         if (posted) {
           break;
         }
+
+        if (this.inferencePausedUntil > this.now().getTime()) {
+          break;
+        }
       }
     }
   }
@@ -589,6 +607,10 @@ export class ConversationEngine {
     addressedTo?: ContentAddress[],
   ): Promise<boolean> {
     if (bot.muted || this.stopped) {
+      return false;
+    }
+
+    if (this.inferencePausedUntil > this.now().getTime()) {
       return false;
     }
 
@@ -616,6 +638,8 @@ export class ConversationEngine {
         topicContext,
         !mustSpeak,
       );
+      this.inferenceBackoffMs = 0;
+      this.inferencePausedUntil = 0;
       if (decision.speak && decision.message !== undefined) {
         // A message that is nothing but someone's name is a mimicry
         // artifact, not speech.
@@ -718,6 +742,22 @@ export class ConversationEngine {
         this.topics.recordPass(this.availableBots().length, this.now().getTime());
       }
     } catch (error) {
+      if (
+        error instanceof InferenceError &&
+        (error.status === 429 ||
+          error.code === "rate_limited" ||
+          error.code === "insufficient_quota")
+      ) {
+        const minimumBackoffMs =
+          error.code === "insufficient_quota" ? 5 * 60_000 : 15_000;
+        this.inferenceBackoffMs = Math.min(
+          Math.max(minimumBackoffMs, this.inferenceBackoffMs * 2),
+          5 * 60_000,
+        );
+        this.inferencePausedUntil =
+          this.now().getTime() + this.inferenceBackoffMs;
+      }
+
       console.error(
         `${bot.persona.displayName} lost their train of thought: ${
           error instanceof Error ? error.message : String(error)

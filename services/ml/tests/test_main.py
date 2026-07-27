@@ -180,7 +180,15 @@ class CpuInferenceTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_busy_model_is_reported_as_rate_limited(self):
         main.state["client"] = FakeClient(
-            chat_response=response(429, {"error": {"message": "busy"}})
+            chat_response=response(
+                429,
+                {
+                    "error": {
+                        "message": "busy",
+                        "code": "rate_limit_exceeded",
+                    }
+                },
+            )
         )
 
         with self.assertRaises(HTTPException) as captured:
@@ -192,6 +200,32 @@ class CpuInferenceTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(captured.exception.status_code, 429)
+        self.assertEqual(captured.exception.detail["code"], "rate_limited")
+
+    async def test_exhausted_hosted_quota_is_reported_as_unavailable(self):
+        main.state["client"] = FakeClient(
+            chat_response=response(
+                429,
+                {
+                    "error": {
+                        "message": "You exceeded your current quota.",
+                        "type": "insufficient_quota",
+                        "code": "insufficient_quota",
+                    }
+                },
+            )
+        )
+
+        with self.assertRaises(HTTPException) as captured:
+            await main.chat(
+                main.ChatRequest(
+                    system="You are Iris.",
+                    messages=[main.ChatMessage(role="user", content="Hello")],
+                )
+            )
+
+        self.assertEqual(captured.exception.status_code, 503)
+        self.assertEqual(captured.exception.detail["code"], "insufficient_quota")
 
     async def test_connection_failure_reports_starting_state(self):
         request = httpx.Request(

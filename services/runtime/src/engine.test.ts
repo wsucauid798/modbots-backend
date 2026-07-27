@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import { ConversationEngine } from "./engine.js";
 import type { PerceivedMessage } from "./experience.js";
+import { InferenceError } from "./mind.js";
 import type { Decision } from "./mind.js";
 import type { Persona } from "./personas.js";
 import type {
@@ -63,7 +64,7 @@ class FakeMind {
   public readonly allowPassValues: boolean[] = [];
 
   public constructor(
-    private readonly decisions: Decision[],
+    private readonly decisions: Array<Decision | Error>,
     private readonly firstDecisionDelayMs = 0,
   ) {}
 
@@ -104,6 +105,10 @@ class FakeMind {
     }
 
     const decision = this.decisions.shift() ?? { speak: false };
+
+    if (decision instanceof Error) {
+      throw decision;
+    }
 
     if (!decision.speak) {
       return decision;
@@ -290,6 +295,46 @@ test("keeps residents eligible regardless of room time", async () => {
   assert.equal(mind.considered.length, 1);
   assert.ok(["Arwen", "Jakob"].includes(mind.considered[0] ?? ""));
   assert.deepEqual(mind.roomTimesUtc, ["2026-07-18T05:00:00.000Z"]);
+  assert.equal(platform.posts.length, 1);
+});
+
+test("backs off when hosted inference quota is exhausted", async () => {
+  const platform = new FakePlatform({
+    "human-one": makeActor("human-one", "Mina"),
+  });
+  const mind = new FakeMind([
+    new InferenceError(
+      503,
+      "insufficient_quota",
+      "Hosted inference quota is exhausted.",
+    ),
+    { speak: true, message: "The room is available again." },
+  ]);
+  let currentTime = new Date("2026-07-18T12:00:00.000Z");
+  const engine = new ConversationEngine(
+    platform,
+    mind,
+    0,
+    makeBots(),
+    () => currentTime,
+  );
+
+  await engine.enqueueRoomEvent(
+    humanMessage("quota-1", "human-one", "Is anyone awake?"),
+  );
+  await engine.enqueueRoomEvent(
+    humanMessage("quota-2", "human-one", "Can anyone hear me?"),
+  );
+
+  assert.equal(mind.considered.length, 1);
+  assert.equal(platform.posts.length, 0);
+
+  currentTime = new Date(currentTime.getTime() + 5 * 60_000);
+  await engine.enqueueRoomEvent(
+    humanMessage("quota-3", "human-one", "Are you back?"),
+  );
+
+  assert.equal(mind.considered.length, 2);
   assert.equal(platform.posts.length, 1);
 });
 
