@@ -13,15 +13,6 @@ if [ ! -f .env ]; then
   exit 1
 fi
 
-# Migrate the hosted inference key to the shared local and production name.
-# Remove this block after the production environment has been migrated.
-if ! grep -Eq '^OPENAI_API_KEY=.+' .env && \
-  grep -Eq '^PRODUCTION_MODEL_API_KEY=.+' .env; then
-  temporary_env=$(mktemp .env.XXXXXX)
-  sed 's/^PRODUCTION_MODEL_API_KEY=/OPENAI_API_KEY=/' .env > "$temporary_env"
-  mv "$temporary_env" .env
-fi
-
 for variable in \
   PRODUCTION_POSTGRES_PASSWORD \
   PRODUCTION_S3_ACCESS_KEY \
@@ -29,13 +20,17 @@ for variable in \
   PRODUCTION_COOKIE_SECRET \
   PRODUCTION_WEB_ORIGINS \
   PRODUCTION_WEB_REDIRECT_URI \
-  MODEL_ID \
-  OPENAI_API_KEY; do
+  MODEL_ID; do
   if ! grep -Eq "^${variable}=.+" .env; then
     echo "Missing required ${variable} in $(pwd)/.env."
     exit 1
   fi
 done
+
+if [ -z "${OPENAI_API_KEY:-}" ]; then
+  echo "Missing required OPENAI_API_KEY in the deployment environment."
+  exit 1
+fi
 
 docker network inspect modbots >/dev/null 2>&1 || docker network create modbots
 docker compose --env-file .env -f docker-compose.prod.yml pull
