@@ -1,5 +1,9 @@
 import type { Mind } from "./mind.js";
 import type { Persona } from "./personas.js";
+import {
+  autonomousDelayRange,
+  roomActivityLevelAtUtc,
+} from "./activity.js";
 import { PlatformError } from "./platform.js";
 import type { PlatformClient } from "./platform.js";
 import type { ContentAddress, RoomEvent } from "./platform.js";
@@ -48,8 +52,8 @@ const pick = <Item>(items: Item[]): Item =>
 // on each turn a bot perceives the recent conversation and its mind decides
 // whether to speak, whom to address, and whether to change the subject.
 // The engine keeps the resident loop running and obeys hard room state such
-// as muting. A short beat between scheduled turns keeps fast hosted inference
-// from producing spammy back-to-back posts.
+// as muting. The room clock is UTC, and its activity level sets the beat
+// between scheduled turns so night remains alive without becoming a pile-on.
 export class ConversationEngine {
   private readonly bots: BotState[];
   private readonly transcript: string[] = [];
@@ -529,7 +533,9 @@ export class ConversationEngine {
 
   public async run(): Promise<void> {
     while (!this.stopped) {
-      await this.sleep(2_000, 4_000);
+      const activityLevel = roomActivityLevelAtUtc(this.now());
+      const [minimumWait, maximumWait] = autonomousDelayRange(activityLevel);
+      await this.sleep(minimumWait, maximumWait);
 
       const preferred = this.preferredBots();
       const candidates =
