@@ -123,24 +123,17 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:?Set OPENAI_API_KEY}
       INFERENCE_TIMEOUT_SECONDS: ${INFERENCE_TIMEOUT_SECONDS:-120}
 
-  translation-models-init:
+  translation:
     image: libretranslate/libretranslate:v1.9.6
-    container_name: modbots-backend-translation-models-init
+    container_name: modbots-backend-translation
+    restart: unless-stopped
     user: "0:0"
     entrypoint:
       [
         "sh",
         "-c",
-        "mkdir -p /home/libretranslate/.local/share/argos-translate && chown -R 1032:1032 /home/libretranslate/.local/share/argos-translate",
+        "mkdir -p /home/libretranslate/.local/share/argos-translate && chown -R 1032:65534 /home/libretranslate/.local/share/argos-translate && exec setpriv --reuid=1032 --regid=65534 --clear-groups /app/scripts/entrypoint.sh",
       ]
-    volumes:
-      - translation-models:/home/libretranslate/.local/share/argos-translate
-    restart: "no"
-
-  translation:
-    image: libretranslate/libretranslate:v1.9.6
-    container_name: modbots-backend-translation
-    restart: unless-stopped
     environment:
       LT_HOST: 0.0.0.0
       LT_PORT: 5000
@@ -151,9 +144,6 @@ services:
       LT_BATCH_LIMIT: 50
     volumes:
       - translation-models:/home/libretranslate/.local/share/argos-translate
-    depends_on:
-      translation-models-init:
-        condition: service_completed_successfully
     healthcheck:
       test:
         [
