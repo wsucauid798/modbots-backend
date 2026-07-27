@@ -62,6 +62,7 @@ class FakeMind {
   public readonly considered: string[] = [];
   public readonly roomTimesUtc: string[] = [];
   public readonly allowPassValues: boolean[] = [];
+  public readonly addresseeCalls: string[] = [];
 
   public constructor(
     private readonly decisions: Array<Decision | Error>,
@@ -73,8 +74,9 @@ class FakeMind {
     _residents: string[],
     _transcript: string[],
     _speaker: string,
-    _message: string,
+    message: string,
   ): Promise<string | null> {
+    this.addresseeCalls.push(message);
     const error = this.addresseeErrors.shift();
 
     if (error !== undefined) {
@@ -258,6 +260,44 @@ test("routes a structural address to the intended resident", async () => {
   assert.deepEqual(platform.posts[0]?.addressedTo, [
     { targetType: "actor", actorId: "human-one" },
   ]);
+});
+
+test("answers a greeting without spending a routing inference", async () => {
+  const platform = new FakePlatform({
+    "human-one": makeActor("human-one", "Mina"),
+  });
+  const mind = new FakeMind([
+    { speak: true, message: "Good morning, glad you stopped in." },
+  ]);
+  const engine = new ConversationEngine(platform, mind, 0, makeBots(), noonUtc);
+
+  await engine.enqueueRoomEvent(
+    humanMessage("greeting", "human-one", "Good morning everyone!"),
+  );
+
+  assert.equal(mind.addresseeCalls.length, 0);
+  assert.equal(mind.considered.length, 1);
+  assert.equal(platform.posts.length, 1);
+});
+
+test("answers a structural room address without routing inference", async () => {
+  const platform = new FakePlatform({
+    "human-one": makeActor("human-one", "Mina"),
+  });
+  const mind = new FakeMind([
+    { speak: true, message: "I would start with the smaller one." },
+  ]);
+  const engine = new ConversationEngine(platform, mind, 0, makeBots(), noonUtc);
+
+  await engine.enqueueRoomEvent(
+    humanMessage("room-address", "human-one", "Which one should I try?", {
+      addressedTo: [{ targetType: "room" }],
+    }),
+  );
+
+  assert.equal(mind.addresseeCalls.length, 0);
+  assert.equal(mind.considered.length, 1);
+  assert.equal(platform.posts.length, 1);
 });
 
 test("uses one fallback resident when the first resident passes", async () => {

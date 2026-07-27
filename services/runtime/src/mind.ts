@@ -141,8 +141,6 @@ type TurnPlan =
     };
 
 export class Mind {
-  private inferenceTail: Promise<void> = Promise.resolve();
-
   public constructor(
     private readonly mlUrl: string,
     private readonly random: () => number = Math.random,
@@ -308,25 +306,23 @@ export class Mind {
       `perceive from every part, in order. Preserve the meaning of written ` +
       `and spoken words. Describe relevant visual details. Do not invent ` +
       `anything, give advice, or mention processing, models, or prompts.`;
-    return this.enqueueInference(async () => {
-      const response = await fetch(new URL("/v1/chat", this.mlUrl).toString(), {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          system,
-          messages: [{ role: "user", parts }],
-          maxTokens: 300,
-          temperature: 0.1,
-        }),
-      });
-
-      if (!response.ok) {
-        throw await inferenceFailure(response);
-      }
-
-      const payload = (await response.json()) as { content: string };
-      return payload.content.trim();
+    const response = await fetch(new URL("/v1/chat", this.mlUrl).toString(), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        system,
+        messages: [{ role: "user", parts }],
+        maxTokens: 300,
+        temperature: 0.1,
+      }),
     });
+
+    if (!response.ok) {
+      throw await inferenceFailure(response);
+    }
+
+    const payload = (await response.json()) as { content: string };
+    return payload.content.trim();
   }
 
   private async generate(
@@ -335,37 +331,24 @@ export class Mind {
     maxTokens: number,
     temperature: number,
   ): Promise<string> {
-    return this.enqueueInference(async () => {
-      const response = await fetch(new URL("/v1/chat", this.mlUrl).toString(), {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          system,
-          messages: [{ role: "user", content: user }],
-          maxTokens,
-          temperature,
-        }),
-      });
-
-      if (!response.ok) {
-        throw await inferenceFailure(response);
-      }
-
-      const payload = (await response.json()) as { content: string };
-
-      return payload.content;
+    const response = await fetch(new URL("/v1/chat", this.mlUrl).toString(), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        system,
+        messages: [{ role: "user", content: user }],
+        maxTokens,
+        temperature,
+      }),
     });
-  }
 
-  private enqueueInference<Result>(
-    operation: () => Promise<Result>,
-  ): Promise<Result> {
-    const queued = this.inferenceTail.then(operation, operation);
-    this.inferenceTail = queued.then(
-      () => undefined,
-      () => undefined,
-    );
-    return queued;
+    if (!response.ok) {
+      throw await inferenceFailure(response);
+    }
+
+    const payload = (await response.json()) as { content: string };
+
+    return payload.content;
   }
 
   private parsePlan(

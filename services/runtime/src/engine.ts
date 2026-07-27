@@ -1082,7 +1082,16 @@ export class ConversationEngine {
     const responsePool = scheduled.length > 0 ? scheduled : available;
 
     const lower = content.toLowerCase();
+    const greeting =
+      /^\s*(?:hi|hello|hey|good\s+(?:morning|afternoon|evening))(?:\s+(?:everyone|everybody|all|folks|there))?[!.?]*\s*$/i.test(
+        content,
+      );
     const latest = this.transcriptEntries.at(-1);
+    const addressedToRoom =
+      (latest?.speaker === display &&
+        latest.content === content &&
+        latest.addressedToRoom) ||
+      this.addressesIn(content).addressedToRoom;
     let target = available.find(
       (entry) =>
         latest?.speaker === display &&
@@ -1094,7 +1103,12 @@ export class ConversationEngine {
     );
     target = target ?? this.addressedBot(content);
 
-    if (target === undefined) {
+    if (
+      target === undefined &&
+      !greeting &&
+      !addressedToRoom &&
+      responsePool.length > 1
+    ) {
       try {
         const name = await this.mind.addressee(
           responsePool.map((entry) => entry.persona.displayName),
@@ -1122,10 +1136,6 @@ export class ConversationEngine {
     await this.sleep(350, 900);
     const first = target ?? pick(responsePool);
     const directQuestion = ConversationEngine.asksQuestion(content);
-    const greeting =
-      /^\s*(?:hi|hello|hey|good\s+(?:morning|afternoon|evening))(?:\s+(?:everyone|everybody|all|folks|there))?[!.?]*\s*$/i.test(
-        content,
-      );
     const addressedTo =
       humanActorId === undefined
         ? undefined

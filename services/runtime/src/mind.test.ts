@@ -362,7 +362,7 @@ test("preserves structured inference failure codes", async () => {
   }
 });
 
-test("runs only one inference request at a time", async () => {
+test("allows two inference requests to proceed concurrently", async () => {
   const originalFetch = globalThis.fetch;
   let activeRequests = 0;
   let maximumActiveRequests = 0;
@@ -387,7 +387,7 @@ test("runs only one inference request at a time", async () => {
       mind.addressee(["Arwen", "Jakob"], [], "Theo", "Good morning"),
     ]);
 
-    assert.equal(maximumActiveRequests, 1);
+    assert.equal(maximumActiveRequests, 2);
   } finally {
     globalThis.fetch = originalFetch;
   }
