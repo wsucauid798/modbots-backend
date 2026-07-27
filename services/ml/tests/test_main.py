@@ -237,6 +237,7 @@ class HostedInferenceTests(unittest.IsolatedAsyncioTestCase):
 
         payload = client.last_chat_request[1]
         self.assertEqual(payload["max_completion_tokens"], 40)
+        self.assertEqual(payload["reasoning_effort"], "none")
         self.assertNotIn("max_tokens", payload)
         self.assertNotIn("temperature", payload)
         self.assertNotIn("cache_prompt", payload)

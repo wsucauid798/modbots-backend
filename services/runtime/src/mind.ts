@@ -17,6 +17,25 @@ export interface Decision {
 const maxMessageLength = 300;
 const inferenceTranscriptLimit = 10;
 
+const inferenceFailure = async (response: Response): Promise<Error> => {
+  let detail = "";
+
+  try {
+    const payload = (await response.json()) as { detail?: unknown };
+
+    if (typeof payload.detail === "string") {
+      detail = payload.detail.trim().slice(0, 500);
+    }
+  } catch {
+    // The status remains useful when the service did not return JSON.
+  }
+
+  return new Error(
+    `ML service returned HTTP ${response.status}` +
+      (detail.length > 0 ? `: ${detail}` : ""),
+  );
+};
+
 const messageStyle =
   `a natural chat message whose length and sentence shape follow the ` +
   `cadence selected for this turn. Do not pad a thought to reach the upper ` +
@@ -89,7 +108,7 @@ export class Mind {
     const response = await fetch(new URL("/health", this.mlUrl).toString());
 
     if (!response.ok) {
-      throw new Error(`ML service returned HTTP ${response.status}`);
+      throw await inferenceFailure(response);
     }
   }
 
@@ -257,7 +276,7 @@ export class Mind {
     });
 
     if (!response.ok) {
-      throw new Error(`ML service returned HTTP ${response.status}`);
+      throw await inferenceFailure(response);
     }
 
     const payload = (await response.json()) as { content: string };
@@ -282,7 +301,7 @@ export class Mind {
     });
 
     if (!response.ok) {
-      throw new Error(`ML service returned HTTP ${response.status}`);
+      throw await inferenceFailure(response);
     }
 
     const payload = (await response.json()) as { content: string };

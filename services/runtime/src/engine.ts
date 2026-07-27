@@ -48,7 +48,8 @@ const pick = <Item>(items: Item[]): Item =>
 // on each turn a bot perceives the recent conversation and its mind decides
 // whether to speak, whom to address, and whether to change the subject.
 // The engine keeps the resident loop running and obeys hard room state such
-// as muting. Scheduled turns do not pause for artificial chat limits.
+// as muting. A short beat between scheduled turns keeps fast hosted inference
+// from producing spammy back-to-back posts.
 export class ConversationEngine {
   private readonly bots: BotState[];
   private readonly transcript: string[] = [];
@@ -528,6 +529,8 @@ export class ConversationEngine {
 
   public async run(): Promise<void> {
     while (!this.stopped) {
+      await this.sleep(2_000, 4_000);
+
       const preferred = this.preferredBots();
       const candidates =
         preferred.length > 0 ? preferred : this.availableBots();

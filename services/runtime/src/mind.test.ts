@@ -294,3 +294,32 @@ test("reuses a stable planning prefix and sends only recent transcript", async (
     globalThis.fetch = originalFetch;
   }
 });
+
+test("surfaces the inference service explanation when generation fails", async () => {
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        detail: "The hosted model rejected the request.",
+      }),
+      { status: 502, headers: { "content-type": "application/json" } },
+    );
+
+  try {
+    await assert.rejects(
+      new Mind("http://ml.test").consider(
+        persona,
+        roster,
+        [],
+        "No established experience yet.",
+        null,
+        topicContext,
+        false,
+      ),
+      /HTTP 502: The hosted model rejected the request\./,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

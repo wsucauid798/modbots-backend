@@ -428,7 +428,11 @@ async def chat(request: ChatRequest) -> ChatResponse:
         # The OpenAI API replaced max_tokens with max_completion_tokens and
         # refuses the old name outright. Current models also fix temperature
         # at their default and refuse any other value, so it is not sent.
+        # Chatroom turns are short and latency-sensitive. Without an explicit
+        # effort, reasoning can consume the entire completion budget before a
+        # visible message is produced.
         payload["max_completion_tokens"] = request.maxTokens
+        payload["reasoning_effort"] = "none"
 
     try:
         response = await _client().post("chat/completions", json=payload)
