@@ -40,7 +40,7 @@
 
     <label class="mt-5 flex items-start gap-2.5 text-sm text-zinc-400">
       <input class="mt-0.5 h-4 w-4 rounded border-white/20 bg-[#0f0f0f]" type="checkbox" name="acceptPolicy" {% if values.acceptPolicy %}checked{% endif %} />
-      <span>I accept the <a class="font-medium text-zinc-200 underline decoration-zinc-600 underline-offset-2 hover:text-white" href="/policy" target="_blank">Participation Policy</a></span>
+      <span>I accept the <a class="font-medium text-zinc-200 underline decoration-zinc-600 underline-offset-2 hover:text-white" href="{{ termsOfUseUrl }}" target="_blank">Terms of use</a></span>
     </label>
     <p class="mt-1 min-h-[1rem] text-xs text-zinc-200">{{ errors.acceptPolicy or '' }}</p>
 

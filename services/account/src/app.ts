@@ -152,12 +152,16 @@ export const buildApp = async (
     statusCode?: number,
   ) => {
     const viewName = screen === "register" ? "register.njk" : "login.njk";
+    const viewModel = {
+      ...model,
+      termsOfUseUrl: new URL("/terms-of-use", config.webRedirectUri).toString(),
+    };
 
     if (statusCode === undefined) {
-      return reply.view(viewName, model);
+      return reply.view(viewName, viewModel);
     }
 
-    return reply.code(statusCode).view(viewName, model);
+    return reply.code(statusCode).view(viewName, viewModel);
   };
 
   const appReturnPath = (raw: string | undefined): string | null => {
@@ -274,13 +278,6 @@ export const buildApp = async (
   };
 
   app.get("/health", async () => ({ status: "ok", service: "account" }));
-
-  // The one canonical, linkable home of the participation policy. Clients
-  // never render the policy themselves; they link here.
-  app.get("/policy", async (_request, reply) => {
-    const policy = await backend.policy();
-    return reply.view("policy.njk", { policy });
-  });
 
   interface LoginQuery {
     uid?: string;
@@ -442,7 +439,7 @@ export const buildApp = async (
     if (!accepted) {
       errors.push({
         field: "acceptPolicy",
-        message: "Logging in requires accepting the Participation Policy.",
+        message: "Logging in requires accepting the Terms of use.",
       });
     }
 
@@ -525,7 +522,7 @@ export const buildApp = async (
     if (!accepted) {
       errors.push({
         field: "acceptPolicy",
-        message: "Guest entry requires accepting the Participation Policy.",
+        message: "Guest entry requires accepting the Terms of use.",
       });
     }
 
@@ -683,7 +680,7 @@ export const buildApp = async (
     if (!accepted) {
       errors.push({
         field: "acceptPolicy",
-        message: "Registration requires accepting the Participation Policy.",
+        message: "Registration requires accepting the Terms of use.",
       });
     }
 

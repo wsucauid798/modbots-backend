@@ -1,6 +1,5 @@
 // Thin client over the platform backend. The account surface owns no
-// identity data: registration, credential checks, and policy text all live
-// in the one backend.
+// identity data: registration and credential checks live in the one backend.
 export interface Actor {
   id: string;
   handle: string | null;
@@ -11,15 +10,6 @@ export interface Actor {
   type: string;
   registered: boolean;
   retiredAt: string | null;
-}
-
-export interface ParticipationPolicy {
-  version: string;
-  title?: string;
-  summary?: string;
-  moderationAccess?: string;
-  trainingUse?: string;
-  retention?: string;
 }
 
 export class BackendError extends Error {
@@ -61,10 +51,6 @@ export class BackendClient {
 
   public health(): Promise<unknown> {
     return this.request("/health");
-  }
-
-  public policy(): Promise<ParticipationPolicy> {
-    return this.request("/api/policy");
   }
 
   public getActor(actorId: string): Promise<Actor> {
