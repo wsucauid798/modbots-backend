@@ -33,7 +33,7 @@ test("a passed turn does not stop an idle room", () => {
   assert.equal(topics.turnContext("autonomous", 1_001).eligible, true);
 });
 
-test("moves to a new topic without stopping after three bot turns", () => {
+test("keeps a topic active after three bot turns", () => {
   const topics = new TopicCoordinator();
 
   for (let turn = 0; turn < 3; turn += 1) {
@@ -45,7 +45,54 @@ test("moves to a new topic without stopping after three bot turns", () => {
     );
   }
 
-  assert.equal(topics.turnContext("autonomous", 30_000).eligible, true);
+  const context = topics.turnContext("autonomous", 30_000);
+
+  assert.equal(context.eligible, true);
+  assert.match(context.guidance, /still developing/);
+  assert.doesNotMatch(context.guidance, /Recently completed topics/);
+});
+
+test("rejects an autonomous topic change before the discussion develops", () => {
+  const topics = new TopicCoordinator();
+  topics.recordBotTurn(
+    decision("repairing the loose handle", "start"),
+    "The loose handle can be repaired.",
+    "autonomous",
+    1_000,
+  );
+
+  const change = {
+    ...decision("the best fruit for breakfast", "change"),
+    topic: "breakfast fruit",
+    topicGrounding: "a sudden personal preference",
+  };
+  const evaluated = topics.evaluate(
+    change,
+    "Pears are better at breakfast.",
+    "autonomous",
+    2_000,
+  );
+
+  assert.equal(evaluated.accepted, false);
+  assert.equal(evaluated.reason, "topic changed before it developed");
+});
+
+test("invites a conversational bridge after a topic has developed", () => {
+  const topics = new TopicCoordinator();
+
+  for (let turn = 0; turn < 7; turn += 1) {
+    topics.recordBotTurn(
+      decision(`distinct repair angle ${turn}`, turn === 0 ? "start" : "continue"),
+      `Distinct repair statement ${turn}.`,
+      "autonomous",
+      turn * 10_000,
+    );
+  }
+
+  const context = topics.turnContext("autonomous", 70_000);
+
+  assert.match(context.guidance, /natural conversational bridge/);
+  assert.match(context.guidance, /clearly different subject/);
 });
 
 test("allows only one bot question until a human contributes", () => {
@@ -117,7 +164,7 @@ test("rejects a repeated angle on the active topic", () => {
 test("keeps a closed topic on cooldown", () => {
   const topics = new TopicCoordinator();
 
-  for (let turn = 0; turn < 3; turn += 1) {
+  for (let turn = 0; turn < 9; turn += 1) {
     topics.recordBotTurn(
       decision(`new repair angle ${turn}`, turn === 0 ? "start" : "continue"),
       `Repair statement ${turn}.`,
@@ -126,7 +173,7 @@ test("keeps a closed topic on cooldown", () => {
     );
   }
 
-  topics.turnContext("autonomous", 30_000);
+  topics.turnContext("autonomous", 90_000);
   const restart = topics.evaluate(
     decision("another repair angle", "start"),
     "Here is another thought about repairing old objects.",
@@ -141,7 +188,7 @@ test("keeps a closed topic on cooldown", () => {
 test("tells the next speaker which recently completed topics to avoid", () => {
   const topics = new TopicCoordinator();
 
-  for (let turn = 0; turn < 3; turn += 1) {
+  for (let turn = 0; turn < 9; turn += 1) {
     topics.recordBotTurn(
       decision(`new repair angle ${turn}`, turn === 0 ? "start" : "continue"),
       `Repair statement ${turn}.`,
@@ -150,9 +197,39 @@ test("tells the next speaker which recently completed topics to avoid", () => {
     );
   }
 
-  const context = topics.turnContext("autonomous", 30_000);
+  const context = topics.turnContext("autonomous", 90_000);
 
   assert.equal(context.eligible, true);
   assert.match(context.guidance, /Recently completed topics: repairing old objects/);
-  assert.match(context.guidance, /Choose a clearly different subject/);
+  assert.match(context.guidance, /Do not rename, revisit, or choose a close variation/);
+});
+
+test("treats related labels as one continuing subject", () => {
+  const topics = new TopicCoordinator();
+  const initial = {
+    ...decision("watering before the heat", "start"),
+    topic: "garden watering",
+  };
+  topics.recordBotTurn(
+    initial,
+    "Morning watering avoids the worst heat.",
+    "autonomous",
+    1_000,
+  );
+
+  const related = {
+    ...decision("using mulch to retain water", "change"),
+    topic: "summer watering",
+  };
+
+  topics.recordBotTurn(
+    related,
+    "Mulch keeps the summer watering from evaporating as quickly.",
+    "autonomous",
+    2_000,
+  );
+
+  const context = topics.turnContext("autonomous", 3_000);
+  assert.match(context.guidance, /active topic is garden watering/);
+  assert.doesNotMatch(context.guidance, /Recently completed topics/);
 });

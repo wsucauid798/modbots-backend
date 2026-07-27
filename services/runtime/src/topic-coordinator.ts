@@ -12,7 +12,6 @@ interface ActiveTopic {
   label: string;
   source: NonNullable<Decision["topicSource"]>;
   grounding: string;
-  startedAt: number;
   lastAdvancedAt: number;
   humanTurns: number;
   botTurns: number;
@@ -35,10 +34,13 @@ export interface TopicDecisionResult {
   reason?: string;
 }
 
-const topicCooldownMs = 30 * 60_000;
-const maximumBotTurnsWithoutHuman = 3;
+const topicCooldownMs = 3 * 60 * 60_000;
+const minimumBotTurnsBeforeAutonomousChange = 4;
+const preferredBotTurnsBeforeChange = 7;
+const maximumBotTurnsWithoutHuman = 9;
 const maximumTopicIdleMs = 15 * 60_000;
 const humanConversationYieldMs = 15_000;
+const relatedTopicSimilarity = 0.3;
 
 const stopWords = new Set([
   "a",
@@ -166,7 +168,7 @@ export class TopicCoordinator {
 
     if (this.active === null) {
       const recentlyCompleted = this.recentlyClosed
-        .slice(-5)
+        .slice(-12)
         .map((topic) => topic.label)
         .join("; ");
 
@@ -177,7 +179,7 @@ export class TopicCoordinator {
           trigger === "autonomous"
             ? "There is no active topic. Start one grounded subject with a natural observation. Do not manufacture an event or force a debate. " +
               (recentlyCompleted.length > 0
-                ? `Recently completed topics: ${recentlyCompleted}. Choose a clearly different subject.`
+                ? `Recently completed topics: ${recentlyCompleted}. Do not rename, revisit, or choose a close variation of them. Choose a genuinely different part of life rather than another advice list.`
                 : "")
             : "There is no active topic. Ground the new topic in the event that triggered this turn.",
       };
@@ -185,6 +187,12 @@ export class TopicCoordinator {
 
     const questionAllowed = this.active.botQuestionsSinceHuman === 0;
     const angles = this.active.coveredAngles.slice(-5).join("; ");
+    const topicProgression =
+      this.active.botTurnsSinceHuman < minimumBotTurnsBeforeAutonomousChange
+        ? `The subject is still developing. Reply to or continue the actual point just made. Do not change or restart the topic yet. `
+        : this.active.botTurnsSinceHuman < preferredBotTurnsBeforeChange
+          ? `Keep developing the subject while there is real substance left. A change is allowed only through a clear bridge from something actually said, never just because a persona has a favorite theme. `
+          : `The subject has had room to develop. Either add one genuinely new response or make a natural conversational bridge to a clearly different subject. Do not merely rename the topic or start another list of tips. `;
 
     return {
       eligible: true,
@@ -196,7 +204,8 @@ export class TopicCoordinator {
         (angles.length > 0
           ? `Angles already covered: ${angles}. `
           : "No angles have been recorded yet. ") +
-        `Continue only with a genuinely new contribution. ` +
+        topicProgression +
+        `Every turn must respond to the substance of the previous message, not read like an isolated bullet point. Continue only with a genuinely new contribution. ` +
         (questionAllowed
           ? "At most one useful question may be asked."
           : "The bot question budget is already used. Do not ask another question."),
@@ -225,7 +234,7 @@ export class TopicCoordinator {
     const changesActiveTopic =
       this.active !== null &&
       (decision.topicMove === "start" || decision.topicMove === "change") &&
-      similarity(this.active.label, decision.topic) < 0.55;
+      similarity(this.active.label, decision.topic) < relatedTopicSimilarity;
 
     if (!questionAllowed && asksQuestion(prepared)) {
       prepared = withoutQuestions(prepared);
@@ -238,8 +247,8 @@ export class TopicCoordinator {
     if (
       changesActiveTopic &&
       trigger === "autonomous" &&
-      (this.active?.botTurnsSinceHuman ?? 0) < 2 &&
-      now - (this.active?.startedAt ?? now) < 90_000
+      (this.active?.botTurnsSinceHuman ?? 0) <
+        minimumBotTurnsBeforeAutonomousChange
     ) {
       return { accepted: false, reason: "topic changed before it developed" };
     }
@@ -269,7 +278,9 @@ export class TopicCoordinator {
       trigger === "autonomous" &&
       (this.active === null || changesActiveTopic) &&
       this.recentlyClosed.some(
-        (topic) => similarity(topic.label, decision.topic ?? "") >= 0.55,
+        (topic) =>
+          similarity(topic.label, decision.topic ?? "") >=
+          relatedTopicSimilarity,
       )
     ) {
       return { accepted: false, reason: "topic is still on cooldown" };
@@ -288,7 +299,7 @@ export class TopicCoordinator {
     const startsNewTopic =
       this.active === null ||
       ((decision.topicMove === "start" || decision.topicMove === "change") &&
-        similarity(this.active.label, label) < 0.55);
+        similarity(this.active.label, label) < relatedTopicSimilarity);
 
     if (startsNewTopic) {
       if (this.active !== null) {
@@ -299,7 +310,6 @@ export class TopicCoordinator {
         label,
         source: decision.topicSource ?? "conversation",
         grounding: decision.topicGrounding ?? label,
-        startedAt: now,
         lastAdvancedAt: now,
         humanTurns: trigger === "human" ? 1 : 0,
         botTurns: 0,

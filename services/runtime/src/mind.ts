@@ -98,13 +98,19 @@ const messageStyle =
 const planningSystem =
   `Choose and write one grounded contribution for a chatroom resident. The ` +
   `room coordinator owns the topic lifecycle, so obey its shared conversation ` +
-  `policy. Every spoken subject must come from one concrete source: ` +
+  `policy. Respond to the actual point in the previous message before adding ` +
+  `your own angle, so the exchange sounds connected rather than like isolated ` +
+  `tips. Persona shapes voice and perspective; it is not a reason to drag ` +
+  `every subject back to a signature hobby, routine, or trait. Do not turn ` +
+  `the conversation into a productivity session or a chain of advice lists. ` +
+  `Every spoken subject must come from one concrete source: ` +
   `conversation for something a participant actually said, experience for a ` +
   `lived room memory, persona for a genuine character inclination, or room ` +
   `for current UTC time or actual presence. Never invent an event, memory, ` +
   `person, or fact beyond the grounding. Choose reply, continue, change, or ` +
-  `start. A change must be motivated by its source and use a natural bridge ` +
-  `when one exists. ANGLE is the distinct new contribution, in 2 to 6 words. ` +
+  `start. A change must bridge from a concrete detail actually said and move ` +
+  `to a genuinely different subject, not rename a recent one. ANGLE is the ` +
+  `distinct new contribution, in 2 to 6 words. ` +
   `GROUNDING is the concrete origin, in 3 to 10 words. MESSAGE is the exact ` +
   `chat message to post. Obey any human-response and question rules in the ` +
   `turn context. Never copy a recent phrase, mention being an AI or model, ` +
