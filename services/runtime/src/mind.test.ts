@@ -86,14 +86,17 @@ test("returns a model-grounded topic decision", async () => {
 
 test("does not speak when a model decision has no topic grounding", async () => {
   const originalFetch = globalThis.fetch;
+  let requestCount = 0;
 
-  globalThis.fetch = async () =>
-    new Response(
+  globalThis.fetch = async () => {
+    requestCount += 1;
+    return new Response(
       JSON.stringify({
         content: "MOVE=start|SOURCE=persona|TOPIC=unrelated thought",
       }),
       { status: 200, headers: { "content-type": "application/json" } },
     );
+  };
 
   try {
     const decision = await new Mind("http://ml.test").consider(
@@ -106,6 +109,7 @@ test("does not speak when a model decision has no topic grounding", async () => 
     );
 
     assert.deepEqual(decision, { speak: false });
+    assert.equal(requestCount, 1);
   } finally {
     globalThis.fetch = originalFetch;
   }

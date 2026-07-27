@@ -7,12 +7,26 @@ export interface RuntimeConfig {
   // Multiplier over all conversational delays. 1 is the normal calm pace;
   // lower is chattier. Used to speed verification without code changes.
   tempo: number;
+  humanActivityWindowMs: number;
+  autonomousInferenceLimitPerHour: number;
 }
+
+const positiveNumber = (value: string | undefined, fallback: number): number => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
 
 export const loadConfig = (
   environment: NodeJS.ProcessEnv = process.env,
 ): RuntimeConfig => {
-  const tempo = Number(environment.CHAT_TEMPO ?? "1");
+  const tempo = positiveNumber(environment.CHAT_TEMPO, 1);
+  const humanActivityWindowMinutes = positiveNumber(
+    environment.HUMAN_ACTIVITY_WINDOW_MINUTES,
+    15,
+  );
+  const autonomousInferenceLimitPerHour = Math.floor(
+    positiveNumber(environment.AUTONOMOUS_INFERENCE_LIMIT_PER_HOUR, 12),
+  );
 
   return {
     apiUrl: environment.MODBOTS_API_URL ?? "http://localhost:3001",
@@ -21,6 +35,8 @@ export const loadConfig = (
     roomId: environment.MODBOTS_ROOM_ID ?? "global-lobby",
     experienceDir:
       environment.RUNTIME_EXPERIENCE_DIR ?? ".runtime-experience",
-    tempo: Number.isFinite(tempo) && tempo > 0 ? tempo : 1,
+    tempo,
+    humanActivityWindowMs: humanActivityWindowMinutes * 60_000,
+    autonomousInferenceLimitPerHour,
   };
 };

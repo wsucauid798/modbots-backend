@@ -46,6 +46,16 @@ interface TranscriptEntry {
   addressedToRoom: boolean;
 }
 
+export interface RuntimeCostControls {
+  humanActivityWindowMs: number;
+  autonomousInferenceLimitPerHour: number;
+}
+
+const defaultCostControls: RuntimeCostControls = {
+  humanActivityWindowMs: 15 * 60_000,
+  autonomousInferenceLimitPerHour: 12,
+};
+
 const pick = <Item>(items: Item[]): Item =>
   items[Math.floor(Math.random() * items.length)];
 
@@ -61,8 +71,8 @@ export class ConversationEngine {
   private readonly transcriptEntries: TranscriptEntry[] = [];
   private readonly actorInfo = new Map<string, ActorInfo>();
   // Humans known to be in the room, by display, so a mind only ever
-  // speaks to people who actually exist. Humans present before the
-  // runtime started become known the moment they speak.
+  // speaks to people who actually exist. Recent human speech separately
+  // controls autonomous inference because browser presence can become stale.
   private readonly humansPresent = new Set<string>();
   private eventWork: Promise<void> = Promise.resolve();
   private stopped = false;
@@ -70,6 +80,9 @@ export class ConversationEngine {
   private humanRepliesPending = 0;
   private inferenceBackoffMs = 0;
   private inferencePausedUntil = 0;
+  private lastHumanActivityAt = 0;
+  private readonly autonomousInferenceAttempts: number[] = [];
+  private autonomousPauseReason: "inactive" | "budget" | null = null;
   private readonly topics: TopicCoordinator;
 
   public constructor(
@@ -83,6 +96,7 @@ export class ConversationEngine {
     }>,
     private readonly now: () => Date = () => new Date(),
     topics: TopicCoordinator = new TopicCoordinator(),
+    private readonly costControls: RuntimeCostControls = defaultCostControls,
   ) {
     this.topics = topics;
     this.bots = bots.map((bot) => ({
@@ -131,6 +145,61 @@ export class ConversationEngine {
 
   private pause(milliseconds: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, milliseconds));
+  }
+
+  private noteHumanActivity(occurredAt: string): void {
+    const parsed = Date.parse(occurredAt);
+    this.lastHumanActivityAt = Number.isFinite(parsed)
+      ? Math.max(this.lastHumanActivityAt, parsed)
+      : this.now().getTime();
+  }
+
+  private pruneAutonomousInferenceAttempts(now: number): void {
+    const hourAgo = now - 60 * 60_000;
+
+    while ((this.autonomousInferenceAttempts[0] ?? now) <= hourAgo) {
+      this.autonomousInferenceAttempts.shift();
+    }
+  }
+
+  private autonomousPauseAt(now: number): "inactive" | "budget" | null {
+    if (
+      this.humansPresent.size === 0 ||
+      now - this.lastHumanActivityAt > this.costControls.humanActivityWindowMs
+    ) {
+      return "inactive";
+    }
+
+    this.pruneAutonomousInferenceAttempts(now);
+
+    if (
+      this.autonomousInferenceAttempts.length >=
+      this.costControls.autonomousInferenceLimitPerHour
+    ) {
+      return "budget";
+    }
+
+    return null;
+  }
+
+  private logAutonomousPause(reason: "inactive" | "budget" | null): void {
+    if (reason === this.autonomousPauseReason) {
+      return;
+    }
+
+    this.autonomousPauseReason = reason;
+
+    if (reason === "inactive") {
+      console.log(
+        "Autonomous inference paused until a human is active in the chatroom.",
+      );
+    } else if (reason === "budget") {
+      console.log(
+        "Autonomous inference paused because the hourly limit was reached.",
+      );
+    } else {
+      console.log("Autonomous inference resumed for the active chatroom.");
+    }
   }
 
   private deferForInferenceFailure(error: unknown): boolean {
@@ -571,12 +640,27 @@ export class ConversationEngine {
       if (pausedFor > 0) {
         await this.pause(pausedFor);
       } else {
+        const pauseReason = this.autonomousPauseAt(now);
+        this.logAutonomousPause(pauseReason);
+
+        if (pauseReason !== null) {
+          await this.pause(Math.max(25, 15_000 * this.tempo));
+          continue;
+        }
+
         const activityLevel = roomActivityLevelAtUtc(this.now());
         const [minimumWait, maximumWait] = autonomousDelayRange(activityLevel);
         await this.sleep(minimumWait, maximumWait);
       }
 
       if (this.humanRepliesPending > 0) {
+        continue;
+      }
+
+      const pauseReason = this.autonomousPauseAt(this.now().getTime());
+      this.logAutonomousPause(pauseReason);
+
+      if (pauseReason !== null) {
         continue;
       }
 
@@ -601,32 +685,13 @@ export class ConversationEngine {
           candidate.lastAttemptedAt === candidates[0]?.lastAttemptedAt,
       );
       const first = pick(leastRecentlyAttempted);
-      const ordered = [
-        first,
-        ...candidates.filter((candidate) => candidate !== first),
-      ];
-      // A scheduled room turn represents intended activity. Try other
-      // residents when a plan is invalid so an internal problem does not
-      // become a long visible silence.
-      for (const bot of ordered.slice(0, Math.min(3, ordered.length))) {
-        const posted = await this.takeTurn(
-          bot,
+      if (first !== undefined) {
+        await this.takeTurn(
+          first,
           this.guidanceForOpenTurn(),
           "autonomous",
           true,
         );
-
-        if (posted) {
-          break;
-        }
-
-        if (this.inferencePausedUntil > this.now().getTime()) {
-          break;
-        }
-
-        if (this.humanRepliesPending > 0) {
-          break;
-        }
       }
     }
   }
@@ -658,6 +723,11 @@ export class ConversationEngine {
 
     try {
       bot.lastAttemptedAt = this.now().getTime();
+
+      if (trigger === "autonomous") {
+        this.autonomousInferenceAttempts.push(this.now().getTime());
+      }
+
       const decision = await this.mind.consider(
         bot.persona,
         {
@@ -893,7 +963,12 @@ export class ConversationEngine {
     // nothing to say, another one says hi instead of leaving the human
     // standing in the doorway.
     if (event.type === "actor_joined" && info.type === "human") {
+      const alreadyPresent = this.humansPresent.has(info.display);
       this.humansPresent.add(info.display);
+
+      if (alreadyPresent) {
+        return;
+      }
 
       if (!options.react) {
         return;
@@ -958,6 +1033,8 @@ export class ConversationEngine {
       );
 
       if (info.type === "human") {
+        this.noteHumanActivity(event.occurredAt);
+
         if (options.react) {
           this.topics.noteHumanMessage(this.now().getTime());
         } else {
@@ -1001,6 +1078,10 @@ export class ConversationEngine {
       if (info.type === "human" && options.react) {
         this.humansPresent.add(info.display);
         this.topics.noteHumanMessage(this.now().getTime());
+      }
+
+      if (info.type === "human") {
+        this.noteHumanActivity(event.occurredAt);
       }
 
       const hasMedia = parts.some((part) => part.kind !== "text");

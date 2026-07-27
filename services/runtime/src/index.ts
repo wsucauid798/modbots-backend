@@ -114,7 +114,19 @@ const main = async (): Promise<void> => {
     console.log(`${persona.displayName} is in the room (${actor.id})`);
   }
 
-  const engine = new ConversationEngine(client, mind, config.tempo, bots);
+  const engine = new ConversationEngine(
+    client,
+    mind,
+    config.tempo,
+    bots,
+    undefined,
+    undefined,
+    {
+      humanActivityWindowMs: config.humanActivityWindowMs,
+      autonomousInferenceLimitPerHour:
+        config.autonomousInferenceLimitPerHour,
+    },
+  );
   const recentEvents = await client.recentEvents(500);
 
   for (const event of recentEvents) {
@@ -129,7 +141,9 @@ const main = async (): Promise<void> => {
   });
 
   console.log(
-    `Chat bot runtime running: room '${config.roomId}', tempo ${config.tempo}`,
+    `Chat bot runtime running: room '${config.roomId}', tempo ${config.tempo}, ` +
+      `${config.autonomousInferenceLimitPerHour} autonomous inferences per hour ` +
+      `after human activity`,
   );
   await engine.run();
 };

@@ -254,29 +254,14 @@ export class Mind {
     const passRule = allowPass
       ? `PASS is allowed when nothing is worth adding.`
       : `PASS is not allowed. Choose a grounded speaking move.`;
-    let planText = await this.generate(
+    const planText = await this.generate(
       planningSystem,
       `${roomContext}${passRule}\nCadence for MESSAGE: ${cadence}`,
       170,
       0.75,
     );
-    let plan = this.parsePlan(planText, participantNames);
-    let cleaned = this.parsePlannedMessage(persona, planText);
-
-    if (plan === null || (plan.speak && cleaned === null)) {
-      planText = await this.generate(
-        `Normalize a topic plan. Return exactly PASS or ` +
-          `MESSAGE=<exact chat message>|MOVE=<reply|continue|change|start>|` +
-          `SOURCE=<conversation|experience|persona|room>|TOPIC=<short topic>|` +
-          `ANGLE=<new contribution>|GROUNDING=<concrete origin>. ` +
-          `Do not add explanation.`,
-        `${roomContext}Candidate turn:\n${planText}\n\n${passRule}\nCadence for MESSAGE: ${cadence}`,
-        170,
-        0.1,
-      );
-      plan = this.parsePlan(planText, participantNames);
-      cleaned = this.parsePlannedMessage(persona, planText);
-    }
+    const plan = this.parsePlan(planText, participantNames);
+    const cleaned = this.parsePlannedMessage(persona, planText);
 
     if (plan === null || !plan.speak) {
       if (plan === null) {

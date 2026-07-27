@@ -195,6 +195,23 @@ const humanMessage = (
   occurredAt: "2026-07-18T00:00:00.000Z",
 });
 
+const humanJoined = (sequence: string, actorId: string): RoomEvent => ({
+  sequence,
+  type: "actor_joined",
+  actorId,
+  payload: {},
+  occurredAt: "2026-07-18T12:00:00.000Z",
+});
+
+const recentHumanMessage = (
+  sequence: string,
+  actorId: string,
+  content: string,
+): RoomEvent => ({
+  ...humanMessage(sequence, actorId, content),
+  occurredAt: "2026-07-18T12:00:00.000Z",
+});
+
 test("queues overlapping human messages without losing a response", async () => {
   const platform = new FakePlatform({
     "human-one": makeActor("human-one", "Mina"),
@@ -508,7 +525,9 @@ test("perceives the authoritative UTC event time", async () => {
 });
 
 test("a scheduled activity turn rotates residents until one speaks", async () => {
-  const platform = new FakePlatform({});
+  const platform = new FakePlatform({
+    "human-one": makeActor("human-one", "Mina"),
+  });
   const mind = new FakeMind([
     { speak: false },
     { speak: true, message: "There is something different worth noticing." },
@@ -516,6 +535,13 @@ test("a scheduled activity turn rotates residents until one speaks", async () =>
   const engine = new ConversationEngine(platform, mind, 0, makeBots(), noonUtc);
   platform.onPost = () => engine.stop();
 
+  await engine.enqueueRoomEvent(humanJoined("scheduled-join", "human-one"), {
+    react: false,
+  });
+  await engine.enqueueRoomEvent(
+    recentHumanMessage("scheduled-message", "human-one", "I am here."),
+    { react: false },
+  );
   await engine.run();
 
   assert.equal(platform.posts.length, 1);
@@ -525,7 +551,9 @@ test("a scheduled activity turn rotates residents until one speaks", async () =>
 });
 
 test("a common first word does not suppress a scheduled contribution", async () => {
-  const platform = new FakePlatform({});
+  const platform = new FakePlatform({
+    "human-one": makeActor("human-one", "Mina"),
+  });
   const mind = new FakeMind([
     {
       speak: true,
@@ -535,6 +563,13 @@ test("a common first word does not suppress a scheduled contribution", async () 
   const engine = new ConversationEngine(platform, mind, 0, makeBots(), noonUtc);
   platform.onPost = () => engine.stop();
 
+  await engine.enqueueRoomEvent(humanJoined("scheduled-join", "human-one"), {
+    react: false,
+  });
+  await engine.enqueueRoomEvent(
+    recentHumanMessage("scheduled-message", "human-one", "I am here."),
+    { react: false },
+  );
   await engine.enqueueRoomEvent(
     humanMessage("7", "bot-arwen", "This morning feels unusually slow."),
     { react: false },
@@ -549,4 +584,70 @@ test("a common first word does not suppress a scheduled contribution", async () 
     platform.posts[0]?.content,
     "This separate observation takes the conversation elsewhere.",
   );
+});
+
+test("does not request autonomous inference in an inactive chatroom", async () => {
+  const platform = new FakePlatform({});
+  const mind = new FakeMind([
+    { speak: true, message: "No one is here to hear this." },
+  ]);
+  const engine = new ConversationEngine(platform, mind, 0, makeBots(), noonUtc);
+  setTimeout(() => engine.stop(), 40);
+
+  await engine.run();
+
+  assert.equal(mind.considered.length, 0);
+  assert.equal(platform.posts.length, 0);
+});
+
+test("enforces the hourly autonomous inference limit", async () => {
+  const platform = new FakePlatform({
+    "human-one": makeActor("human-one", "Mina"),
+  });
+  const mind = new FakeMind([
+    { speak: false },
+    { speak: true, message: "This second attempt must wait." },
+  ]);
+  const engine = new ConversationEngine(
+    platform,
+    mind,
+    0,
+    makeBots(),
+    noonUtc,
+    undefined,
+    {
+      humanActivityWindowMs: 15 * 60_000,
+      autonomousInferenceLimitPerHour: 1,
+    },
+  );
+  await engine.enqueueRoomEvent(humanJoined("budget-join", "human-one"), {
+    react: false,
+  });
+  await engine.enqueueRoomEvent(
+    recentHumanMessage("budget-message", "human-one", "I am here."),
+    { react: false },
+  );
+  setTimeout(() => engine.stop(), 60);
+
+  await engine.run();
+
+  assert.equal(mind.considered.length, 1);
+  assert.equal(platform.posts.length, 0);
+});
+
+test("does not greet repeated join events for the same human", async () => {
+  const platform = new FakePlatform({
+    "human-one": makeActor("human-one", "Mina"),
+  });
+  const mind = new FakeMind([
+    { speak: true, message: "Welcome, Mina." },
+    { speak: true, message: "Welcome again, Mina." },
+  ]);
+  const engine = new ConversationEngine(platform, mind, 0, makeBots(), noonUtc);
+
+  await engine.enqueueRoomEvent(humanJoined("first-join", "human-one"));
+  await engine.enqueueRoomEvent(humanJoined("duplicate-join", "human-one"));
+
+  assert.equal(mind.considered.length, 1);
+  assert.deepEqual(platform.posts.map((post) => post.content), ["Welcome, Mina."]);
 });
