@@ -119,6 +119,8 @@ export interface PostMessageCommand {
   roomId: string;
   actorId: string;
   content: string;
+  sourceText?: string;
+  sourceLanguage?: string;
   replyTo?: ContentItemReference;
   addressedTo?: ContentAddress[];
 }
@@ -128,6 +130,8 @@ export type ContentPartInput =
       kind: "text";
       text: string;
       language?: string;
+      sourceText?: string;
+      sourceLanguage?: string;
       partId?: string;
     }
   | {
@@ -577,6 +581,12 @@ const buildContentParts = (
         kind: "text" as const,
         text: input.text,
         ...(input.language === undefined ? {} : { language: input.language }),
+        ...(input.sourceText === undefined
+          ? {}
+          : {
+              sourceText: input.sourceText,
+              sourceLanguage: input.sourceLanguage,
+            }),
       };
     }
 
@@ -1209,6 +1219,12 @@ export class CommandService implements CommandHandler {
         actorId: command.actorId,
         payload: {
           content: command.content,
+          ...(command.sourceText === undefined
+            ? {}
+            : {
+                sourceText: command.sourceText,
+                sourceLanguage: command.sourceLanguage,
+              }),
           contentItemId,
           ...(command.replyTo === undefined
             ? {}
@@ -1236,7 +1252,18 @@ export class CommandService implements CommandHandler {
             : JSON.stringify(command.replyTo),
           JSON.stringify(addressedTo),
           JSON.stringify([
-            { partId: randomUUID(), kind: "text", text: command.content },
+            {
+              partId: randomUUID(),
+              kind: "text",
+              text: command.content,
+              language: "en",
+              ...(command.sourceText === undefined
+                ? {}
+                : {
+                    sourceText: command.sourceText,
+                    sourceLanguage: command.sourceLanguage,
+                  }),
+            },
           ]),
           event.occurredAt,
         ],

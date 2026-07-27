@@ -29,6 +29,8 @@ export interface TextContentPart {
   kind: "text";
   text: string;
   language?: string;
+  sourceText?: string;
+  sourceLanguage?: string;
 }
 
 export interface AssetContentPart {

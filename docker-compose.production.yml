@@ -24,6 +24,7 @@ services:
       AUTH_MODE: ${AUTH_MODE:-optional}
       SESSION_TTL_DAYS: ${SESSION_TTL_DAYS:-30}
       ACCOUNT_URL: ${ACCOUNT_URL:-http://account:3003}
+      ML_URL: ${ML_URL:-http://ml:8000}
       UPPS_PUBLIC_URL: ${PRODUCTION_UPPS_PUBLIC_URL:-https://upps.modbots.ai}
       WEB_ORIGINS: ${PRODUCTION_WEB_ORIGINS:?Set PRODUCTION_WEB_ORIGINS to the production web origin}
     ports:

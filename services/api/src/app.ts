@@ -23,6 +23,8 @@ import { mediaRoutes } from "./routes/media.js";
 import { profilePictureRoutes } from "./routes/profile-pictures.js";
 import { roomRoutes } from "./routes/rooms.js";
 import { sessionRoutes } from "./routes/sessions.js";
+import { translationRoutes } from "./routes/translations.js";
+import type { TranslationService } from "./translation.js";
 
 export interface AppDependencies {
   accountUrl: string;
@@ -40,6 +42,7 @@ export interface AppDependencies {
   publisher: EventPublisher;
   rooms: RoomRepository;
   sessions: SessionRepository;
+  translations: TranslationService;
 }
 
 export const buildApp = (dependencies: AppDependencies): FastifyInstance => {
@@ -105,6 +108,7 @@ export const buildApp = (dependencies: AppDependencies): FastifyInstance => {
     ),
   );
   app.register(credentialRoutes(dependencies.actors, dependencies.credentials));
+  app.register(translationRoutes(dependencies.translations, dependencies.auth));
   app.register(
     commandRoutes(
       dependencies.commands,

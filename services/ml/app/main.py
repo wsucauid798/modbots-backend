@@ -1,3 +1,4 @@
+import json
 import os
 import re
 from contextlib import asynccontextmanager
@@ -111,6 +112,33 @@ class ChatResponse(BaseModel):
     content: str
     model: str
     observations: list[DerivedObservation]
+
+
+SUPPORTED_TRANSLATION_LANGUAGES = {
+    "en": "English",
+    "zh-CN": "Simplified Chinese",
+}
+
+
+class TranslationRequest(BaseModel):
+    texts: list[str] = Field(min_length=1, max_length=50)
+    sourceLanguage: str = Field(default="auto", min_length=2, max_length=35)
+    targetLanguage: Literal["en", "zh-CN"]
+
+    @model_validator(mode="after")
+    def validate_texts(self):
+        if any(not text.strip() or len(text) > 4_000 for text in self.texts):
+            raise ValueError("Translation texts must contain 1 to 4,000 characters")
+
+        if sum(len(text) for text in self.texts) > 40_000:
+            raise ValueError("Translation requests cannot exceed 40,000 characters")
+
+        return self
+
+
+class TranslationResponse(BaseModel):
+    translations: list[str]
+    model: str
 
 
 def _data_url(data: str, media_type: str) -> str:
@@ -540,3 +568,85 @@ async def chat(request: ChatRequest) -> ChatResponse:
         model=MODEL_ID,
         observations=observations,
     )
+
+
+@app.post("/v1/translate", response_model=TranslationResponse)
+async def translate(request: TranslationRequest) -> TranslationResponse:
+    target = SUPPORTED_TRANSLATION_LANGUAGES[request.targetLanguage]
+    source = (
+        "the language of each item"
+        if request.sourceLanguage == "auto"
+        else request.sourceLanguage
+    )
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                f"Translate every JSON string from {source} into {target}. "
+                "Preserve meaning, tone, names, mentions, punctuation, and line "
+                "breaks. Return only a JSON array of translated strings in the "
+                "same order. Do not add explanations."
+            ),
+        },
+        {
+            "role": "user",
+            "content": json.dumps(request.texts, ensure_ascii=False),
+        },
+    ]
+    payload = {
+        "model": MODEL_ID,
+        "messages": messages,
+        "stream": False,
+        "max_completion_tokens": min(
+            4096,
+            max(128, sum(len(text) for text in request.texts) * 2),
+        ),
+        "reasoning_effort": "none",
+    }
+
+    try:
+        response = await _client().post("chat/completions", json=payload)
+    except HTTPException:
+        raise
+    except httpx.TimeoutException as exception:
+        raise HTTPException(
+            status_code=504,
+            detail="Translation took too long to complete.",
+        ) from exception
+    except httpx.RequestError as exception:
+        raise HTTPException(
+            status_code=503,
+            detail="Translation is temporarily unavailable.",
+        ) from exception
+
+    if response.status_code >= 400:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "OpenAI returned HTTP "
+                f"{response.status_code}: {_upstream_error(response)}"
+            ),
+        )
+
+    try:
+        raw = response.json()["choices"][0]["message"]["content"].strip()
+        raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.IGNORECASE)
+        raw = re.sub(r"\s*```$", "", raw)
+        translations = json.loads(raw)
+    except (AttributeError, IndexError, KeyError, TypeError, ValueError) as exception:
+        raise HTTPException(
+            status_code=502,
+            detail="OpenAI returned an invalid translation response.",
+        ) from exception
+
+    if (
+        not isinstance(translations, list)
+        or len(translations) != len(request.texts)
+        or any(not isinstance(text, str) or not text.strip() for text in translations)
+    ):
+        raise HTTPException(
+            status_code=502,
+            detail="OpenAI returned an invalid translation response.",
+        )
+
+    return TranslationResponse(translations=translations, model=MODEL_ID)

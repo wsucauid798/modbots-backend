@@ -296,6 +296,12 @@ const commands: CommandHandler = {
     ...event,
     payload: {
       content: command.content,
+      ...(command.sourceText === undefined
+        ? {}
+        : {
+            sourceText: command.sourceText,
+            sourceLanguage: command.sourceLanguage,
+          }),
       ...(command.addressedTo === undefined
         ? {}
         : { addressedTo: command.addressedTo }),
@@ -319,6 +325,15 @@ const commands: CommandHandler = {
               partId: `part-${index + 1}`,
               kind: "text" as const,
               text: part.text,
+              ...(part.language === undefined
+                ? {}
+                : { language: part.language }),
+              ...(part.sourceText === undefined
+                ? {}
+                : {
+                    sourceText: part.sourceText,
+                    sourceLanguage: part.sourceLanguage,
+                  }),
             }
           : {
               partId: `part-${index + 1}`,
@@ -543,6 +558,28 @@ describe("command routes", () => {
     await app.close();
   });
 
+  it("preserves the source text behind a translated English message", async () => {
+    const app = Fastify();
+    await app.register(commandRoutes(commands, sessions, auth, credentials));
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/rooms/global-lobby/messages",
+      payload: {
+        actorId: "human-1",
+        content: "Hello, everyone.",
+        sourceText: "大家好。",
+        sourceLanguage: "zh-CN",
+      },
+    });
+
+    assert.equal(response.statusCode, 201);
+    assert.equal(response.json().payload.content, "Hello, everyone.");
+    assert.equal(response.json().payload.sourceText, "大家好。");
+    assert.equal(response.json().payload.sourceLanguage, "zh-CN");
+    await app.close();
+  });
+
   it("serves the room rules with stable identifiers", async () => {
     const app = Fastify();
     await app.register(commandRoutes(commands, sessions, auth, credentials));
@@ -639,7 +676,15 @@ describe("command routes", () => {
       payload: {
         actorId: "human-1",
         addressedTo: [{ targetType: "room" }],
-        parts: [{ kind: "text", text: "Hello from the content path" }],
+        parts: [
+          {
+            kind: "text",
+            text: "Hello from the content path",
+            language: "en",
+            sourceText: "来自内容路径的问候",
+            sourceLanguage: "zh-CN",
+          },
+        ],
       },
     });
 
@@ -648,6 +693,10 @@ describe("command routes", () => {
     assert.equal(
       response.json().contentItem.parts[0].text,
       "Hello from the content path",
+    );
+    assert.equal(
+      response.json().contentItem.parts[0].sourceText,
+      "来自内容路径的问候",
     );
     assert.deepEqual(response.json().contentItem.addressedTo, [
       { targetType: "room" },

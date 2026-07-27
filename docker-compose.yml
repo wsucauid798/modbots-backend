@@ -27,6 +27,7 @@ services:
       AUTH_MODE: ${AUTH_MODE:-optional}
       SESSION_TTL_DAYS: ${SESSION_TTL_DAYS:-30}
       ACCOUNT_URL: ${ACCOUNT_URL:-http://account:3003}
+      ML_URL: ${ML_URL:-http://ml:8000}
       UPPS_PUBLIC_URL: ${UPPS_PUBLIC_URL:-http://localhost:3010}
       UPPS_INTERNAL_URL: http://upps:3010
       UPPS_SERVICE_TOKEN: ${UPPS_SERVICE_TOKEN:-dev-only-upps-service-token-change-me}

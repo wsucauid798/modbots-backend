@@ -11,6 +11,7 @@ describe("loadConfig", () => {
     assert.equal(config.redisUrl, "redis://localhost:6379");
     assert.equal(config.upps.publicUrl, "http://localhost:3010/");
     assert.equal(config.upps.internalUrl, "http://localhost:3010/");
+    assert.equal(config.mlUrl, "http://localhost:8000/");
   });
 
   it("rejects an invalid server port", () => {

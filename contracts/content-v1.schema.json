@@ -222,7 +222,21 @@
           "type": "string",
           "minLength": 2,
           "maxLength": 35
+        },
+        "sourceText": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        },
+        "sourceLanguage": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 35
         }
+      },
+      "dependentRequired": {
+        "sourceText": ["sourceLanguage"],
+        "sourceLanguage": ["sourceText"]
       }
     },
     "assetPartBase": {

@@ -212,6 +212,25 @@ const contentParts = (body: Record<string, unknown>): ContentPartInput[] => {
         input.language = part.language;
       }
 
+      if (part.sourceText !== undefined || part.sourceLanguage !== undefined) {
+        if (
+          typeof part.sourceText !== "string" ||
+          part.sourceText.trim().length === 0 ||
+          part.sourceText.length > 4_000 ||
+          typeof part.sourceLanguage !== "string" ||
+          part.sourceLanguage.length < 2 ||
+          part.sourceLanguage.length > 35
+        ) {
+          throw badRequest(
+            "invalid_content_parts",
+            `'parts[${index}]' must contain valid paired sourceText and sourceLanguage values`,
+          );
+        }
+
+        input.sourceText = part.sourceText;
+        input.sourceLanguage = part.sourceLanguage;
+      }
+
       if (part.partId !== undefined) {
         input.partId = identifier(part.partId, `parts[${index}].partId`);
       }
@@ -780,10 +799,36 @@ export const commandRoutes = (
         const acting = actorId(body, "actorId");
         await auth.authorizeActor(request.headers.authorization, acting);
 
+        let source:
+          | { sourceText: string; sourceLanguage: string }
+          | undefined;
+
+        if (body.sourceText !== undefined || body.sourceLanguage !== undefined) {
+          if (
+            typeof body.sourceText !== "string" ||
+            body.sourceText.trim().length === 0 ||
+            body.sourceText.length > 4_000 ||
+            typeof body.sourceLanguage !== "string" ||
+            body.sourceLanguage.length < 2 ||
+            body.sourceLanguage.length > 35
+          ) {
+            throw badRequest(
+              "invalid_body",
+              "'sourceText' and 'sourceLanguage' must be supplied together",
+            );
+          }
+
+          source = {
+            sourceText: body.sourceText,
+            sourceLanguage: body.sourceLanguage,
+          };
+        }
+
         const event = await commands.postMessage({
           roomId: request.params.roomId,
           actorId: acting,
           content: string(body, "content", { maximum: 4_000 }),
+          ...source,
           replyTo: optionalReplyTo(body),
           addressedTo: optionalAddressedTo(body),
         });
