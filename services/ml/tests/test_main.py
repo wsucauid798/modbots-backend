@@ -217,7 +217,7 @@ class CpuInferenceTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(main._retry_after_milliseconds(limited), 61_500)
 
-    async def test_exhausted_hosted_quota_is_reported_as_unavailable(self):
+    async def test_provider_insufficient_quota_is_reported_as_unavailable(self):
         main.state["client"] = FakeClient(
             chat_response=response(
                 429,

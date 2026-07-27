@@ -509,8 +509,9 @@ async def chat(request: ChatRequest) -> ChatResponse:
                 detail={
                     "code": "insufficient_quota",
                     "message": (
-                        "Hosted inference quota is exhausted. Check the API "
-                        "project's billing and usage limits."
+                        "OpenAI rejected this project with insufficient_quota. "
+                        "Verify the active organization, project, API key, and "
+                        "billing status."
                     ),
                 },
             )

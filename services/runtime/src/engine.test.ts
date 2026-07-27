@@ -306,7 +306,7 @@ test("keeps residents eligible regardless of room time", async () => {
   assert.equal(platform.posts.length, 1);
 });
 
-test("backs off when hosted inference quota is exhausted", async () => {
+test("backs off when the provider reports insufficient quota", async () => {
   const platform = new FakePlatform({
     "human-one": makeActor("human-one", "Mina"),
   });
@@ -315,7 +315,7 @@ test("backs off when hosted inference quota is exhausted", async () => {
       503,
       "insufficient_quota",
       0,
-      "Hosted inference quota is exhausted.",
+      "OpenAI rejected this project with insufficient_quota.",
     ),
     { speak: true, message: "The room is available again." },
   ]);

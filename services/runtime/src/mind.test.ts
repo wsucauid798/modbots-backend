@@ -332,7 +332,7 @@ test("preserves structured inference failure codes", async () => {
       JSON.stringify({
         detail: {
           code: "insufficient_quota",
-          message: "Hosted inference quota is exhausted.",
+          message: "OpenAI rejected this project with insufficient_quota.",
           retryAfterMs: 120_000,
         },
       }),
@@ -355,7 +355,7 @@ test("preserves structured inference failure codes", async () => {
         error.status === 503 &&
         error.code === "insufficient_quota" &&
         error.retryAfterMs === 120_000 &&
-        /quota is exhausted/.test(error.message),
+        /insufficient_quota/.test(error.message),
     );
   } finally {
     globalThis.fetch = originalFetch;
