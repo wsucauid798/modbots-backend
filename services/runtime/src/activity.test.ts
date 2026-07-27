@@ -21,7 +21,7 @@ test("divides the room day into low, mid, and high UTC activity", () => {
 });
 
 test("chats less often as room activity falls", () => {
-  assert.deepEqual(autonomousDelayRange("high"), [2_000, 4_000]);
-  assert.deepEqual(autonomousDelayRange("mid"), [3_000, 6_000]);
-  assert.deepEqual(autonomousDelayRange("low"), [4_000, 8_000]);
+  assert.deepEqual(autonomousDelayRange("high"), [8_000, 15_000]);
+  assert.deepEqual(autonomousDelayRange("mid"), [15_000, 30_000]);
+  assert.deepEqual(autonomousDelayRange("low"), [30_000, 60_000]);
 });

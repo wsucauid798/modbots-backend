@@ -28,10 +28,11 @@ class FakeClient:
         return self.chat_response
 
 
-def response(status_code, payload):
+def response(status_code, payload, headers=None):
     return httpx.Response(
         status_code,
         json=payload,
+        headers=headers,
         request=httpx.Request(
             "POST",
             "http://model-runner.docker.internal/v1/test",
@@ -188,6 +189,7 @@ class CpuInferenceTests(unittest.IsolatedAsyncioTestCase):
                         "code": "rate_limit_exceeded",
                     }
                 },
+                headers={"retry-after": "3"},
             )
         )
 
@@ -201,6 +203,19 @@ class CpuInferenceTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(captured.exception.status_code, 429)
         self.assertEqual(captured.exception.detail["code"], "rate_limited")
+        self.assertEqual(captured.exception.detail["retryAfterMs"], 3_000)
+
+    def test_rate_limit_reset_duration_is_parsed(self):
+        limited = response(
+            429,
+            {"error": {"code": "rate_limit_exceeded"}},
+            headers={
+                "x-ratelimit-reset-requests": "750ms",
+                "x-ratelimit-reset-tokens": "1m1.5s",
+            },
+        )
+
+        self.assertEqual(main._retry_after_milliseconds(limited), 61_500)
 
     async def test_exhausted_hosted_quota_is_reported_as_unavailable(self):
         main.state["client"] = FakeClient(

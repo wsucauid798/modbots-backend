@@ -66,6 +66,7 @@ class FakeMind {
   public constructor(
     private readonly decisions: Array<Decision | Error>,
     private readonly firstDecisionDelayMs = 0,
+    private readonly addresseeErrors: Error[] = [],
   ) {}
 
   public async addressee(
@@ -74,6 +75,12 @@ class FakeMind {
     _speaker: string,
     _message: string,
   ): Promise<string | null> {
+    const error = this.addresseeErrors.shift();
+
+    if (error !== undefined) {
+      throw error;
+    }
+
     return null;
   }
 
@@ -269,6 +276,7 @@ test("uses one fallback resident when the first resident passes", async () => {
 
   assert.equal(mind.considered.length, 2);
   assert.notEqual(mind.considered[0], mind.considered[1]);
+  assert.deepEqual(mind.allowPassValues, [false, false]);
   assert.equal(platform.posts.length, 1);
   assert.equal(platform.posts[0]?.content, "I can take that one.");
 });
@@ -306,6 +314,7 @@ test("backs off when hosted inference quota is exhausted", async () => {
     new InferenceError(
       503,
       "insufficient_quota",
+      0,
       "Hosted inference quota is exhausted.",
     ),
     { speak: true, message: "The room is available again." },
@@ -335,6 +344,87 @@ test("backs off when hosted inference quota is exhausted", async () => {
   );
 
   assert.equal(mind.considered.length, 2);
+  assert.equal(platform.posts.length, 1);
+});
+
+test("honors the provider's rate-limit reset time", async () => {
+  const platform = new FakePlatform({
+    "human-one": makeActor("human-one", "Mina"),
+  });
+  const mind = new FakeMind([
+    new InferenceError(
+      429,
+      "rate_limited",
+      90_000,
+      "Hosted inference is rate limited.",
+    ),
+    { speak: true, message: "The limit has reset." },
+  ]);
+  let currentTime = new Date("2026-07-18T12:00:00.000Z");
+  const engine = new ConversationEngine(
+    platform,
+    mind,
+    0,
+    makeBots(),
+    () => currentTime,
+  );
+
+  await engine.enqueueRoomEvent(
+    humanMessage("limit-1", "human-one", "Can anyone answer?"),
+  );
+
+  currentTime = new Date(currentTime.getTime() + 89_999);
+  await engine.enqueueRoomEvent(
+    humanMessage("limit-2", "human-one", "Still there?"),
+  );
+  assert.equal(mind.considered.length, 1);
+
+  currentTime = new Date(currentTime.getTime() + 1);
+  await engine.enqueueRoomEvent(
+    humanMessage("limit-3", "human-one", "How about now?"),
+  );
+  assert.equal(mind.considered.length, 2);
+  assert.equal(platform.posts.length, 1);
+});
+
+test("does not retry generation after routing is rate limited", async () => {
+  const platform = new FakePlatform({
+    "human-one": makeActor("human-one", "Mina"),
+  });
+  const mind = new FakeMind(
+    [{ speak: true, message: "I can answer now." }],
+    0,
+    [
+      new InferenceError(
+        429,
+        "rate_limited",
+        60_000,
+        "Hosted inference is rate limited.",
+      ),
+    ],
+  );
+  let currentTime = new Date("2026-07-18T12:00:00.000Z");
+  const engine = new ConversationEngine(
+    platform,
+    mind,
+    0,
+    makeBots(),
+    () => currentTime,
+  );
+
+  await engine.enqueueRoomEvent(
+    humanMessage("route-limit-1", "human-one", "What do you think?"),
+  );
+
+  assert.equal(mind.considered.length, 0);
+  assert.equal(platform.posts.length, 0);
+
+  currentTime = new Date(currentTime.getTime() + 60_000);
+  await engine.enqueueRoomEvent(
+    humanMessage("route-limit-2", "human-one", "Can you answer now?"),
+  );
+
+  assert.equal(mind.considered.length, 1);
   assert.equal(platform.posts.length, 1);
 });
 

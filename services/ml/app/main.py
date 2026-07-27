@@ -1,4 +1,5 @@
 import os
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
@@ -355,6 +356,42 @@ def _upstream_error_code(response: httpx.Response) -> str:
     return ""
 
 
+def _duration_milliseconds(value: str) -> int:
+    compact = re.sub(r"\s+", "", value)
+    parts = re.findall(r"(\d+(?:\.\d+)?)(ms|s|m|h)", compact)
+
+    parsed = "".join(f"{amount}{unit}" for amount, unit in parts)
+    if not parts or parsed != compact:
+        return 0
+
+    multipliers = {"ms": 1, "s": 1_000, "m": 60_000, "h": 3_600_000}
+    return round(
+        sum(float(amount) * multipliers[unit] for amount, unit in parts)
+    )
+
+
+def _retry_after_milliseconds(response: httpx.Response) -> int:
+    retry_after = response.headers.get("retry-after", "").strip()
+
+    try:
+        seconds = float(retry_after)
+    except ValueError:
+        seconds = 0
+
+    if seconds > 0:
+        return min(round(seconds * 1_000), 5 * 60_000)
+
+    resets = (
+        response.headers.get("x-ratelimit-reset-requests", ""),
+        response.headers.get("x-ratelimit-reset-tokens", ""),
+    )
+    longest_reset = max(
+        (_duration_milliseconds(value) for value in resets),
+        default=0,
+    )
+    return min(longest_reset, 5 * 60_000)
+
+
 def _execution() -> str:
     return "cpu" if MODEL_BACKEND == LOCAL_BACKEND else "hosted"
 
@@ -483,6 +520,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
             detail={
                 "code": "rate_limited",
                 "message": "Inference is rate limited. Try again later.",
+                "retryAfterMs": _retry_after_milliseconds(response),
             },
         )
 

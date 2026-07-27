@@ -333,6 +333,7 @@ test("preserves structured inference failure codes", async () => {
         detail: {
           code: "insufficient_quota",
           message: "Hosted inference quota is exhausted.",
+          retryAfterMs: 120_000,
         },
       }),
       { status: 503, headers: { "content-type": "application/json" } },
@@ -353,8 +354,40 @@ test("preserves structured inference failure codes", async () => {
         error instanceof InferenceError &&
         error.status === 503 &&
         error.code === "insufficient_quota" &&
+        error.retryAfterMs === 120_000 &&
         /quota is exhausted/.test(error.message),
     );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("runs only one inference request at a time", async () => {
+  const originalFetch = globalThis.fetch;
+  let activeRequests = 0;
+  let maximumActiveRequests = 0;
+
+  globalThis.fetch = async () => {
+    activeRequests += 1;
+    maximumActiveRequests = Math.max(maximumActiveRequests, activeRequests);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    activeRequests -= 1;
+
+    return new Response(JSON.stringify({ content: "EVERYONE" }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  try {
+    const mind = new Mind("http://ml.test");
+
+    await Promise.all([
+      mind.addressee(["Arwen", "Jakob"], [], "Mira", "Hello"),
+      mind.addressee(["Arwen", "Jakob"], [], "Theo", "Good morning"),
+    ]);
+
+    assert.equal(maximumActiveRequests, 1);
   } finally {
     globalThis.fetch = originalFetch;
   }

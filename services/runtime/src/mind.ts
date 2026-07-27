@@ -21,6 +21,7 @@ export class InferenceError extends Error {
   public constructor(
     public readonly status: number,
     public readonly code: string,
+    public readonly retryAfterMs: number,
     message: string,
   ) {
     super(message);
@@ -31,6 +32,7 @@ export class InferenceError extends Error {
 const inferenceFailure = async (response: Response): Promise<Error> => {
   let detail = "";
   let code = "inference_failed";
+  let retryAfterMs = 0;
 
   try {
     const payload = (await response.json()) as { detail?: unknown };
@@ -44,6 +46,7 @@ const inferenceFailure = async (response: Response): Promise<Error> => {
       const structured = payload.detail as {
         code?: unknown;
         message?: unknown;
+        retryAfterMs?: unknown;
       };
 
       if (typeof structured.code === "string") {
@@ -53,6 +56,14 @@ const inferenceFailure = async (response: Response): Promise<Error> => {
       if (typeof structured.message === "string") {
         detail = structured.message.trim().slice(0, 500);
       }
+
+      if (
+        typeof structured.retryAfterMs === "number" &&
+        Number.isFinite(structured.retryAfterMs) &&
+        structured.retryAfterMs > 0
+      ) {
+        retryAfterMs = Math.min(structured.retryAfterMs, 5 * 60_000);
+      }
     }
   } catch {
     // The status remains useful when the service did not return JSON.
@@ -61,6 +72,7 @@ const inferenceFailure = async (response: Response): Promise<Error> => {
   return new InferenceError(
     response.status,
     code,
+    retryAfterMs,
     `ML service returned HTTP ${response.status}` +
       (detail.length > 0 ? `: ${detail}` : ""),
   );
@@ -129,6 +141,8 @@ type TurnPlan =
     };
 
 export class Mind {
+  private inferenceTail: Promise<void> = Promise.resolve();
+
   public constructor(
     private readonly mlUrl: string,
     private readonly random: () => number = Math.random,
@@ -294,23 +308,25 @@ export class Mind {
       `perceive from every part, in order. Preserve the meaning of written ` +
       `and spoken words. Describe relevant visual details. Do not invent ` +
       `anything, give advice, or mention processing, models, or prompts.`;
-    const response = await fetch(new URL("/v1/chat", this.mlUrl).toString(), {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        system,
-        messages: [{ role: "user", parts }],
-        maxTokens: 300,
-        temperature: 0.1,
-      }),
+    return this.enqueueInference(async () => {
+      const response = await fetch(new URL("/v1/chat", this.mlUrl).toString(), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          system,
+          messages: [{ role: "user", parts }],
+          maxTokens: 300,
+          temperature: 0.1,
+        }),
+      });
+
+      if (!response.ok) {
+        throw await inferenceFailure(response);
+      }
+
+      const payload = (await response.json()) as { content: string };
+      return payload.content.trim();
     });
-
-    if (!response.ok) {
-      throw await inferenceFailure(response);
-    }
-
-    const payload = (await response.json()) as { content: string };
-    return payload.content.trim();
   }
 
   private async generate(
@@ -319,24 +335,37 @@ export class Mind {
     maxTokens: number,
     temperature: number,
   ): Promise<string> {
-    const response = await fetch(new URL("/v1/chat", this.mlUrl).toString(), {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        system,
-        messages: [{ role: "user", content: user }],
-        maxTokens,
-        temperature,
-      }),
+    return this.enqueueInference(async () => {
+      const response = await fetch(new URL("/v1/chat", this.mlUrl).toString(), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          system,
+          messages: [{ role: "user", content: user }],
+          maxTokens,
+          temperature,
+        }),
+      });
+
+      if (!response.ok) {
+        throw await inferenceFailure(response);
+      }
+
+      const payload = (await response.json()) as { content: string };
+
+      return payload.content;
     });
+  }
 
-    if (!response.ok) {
-      throw await inferenceFailure(response);
-    }
-
-    const payload = (await response.json()) as { content: string };
-
-    return payload.content;
+  private enqueueInference<Result>(
+    operation: () => Promise<Result>,
+  ): Promise<Result> {
+    const queued = this.inferenceTail.then(operation, operation);
+    this.inferenceTail = queued.then(
+      () => undefined,
+      () => undefined,
+    );
+    return queued;
   }
 
   private parsePlan(

@@ -67,6 +67,7 @@ export class ConversationEngine {
   private eventWork: Promise<void> = Promise.resolve();
   private stopped = false;
   private lastBotMessageAt = 0;
+  private humanRepliesPending = 0;
   private inferenceBackoffMs = 0;
   private inferencePausedUntil = 0;
   private readonly topics: TopicCoordinator;
@@ -130,6 +131,30 @@ export class ConversationEngine {
 
   private pause(milliseconds: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, milliseconds));
+  }
+
+  private deferForInferenceFailure(error: unknown): boolean {
+    if (
+      !(error instanceof InferenceError) ||
+      (error.status !== 429 &&
+        error.code !== "rate_limited" &&
+        error.code !== "insufficient_quota")
+    ) {
+      return false;
+    }
+
+    const minimumBackoffMs =
+      error.code === "insufficient_quota" ? 5 * 60_000 : 15_000;
+    this.inferenceBackoffMs = Math.min(
+      Math.max(
+        minimumBackoffMs,
+        error.retryAfterMs,
+        this.inferenceBackoffMs * 2,
+      ),
+      5 * 60_000,
+    );
+    this.inferencePausedUntil = this.now().getTime() + this.inferenceBackoffMs;
+    return true;
   }
 
   private availableBots(): BotState[] {
@@ -551,6 +576,10 @@ export class ConversationEngine {
         await this.sleep(minimumWait, maximumWait);
       }
 
+      if (this.humanRepliesPending > 0) {
+        continue;
+      }
+
       const preferred = this.preferredBots();
       const candidates =
         preferred.length > 0 ? preferred : this.availableBots();
@@ -592,6 +621,10 @@ export class ConversationEngine {
         }
 
         if (this.inferencePausedUntil > this.now().getTime()) {
+          break;
+        }
+
+        if (this.humanRepliesPending > 0) {
           break;
         }
       }
@@ -742,21 +775,7 @@ export class ConversationEngine {
         this.topics.recordPass(this.availableBots().length, this.now().getTime());
       }
     } catch (error) {
-      if (
-        error instanceof InferenceError &&
-        (error.status === 429 ||
-          error.code === "rate_limited" ||
-          error.code === "insufficient_quota")
-      ) {
-        const minimumBackoffMs =
-          error.code === "insufficient_quota" ? 5 * 60_000 : 15_000;
-        this.inferenceBackoffMs = Math.min(
-          Math.max(minimumBackoffMs, this.inferenceBackoffMs * 2),
-          5 * 60_000,
-        );
-        this.inferencePausedUntil =
-          this.now().getTime() + this.inferenceBackoffMs;
-      }
+      this.deferForInferenceFailure(error);
 
       console.error(
         `${bot.persona.displayName} lost their train of thought: ${
@@ -955,14 +974,20 @@ export class ConversationEngine {
 
       // One considered reply per human message, never a pile-on.
       if (info.type === "human" && options.react) {
-        await this.replyToHuman(
-          info.display,
-          event.payload.content,
-          typeof event.payload.contentItemId === "string"
-            ? { contentItemId: event.payload.contentItemId }
-            : undefined,
-          event.actorId,
-        );
+        this.humanRepliesPending += 1;
+
+        try {
+          await this.replyToHuman(
+            info.display,
+            event.payload.content,
+            typeof event.payload.contentItemId === "string"
+              ? { contentItemId: event.payload.contentItemId }
+              : undefined,
+            event.actorId,
+          );
+        } finally {
+          this.humanRepliesPending -= 1;
+        }
       }
     }
 
@@ -992,6 +1017,7 @@ export class ConversationEngine {
               )
               .join("\n");
       } catch (error) {
+        this.deferForInferenceFailure(error);
         console.error(
           `Could not perceive multimodal content: ${
             error instanceof Error ? error.message : String(error)
@@ -1016,14 +1042,20 @@ export class ConversationEngine {
       }
 
       if (info.type === "human" && options.react) {
-        await this.replyToHuman(
-          info.display,
-          content,
-          typeof event.payload.contentItemId === "string"
-            ? { contentItemId: event.payload.contentItemId }
-            : undefined,
-          event.actorId,
-        );
+        this.humanRepliesPending += 1;
+
+        try {
+          await this.replyToHuman(
+            info.display,
+            content,
+            typeof event.payload.contentItemId === "string"
+              ? { contentItemId: event.payload.contentItemId }
+              : undefined,
+            event.actorId,
+          );
+        } finally {
+          this.humanRepliesPending -= 1;
+        }
       }
     }
   }
@@ -1073,12 +1105,21 @@ export class ConversationEngine {
         target = responsePool.find(
           (entry) => entry.persona.displayName === name,
         );
-      } catch {
+      } catch (error) {
+        if (this.deferForInferenceFailure(error)) {
+          console.error(
+            `Could not route ${display}'s message: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+          return;
+        }
+
         // Routing failure falls back to an open reply.
       }
     }
 
-    await this.sleep(500, 1_500);
+    await this.sleep(350, 900);
     const first = target ?? pick(responsePool);
     const directQuestion = ConversationEngine.asksQuestion(content);
     const greeting =
@@ -1100,7 +1141,7 @@ export class ConversationEngine {
           : " Respond to what they actually said before changing the subject.") +
         ` Reply to them.`,
       "human",
-      false,
+      true,
       replyTo,
       addressedTo,
     );

@@ -29,12 +29,12 @@ export const autonomousDelayRange = (
   level: ActivityLevel,
 ): readonly [minimumMs: number, maximumMs: number] => {
   if (level === "high") {
-    return [2_000, 4_000];
+    return [8_000, 15_000];
   }
 
   if (level === "mid") {
-    return [3_000, 6_000];
+    return [15_000, 30_000];
   }
 
-  return [4_000, 8_000];
+  return [30_000, 60_000];
 };
