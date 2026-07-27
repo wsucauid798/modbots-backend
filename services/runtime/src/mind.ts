@@ -92,9 +92,9 @@ const messageStyle =
   `clear who you are talking to; in a small room most messages need no ` +
   `name at all, and repeating names constantly sounds fake.`;
 
-// Keep the model's longest instruction prefix identical between turns so
-// llama.cpp can reuse its prompt cache. Turn-specific human and topic rules
-// belong in the user context after this stable prefix.
+// Keep the model's longest instruction prefix identical between turns so the
+// hosted provider can reuse cached input tokens. Turn-specific human and topic
+// rules belong in the user context after this stable prefix.
 const planningSystem =
   `Choose and write one grounded contribution for a chatroom resident. The ` +
   `room coordinator owns the topic lifecycle, so obey its shared conversation ` +

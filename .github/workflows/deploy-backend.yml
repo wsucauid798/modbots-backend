@@ -44,7 +44,7 @@ jobs:
           echo '=== INFERENCE CONFIGURATION ==='
           docker inspect modbots-backend-ml \
             --format '{{range .Config.Env}}{{println .}}{{end}}' \
-            | grep -E '^(MODEL_BACKEND|MODEL_URL|MODEL_ID|INFERENCE_TIMEOUT_SECONDS)=' || true
+            | grep -E '^(MODEL_ID|INFERENCE_TIMEOUT_SECONDS)=' || true
           echo '=== INFERENCE HEALTH ==='
           docker exec modbots-backend-ml python -c "import urllib.request; print(urllib.request.urlopen('http://localhost:8000/health', timeout=10).read().decode())" || true
           echo '=== INFERENCE LOGS ==='

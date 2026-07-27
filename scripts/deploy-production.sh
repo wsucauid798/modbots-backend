@@ -38,34 +38,7 @@ fi
 
 docker network inspect modbots >/dev/null 2>&1 || docker network create modbots
 docker compose --env-file .env -f docker-compose.prod.yml pull
-
-# Model Runner refuses configuration while a model is active. Stop both model
-# consumers, and restart the existing services if deployment exits early.
-restart_model_consumers() {
-  docker compose --env-file .env -f docker-compose.prod.yml start ml runtime \
-    >/dev/null 2>&1 || true
-}
-
-trap restart_model_consumers EXIT
-docker compose --env-file .env -f docker-compose.prod.yml stop runtime ml
-docker model unload --all
-
-for attempt in $(seq 1 30); do
-  if [ -z "$(docker model ps | sed -n '2p')" ]; then
-    break
-  fi
-
-  if [ "$attempt" -eq 30 ]; then
-    echo "The model did not unload before reconfiguration."
-    docker model ps || true
-    exit 1
-  fi
-
-  sleep 1
-done
-
 docker compose --env-file .env -f docker-compose.prod.yml up -d --remove-orphans
-trap - EXIT
 
 echo "Waiting for production API..."
 for attempt in $(seq 1 60); do

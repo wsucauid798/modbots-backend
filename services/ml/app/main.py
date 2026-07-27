@@ -17,16 +17,7 @@ from .media import (
     process_video,
 )
 
-LOCAL_BACKEND = "local"
-OPENAI_BACKEND = "openai"
-
-# "local" is Docker Model Runner's llama.cpp server: no credentials, and it
-# accepts llama.cpp sampling extensions. "openai" is the OpenAI API: it needs a
-# bearer key and rejects body parameters it does not recognize. Every value
-# below comes from the environment file. No endpoint, model, or timeout is
-# baked in here, so local and production are configured the same way.
-MODEL_BACKEND = os.environ.get("MODEL_BACKEND", "").strip().lower()
-MODEL_URL = os.environ.get("MODEL_URL", "").strip()
+OPENAI_API_URL = "https://api.openai.com/v1"
 MODEL_ID = os.environ.get("MODEL_ID", "").strip()
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "").strip()
 
@@ -36,23 +27,12 @@ INFERENCE_TIMEOUT_SECONDS = float(_timeout) if _timeout else 0.0
 state: dict[str, httpx.AsyncClient | None] = {"client": None}
 
 
-def _validate_backend() -> None:
-    if MODEL_BACKEND not in (LOCAL_BACKEND, OPENAI_BACKEND):
-        raise RuntimeError(
-            f"MODEL_BACKEND must be '{LOCAL_BACKEND}' or '{OPENAI_BACKEND}', "
-            f"got '{MODEL_BACKEND}'."
-        )
-
-    if not MODEL_URL:
-        raise RuntimeError("MODEL_URL must be set.")
-
+def _validate_configuration() -> None:
     if not MODEL_ID:
         raise RuntimeError("MODEL_ID must be set.")
 
-    if MODEL_BACKEND == OPENAI_BACKEND and not OPENAI_API_KEY:
-        raise RuntimeError(
-            "MODEL_BACKEND=openai requires OPENAI_API_KEY to be set."
-        )
+    if not OPENAI_API_KEY:
+        raise RuntimeError("OPENAI_API_KEY must be set.")
 
     if INFERENCE_TIMEOUT_SECONDS <= 0:
         raise RuntimeError(
@@ -61,18 +41,15 @@ def _validate_backend() -> None:
 
 
 def _auth_headers() -> dict[str, str]:
-    if not OPENAI_API_KEY:
-        return {}
-
     return {"Authorization": f"Bearer {OPENAI_API_KEY}"}
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    _validate_backend()
+    _validate_configuration()
 
     async with httpx.AsyncClient(
-        base_url=f"{MODEL_URL.rstrip('/')}/",
+        base_url=f"{OPENAI_API_URL}/",
         timeout=INFERENCE_TIMEOUT_SECONDS,
         headers=_auth_headers(),
     ) as client:
@@ -392,10 +369,6 @@ def _retry_after_milliseconds(response: httpx.Response) -> int:
     return min(longest_reset, 5 * 60_000)
 
 
-def _execution() -> str:
-    return "cpu" if MODEL_BACKEND == LOCAL_BACKEND else "hosted"
-
-
 def _client() -> httpx.AsyncClient:
     client = state["client"]
     if client is None:
@@ -421,38 +394,37 @@ async def health() -> JSONResponse:
             content={
                 "status": "starting",
                 "service": "ml",
-                "execution": _execution(),
+                "execution": "hosted",
                 "model": MODEL_ID,
                 "message": "Chat bots are still getting ready.",
             },
         )
 
-    if MODEL_BACKEND == OPENAI_BACKEND:
-        try:
-            models = response.json().get("data", [])
-        except (AttributeError, ValueError):
-            models = []
+    try:
+        models = response.json().get("data", [])
+    except (AttributeError, ValueError):
+        models = []
 
-        if not any(
-            isinstance(model, dict) and model.get("id") == MODEL_ID
-            for model in models
-        ):
-            return JSONResponse(
-                status_code=503,
-                content={
-                    "status": "unavailable",
-                    "service": "ml",
-                    "execution": _execution(),
-                    "model": MODEL_ID,
-                    "message": "The configured chat model is unavailable.",
-                },
-            )
+    if not any(
+        isinstance(model, dict) and model.get("id") == MODEL_ID
+        for model in models
+    ):
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "unavailable",
+                "service": "ml",
+                "execution": "hosted",
+                "model": MODEL_ID,
+                "message": "The configured chat model is unavailable.",
+            },
+        )
 
     return JSONResponse(
         content={
             "status": "ok",
             "service": "ml",
-            "execution": _execution(),
+            "execution": "hosted",
             "model": MODEL_ID,
             "inputModalities": ["text", "image", "audio", "video", "file"],
         }
@@ -486,25 +458,9 @@ async def chat(request: ChatRequest) -> ChatResponse:
         "model": MODEL_ID,
         "messages": messages,
         "stream": False,
+        "max_completion_tokens": request.maxTokens,
+        "reasoning_effort": "none",
     }
-
-    if MODEL_BACKEND == LOCAL_BACKEND:
-        # llama.cpp server extensions. The OpenAI API rejects body parameters
-        # it does not recognize, so these only go to the local runner.
-        payload["max_tokens"] = request.maxTokens
-        payload["temperature"] = request.temperature
-        payload["cache_prompt"] = True
-        payload["chat_template_kwargs"] = {"enable_thinking": False}
-        payload["reasoning_format"] = "none"
-    else:
-        # The OpenAI API replaced max_tokens with max_completion_tokens and
-        # refuses the old name outright. Current models also fix temperature
-        # at their default and refuse any other value, so it is not sent.
-        # Chatroom turns are short and latency-sensitive. Without an explicit
-        # effort, reasoning can consume the entire completion budget before a
-        # visible message is produced.
-        payload["max_completion_tokens"] = request.maxTokens
-        payload["reasoning_effort"] = "none"
 
     try:
         response = await _client().post("chat/completions", json=payload)
@@ -550,7 +506,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
         raise HTTPException(
             status_code=502,
             detail=(
-                f"Inference rejected the credentials for {MODEL_BACKEND} "
+                "OpenAI rejected the credentials "
                 f"(HTTP {response.status_code}). Check OPENAI_API_KEY."
             ),
         )
@@ -559,7 +515,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
         raise HTTPException(
             status_code=502,
             detail=(
-                f"Inference backend {MODEL_BACKEND} returned HTTP "
+                "OpenAI returned HTTP "
                 f"{response.status_code}: {_upstream_error(response)}"
             ),
         )
@@ -570,10 +526,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
     except (AttributeError, IndexError, KeyError, TypeError, ValueError) as exception:
         raise HTTPException(
             status_code=502,
-            detail=(
-                f"Inference backend {MODEL_BACKEND} returned an invalid "
-                "response."
-            ),
+            detail="OpenAI returned an invalid response.",
         ) from exception
 
     if not content:
