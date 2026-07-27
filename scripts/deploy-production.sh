@@ -13,13 +13,24 @@ if [ ! -f .env ]; then
   exit 1
 fi
 
+# Migrate the hosted inference key to the shared local and production name.
+# Remove this block after the production environment has been migrated.
+if ! grep -Eq '^OPENAI_API_KEY=.+' .env && \
+  grep -Eq '^PRODUCTION_MODEL_API_KEY=.+' .env; then
+  temporary_env=$(mktemp .env.XXXXXX)
+  sed 's/^PRODUCTION_MODEL_API_KEY=/OPENAI_API_KEY=/' .env > "$temporary_env"
+  mv "$temporary_env" .env
+fi
+
 for variable in \
   PRODUCTION_POSTGRES_PASSWORD \
   PRODUCTION_S3_ACCESS_KEY \
   PRODUCTION_S3_SECRET_KEY \
   PRODUCTION_COOKIE_SECRET \
   PRODUCTION_WEB_ORIGINS \
-  PRODUCTION_WEB_REDIRECT_URI; do
+  PRODUCTION_WEB_REDIRECT_URI \
+  MODEL_ID \
+  OPENAI_API_KEY; do
   if ! grep -Eq "^${variable}=.+" .env; then
     echo "Missing required ${variable} in $(pwd)/.env."
     exit 1
@@ -66,6 +77,22 @@ for attempt in $(seq 1 60); do
 
   if [ "$attempt" -eq 60 ]; then
     echo "Production API did not become healthy."
+    exit 1
+  fi
+
+  sleep 2
+done
+
+echo "Waiting for production inference..."
+for attempt in $(seq 1 60); do
+  if docker compose --env-file .env -f docker-compose.prod.yml exec -T ml \
+    python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=10)"; then
+    break
+  fi
+
+  if [ "$attempt" -eq 60 ]; then
+    echo "Production inference did not become healthy."
+    docker compose --env-file .env -f docker-compose.prod.yml logs --tail 100 ml
     exit 1
   fi
 

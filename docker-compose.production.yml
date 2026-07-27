@@ -114,11 +114,11 @@ services:
     container_name: modbots-backend-ml
     restart: unless-stopped
     environment:
-      MODEL_BACKEND: ${MODEL_BACKEND}
-      MODEL_URL: ${MODEL_URL}
-      MODEL_ID: ${MODEL_ID}
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-      INFERENCE_TIMEOUT_SECONDS: ${INFERENCE_TIMEOUT_SECONDS}
+      MODEL_BACKEND: ${MODEL_BACKEND:-openai}
+      MODEL_URL: ${MODEL_URL:-https://api.openai.com/v1}
+      MODEL_ID: ${MODEL_ID:?Set MODEL_ID to the hosted model to run}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:?Set OPENAI_API_KEY}
+      INFERENCE_TIMEOUT_SECONDS: ${INFERENCE_TIMEOUT_SECONDS:-120}
 
   postgres:
     image: postgres:17-alpine
