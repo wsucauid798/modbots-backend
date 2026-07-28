@@ -4,6 +4,7 @@ import type { Pool } from "pg";
 import type { WriteAuthorizer } from "./domain/auth.js";
 import type { CommandHandler } from "./domain/commands.js";
 import { DomainError } from "./domain/errors.js";
+import { registerCrawlerPolicy } from "./crawler-policy.js";
 import type { EventPublisher } from "./events/outbox-publisher.js";
 import type { ActorRepository } from "./repositories/actors.js";
 import type { ContentRepository } from "./repositories/content.js";
@@ -54,6 +55,8 @@ export const buildApp = (dependencies: AppDependencies): FastifyInstance => {
     origin: dependencies.corsOrigins ?? [],
     methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
   });
+
+  registerCrawlerPolicy(app);
 
   app.setErrorHandler((error, _request, reply) => {
     if (error instanceof DomainError) {

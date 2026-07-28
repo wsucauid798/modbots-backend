@@ -8,8 +8,12 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use async_nats::Client as NatsClient;
+use axum::extract::Request;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, Query, State};
+use axum::http::{HeaderValue, header};
+use axum::middleware::{self, Next};
+use axum::response::IntoResponse;
 use axum::response::Response;
 use axum::routing::get;
 use axum::{Json, Router};
@@ -76,8 +80,7 @@ async fn main() -> Result<()> {
     // Bind IPv4 explicitly: a dual-stack wildcard socket answers IPv4
     // clients from an IPv6-mapped source, which Docker's userland UDP proxy
     // fails to match back to the client's flow, so handshake replies vanish.
-    let webtransport_address =
-        SocketAddr::from((Ipv4Addr::UNSPECIFIED, webtransport_port));
+    let webtransport_address = SocketAddr::from((Ipv4Addr::UNSPECIFIED, webtransport_port));
 
     tokio::spawn(run_nats_subscription(nats, state.hub.clone()));
     tokio::spawn(run_webtransport(
@@ -87,9 +90,12 @@ async fn main() -> Result<()> {
     ));
 
     let app = Router::new()
+        .route("/", get(service_root))
+        .route("/robots.txt", get(robots))
         .route("/health", get(health))
         .route("/v1/realtime/config", get(realtime_config))
         .route("/v1/rooms/{room_id}", get(websocket_upgrade))
+        .layer(middleware::from_fn(add_noindex_header))
         .layer(CorsLayer::permissive())
         .with_state(state);
     let address = format!("0.0.0.0:{websocket_port}");
@@ -98,6 +104,26 @@ async fn main() -> Result<()> {
     info!(%address, "WebSocket fallback listening");
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+async fn service_root() -> Json<Value> {
+    Json(json!({ "service": "modbots-realtime" }))
+}
+
+async fn robots() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+        "User-agent: *\nAllow: /\n",
+    )
+}
+
+async fn add_noindex_header(request: Request, next: Next) -> Response {
+    let mut response = next.run(request).await;
+    response.headers_mut().insert(
+        header::HeaderName::from_static("x-robots-tag"),
+        HeaderValue::from_static("noindex, nofollow"),
+    );
+    response
 }
 
 fn env_port(name: &str, fallback: u16) -> Result<u16> {
