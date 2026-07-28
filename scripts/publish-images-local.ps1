@@ -1,6 +1,6 @@
 param(
     [string] $ImageTag = "0.0.1-alpha",
-    [string] $RegistryOwner = "wsucauid798"
+    [string] $RegistryOwner = "mod-bots"
 )
 
 $ErrorActionPreference = "Stop"
@@ -19,7 +19,12 @@ if (-not $token) {
     throw "GitHub CLI is not authenticated. Run gh auth login first."
 }
 
-$token | docker login ghcr.io -u $RegistryOwner --password-stdin
+$registryUsername = gh api user --jq .login
+if (-not $registryUsername) {
+    throw "The authenticated GitHub username could not be determined."
+}
+
+$token | docker login ghcr.io -u $registryUsername --password-stdin
 
 foreach ($image in $images) {
     $fullName = "ghcr.io/$RegistryOwner/modbots-backend-$($image.Name):$ImageTag"
