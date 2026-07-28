@@ -21,7 +21,7 @@ concurrency:
 
 env:
   GHCR_OWNER: mod-bots
-  MODBOTS_IMAGE_TAG: 0.0.1-alpha
+  MODBOTS_IMAGE_TAG: 0.0.1-beta
   PRODUCTION_HOST: 77.68.50.14
   PRODUCTION_PATH: /home/wsawyerr/modbots
   PRODUCTION_SSH_USER: wsawyerr

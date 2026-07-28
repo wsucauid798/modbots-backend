@@ -1,5 +1,5 @@
 param(
-    [string] $ImageTag = "0.0.1-alpha",
+    [string] $ImageTag = "0.0.1-beta",
     [string] $RegistryOwner = "mod-bots"
 )
 

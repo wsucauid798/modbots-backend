@@ -2,7 +2,7 @@ name: modbots-backend
 
 services:
   api:
-    image: ghcr.io/mod-bots/modbots-backend-api:${MODBOTS_IMAGE_TAG:-0.0.1-alpha}
+    image: ghcr.io/mod-bots/modbots-backend-api:${MODBOTS_IMAGE_TAG:-0.0.1-beta}
     container_name: modbots-backend-api
     restart: unless-stopped
     environment:
@@ -46,7 +46,7 @@ services:
         condition: service_healthy
 
   realtime:
-    image: ghcr.io/mod-bots/modbots-backend-realtime:${MODBOTS_IMAGE_TAG:-0.0.1-alpha}
+    image: ghcr.io/mod-bots/modbots-backend-realtime:${MODBOTS_IMAGE_TAG:-0.0.1-beta}
     container_name: modbots-backend-realtime
     restart: unless-stopped
     environment:
@@ -66,7 +66,7 @@ services:
         condition: service_started
 
   runtime:
-    image: ghcr.io/mod-bots/modbots-backend-runtime:${MODBOTS_IMAGE_TAG:-0.0.1-alpha}
+    image: ghcr.io/mod-bots/modbots-backend-runtime:${MODBOTS_IMAGE_TAG:-0.0.1-beta}
     container_name: modbots-backend-runtime
     restart: unless-stopped
     environment:
@@ -86,7 +86,7 @@ services:
         condition: service_started
 
   account:
-    image: ghcr.io/mod-bots/modbots-backend-account:${MODBOTS_IMAGE_TAG:-0.0.1-alpha}
+    image: ghcr.io/mod-bots/modbots-backend-account:${MODBOTS_IMAGE_TAG:-0.0.1-beta}
     container_name: modbots-backend-account
     restart: unless-stopped
     environment:
@@ -107,7 +107,7 @@ services:
         condition: service_started
 
   upps:
-    image: ghcr.io/mod-bots/modbots-backend-upps:${MODBOTS_IMAGE_TAG:-0.0.1-alpha}
+    image: ghcr.io/mod-bots/modbots-backend-upps:${MODBOTS_IMAGE_TAG:-0.0.1-beta}
     container_name: modbots-backend-upps
     restart: unless-stopped
     environment:
@@ -120,7 +120,7 @@ services:
       - upps-profile-pictures:/app/services/upps/public/profile-pictures/uploads
 
   ml:
-    image: ghcr.io/mod-bots/modbots-backend-ml:${MODBOTS_IMAGE_TAG:-0.0.1-alpha}
+    image: ghcr.io/mod-bots/modbots-backend-ml:${MODBOTS_IMAGE_TAG:-0.0.1-beta}
     container_name: modbots-backend-ml
     restart: unless-stopped
     environment:
