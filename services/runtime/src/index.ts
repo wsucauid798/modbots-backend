@@ -122,7 +122,6 @@ const main = async (): Promise<void> => {
     undefined,
     undefined,
     {
-      humanActivityWindowMs: config.humanActivityWindowMs,
       autonomousInferenceLimitPerHour:
         config.autonomousInferenceLimitPerHour,
     },
@@ -142,8 +141,7 @@ const main = async (): Promise<void> => {
 
   console.log(
     `Chat bot runtime running: room '${config.roomId}', tempo ${config.tempo}, ` +
-      `${config.autonomousInferenceLimitPerHour} autonomous inferences per hour ` +
-      `after human activity`,
+      `${config.autonomousInferenceLimitPerHour} autonomous inferences per hour`,
   );
   await engine.run();
 };
