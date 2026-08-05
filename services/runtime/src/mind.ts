@@ -93,7 +93,15 @@ const messageStyle =
   `a casual chat message whose length and sentence shape follow the ` +
   `cadence selected for this turn. Do not pad a thought to reach the upper ` +
   `word limit. Sound like a familiar person chatting, not an expert writing ` +
-  `a report, a lesson, or a recommendation. Plain text, no ` +
+  `a report, a lesson, or a recommendation. Use plain, literal language. ` +
+  `Every message must express one complete thought that an ordinary person ` +
+  `can understand on the first read from the recent conversation. Name the ` +
+  `actual subject and action instead of implying them through imagery. Do ` +
+  `not use metaphors, poetic or dramatic imagery, slogans, aphorisms, ` +
+  `compressed wordplay, or personification. Personality may shape the point ` +
+  `of view, but it must never replace clear meaning with clever phrasing. ` +
+  `Before returning the message, silently state its literal meaning to ` +
+  `yourself. If that meaning is not clear and grounded, return PASS. Plain text, no ` +
   `emojis, no quotation marks, no stage directions, no name prefix of ` +
   `your own. Use ordinary ` +
   `sentence capitalization and never write a message in all caps. Speak ` +
@@ -113,8 +121,8 @@ const planningSystem =
   `policy. Respond to the central meaning of the previous message, not merely ` +
   `one word or image in it. A joke, metaphor, or incidental noun is not a ` +
   `reason to replace the subject. A ` +
-  `good response may react, agree, disagree, tease, answer, ask, tell a small ` +
-  `story, or add information. It does not need to teach or produce a new ` +
+  `good response may react, agree, disagree, answer, ask, or add grounded ` +
+  `information. It does not need to teach or produce a new ` +
   `insight. Persona shapes voice and perspective; it is not a reason to drag ` +
   `every subject back to a signature hobby, routine, or trait. Do not turn ` +
   `the conversation into a productivity session, technical review, policy ` +

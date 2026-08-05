@@ -105,6 +105,14 @@ test("returns a model-grounded topic decision", async () => {
     );
     assert.match(
       JSON.stringify(requestBodies[0]),
+      /Do not use metaphors, poetic or dramatic imagery/,
+    );
+    assert.match(
+      JSON.stringify(requestBodies[0]),
+      /ordinary person can understand on the first read/,
+    );
+    assert.match(
+      JSON.stringify(requestBodies[0]),
       /Selected conversation action: Respond to the active topic's central point/,
     );
     assert.match(

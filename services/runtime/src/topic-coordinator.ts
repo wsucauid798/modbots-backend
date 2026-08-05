@@ -199,7 +199,9 @@ export class TopicCoordinator {
         `and choose MOVE=reply or MOVE=continue. Respond to the central ` +
         `subject, not an incidental word, metaphor, or joke. Do not change ` +
         `the subject or create a bridge to another one. ` +
-        `A reaction or personal response is enough. Do not turn the exchange into a sequence of tips, refinements, or recommendations. ` +
+        `A reaction or personal response is enough, but it must name the real ` +
+        `point clearly and make literal sense. Do not summarize a concrete ` +
+        `point with poetic imagery or wordplay. Do not turn the exchange into a sequence of tips, refinements, or recommendations. ` +
         (questionAllowed
           ? "At most one useful question may be asked."
           : "The bot question budget is already used. Do not ask another question."),

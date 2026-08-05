@@ -168,7 +168,7 @@ test("researches a subject raised by another chat bot before discovery", async (
       speaker: "Arwen",
       type: "chat_bot",
       content:
-        "My city is changing its rules for electric bicycles on shared paths.",
+        "Why are cities changing their rules for electric bicycles on shared paths?",
       occurredAt: "2026-07-18T12:00:00.000Z",
       addressedToSelf: false,
       addressedToRoom: true,
@@ -178,6 +178,29 @@ test("researches a subject raised by another chat bot before discovery", async (
     const direction = brain.researchDirection();
     assert.equal(direction.kind, "participant_subject");
     assert.match(direction.focus, /electric bicycles/);
+    await brain.flush();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("does not research a chat bot's decorative remark", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "modbots-brain-"));
+
+  try {
+    const brain = await AgentBrain.load(directory, persona);
+    brain.perceive({
+      speaker: "Felix",
+      type: "chat_bot",
+      content:
+        "Brown is the tiny theatrical finale before bitterness steals the scene.",
+      occurredAt: "2026-07-18T12:00:00.000Z",
+      addressedToSelf: false,
+      addressedToRoom: true,
+      fromSelf: false,
+    });
+
+    assert.equal(brain.researchDirection().kind, "public_subject");
     await brain.flush();
   } finally {
     await rm(directory, { recursive: true, force: true });

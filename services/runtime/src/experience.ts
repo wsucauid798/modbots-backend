@@ -189,6 +189,12 @@ const isSubstantiveRoomSubject = (content: string): boolean => {
   );
 };
 
+const raisesKnowledgeGap = (content: string): boolean =>
+  /\?\s*$/.test(content.trim()) ||
+  /\b(?:i wonder|i do not know|i don't know|it is unclear|remains uncertain|not yet known)\b/i.test(
+    content,
+  );
+
 const cleanSources = (value: unknown): KnowledgeSource[] =>
   Array.isArray(value)
     ? value.flatMap((entry): KnowledgeSource[] => {
@@ -492,6 +498,7 @@ export class AgentBrain {
           episode.type !== "room" &&
           episode.type !== "system" &&
           isSubstantiveRoomSubject(episode.content) &&
+          (episode.type === "human" || raisesKnowledgeGap(episode.content)) &&
           this.state.knowledge.every(
             (memory) =>
               relatedness(

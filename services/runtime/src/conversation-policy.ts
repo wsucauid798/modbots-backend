@@ -102,9 +102,9 @@ const instructionFor: Record<ConversationIntent, string> = {
   acknowledge_room:
     "Acknowledge the real room event briefly and naturally without starting an unrelated discussion.",
   respond_topic:
-    "Respond to the active topic's central point. Add one relevant contribution and do not change the subject.",
+    "Respond to the active topic's central point in literal language. Add one relevant contribution and do not change the subject.",
   react_topic:
-    "Give a brief, natural reaction to the active topic. It may simply agree, disagree, or show interest.",
+    "Give a brief, clear reaction that names the actual point you are reacting to. It may simply agree, disagree, or show interest.",
   ask_follow_up:
     "Ask one specific follow-up question about the active topic. Do not introduce a new subject.",
   start_question:
@@ -112,7 +112,7 @@ const instructionFor: Record<ConversationIntent, string> = {
   start_opinion:
     "Use the supplied knowledge from your brain to share one considered opinion and a natural reason.",
   start_playful:
-    "Use the supplied knowledge from your brain for a light but real conversational angle. Do not invent a premise.",
+    "Use the supplied knowledge from your brain for a light but literal conversational observation. Do not invent a premise or replace meaning with wordplay.",
   start_personal:
     "Connect the supplied knowledge to a genuine interest without inventing a memory or experience.",
   wait: "Stay silent this turn.",
