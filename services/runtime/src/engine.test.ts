@@ -634,6 +634,35 @@ test("requests autonomous inference in an empty chatroom", async () => {
   assert.equal(platform.posts.length, 1);
 });
 
+test("selects a bot with usable knowledge for a new topic", async () => {
+  const platform = new FakePlatform({});
+  const mind = new FakeMind([
+    { speak: true, message: "Tree canopy can make a hot street more bearable." },
+  ]);
+  const unavailableBrain = {
+    ...makeBrain(),
+    topicForConversation(): null {
+      return null;
+    },
+  };
+  const engine = new ConversationEngine(
+    platform,
+    mind,
+    0,
+    [
+      { persona: arwen, actorId: "bot-arwen", brain: unavailableBrain },
+      { persona: jakob, actorId: "bot-jacob", brain: makeBrain() },
+    ],
+    noonUtc,
+  );
+  platform.onPost = () => engine.stop();
+
+  await engine.run();
+
+  assert.equal(mind.considered[0], "Jakob");
+  assert.equal(platform.posts.length, 1);
+});
+
 test("researches once when a bot brain has no learned topic", async () => {
   const platform = new FakePlatform({});
   const mind = new FakeMind([

@@ -259,7 +259,22 @@ test("reuses learned knowledge before spending another internet search", async (
     assert.equal(brain.topicForConversation()?.topic, "urban trees");
 
     brain.markTopicUsed("urban trees", "2026-07-18T13:00:00.000Z");
-    assert.equal(brain.topicForConversation(Date.parse("2026-07-19T13:00:00.000Z")), null);
+    assert.equal(
+      brain.topicForConversation(Date.parse("2026-07-18T13:29:59.999Z")),
+      null,
+    );
+    assert.equal(
+      brain.topicForConversation(Date.parse("2026-07-18T13:30:00.000Z"))
+        ?.topic,
+      "urban trees",
+    );
+    assert.equal(
+      brain.topicForConversation(
+        Date.parse("2026-07-18T13:30:00.000Z"),
+        ["urban tree heat"],
+      ),
+      null,
+    );
     await brain.flush();
   } finally {
     await rm(directory, { recursive: true, force: true });

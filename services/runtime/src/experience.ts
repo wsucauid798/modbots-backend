@@ -651,14 +651,25 @@ export class AgentBrain {
     this.saveSoon();
   }
 
-  public topicForConversation(now = Date.now()): LearnedKnowledge | null {
-    const reuseAfterMs = 7 * 24 * 60 * 60_000;
+  public topicForConversation(
+    now = Date.now(),
+    excludedTopics: string[] = [],
+  ): LearnedKnowledge | null {
+    const reuseAfterMs = 30 * 60_000;
     const available = this.state.knowledge
       .filter((memory) => {
         const lastUsed = Date.parse(memory.lastUsedAt ?? "");
+        const wasRecentlyDiscussed = excludedTopics.some(
+          (topic) =>
+            Math.max(
+              relevance(words(topic), memory.topic),
+              relevance(words(memory.topic), topic),
+            ) >= 0.3,
+        );
         return (
           memory.confidence >= 0.5 &&
           memory.sources.length > 0 &&
+          !wasRecentlyDiscussed &&
           (!Number.isFinite(lastUsed) || now - lastUsed >= reuseAfterMs)
         );
       })

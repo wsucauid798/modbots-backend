@@ -739,9 +739,34 @@ export class ConversationEngine {
         continue;
       }
 
+      const available = this.availableBots();
       const preferred = this.preferredBots();
-      const candidates =
-        preferred.length > 0 ? preferred : this.availableBots();
+      let candidates = preferred.length > 0 ? preferred : available;
+      const topicContext = this.topics.turnContext(
+        "autonomous",
+        this.now().getTime(),
+      );
+
+      if (topicContext.activeTopic === null) {
+        const recentlyCompleted = this.topics.recentlyCompletedTopics();
+        candidates = candidates.filter(
+          (candidate) =>
+            candidate.brain.topicForConversation(
+              this.now().getTime(),
+              recentlyCompleted,
+            ) !== null,
+        );
+
+        if (candidates.length === 0 && preferred.length > 0) {
+          candidates = available.filter(
+            (candidate) =>
+              candidate.brain.topicForConversation(
+                this.now().getTime(),
+                recentlyCompleted,
+              ) !== null,
+          );
+        }
+      }
 
       if (candidates.length === 0) {
         continue;
@@ -794,6 +819,7 @@ export class ConversationEngine {
     if (trigger === "autonomous" && topicContext.activeTopic === null) {
       const learnedKnowledge = bot.brain.topicForConversation(
         this.now().getTime(),
+        this.topics.recentlyCompletedTopics(),
       );
       topicContext = this.topics.turnContext(
         trigger,

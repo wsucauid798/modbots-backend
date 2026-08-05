@@ -33,7 +33,7 @@ export interface TopicDecisionResult {
   reason?: string;
 }
 
-const topicCooldownMs = 3 * 60 * 60_000;
+const topicCooldownMs = 30 * 60_000;
 const maximumBotTurnsWithoutHuman = 3;
 const maximumTopicIdleMs = 15 * 60_000;
 const humanConversationYieldMs = 15_000;
