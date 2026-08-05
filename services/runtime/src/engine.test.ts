@@ -2,8 +2,11 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { ConversationEngine } from "./engine.js";
-import type { PerceivedMessage } from "./experience.js";
-import type { LearnedKnowledge } from "./experience.js";
+import type {
+  LearnedKnowledge,
+  PerceivedMessage,
+  ResearchDirection,
+} from "./experience.js";
 import { InferenceError } from "./mind.js";
 import type { Decision } from "./mind.js";
 import type { Persona } from "./personas.js";
@@ -65,6 +68,7 @@ class FakeMind {
   public readonly allowPassValues: boolean[] = [];
   public readonly addresseeCalls: string[] = [];
   public researchCalls = 0;
+  public readonly researchDirections: ResearchDirection[] = [];
 
   public constructor(
     private readonly decisions: Array<Decision | Error>,
@@ -152,8 +156,14 @@ class FakeMind {
     return "Observed content";
   }
 
-  public async research(): Promise<LearnedKnowledge> {
+  public async research(
+    _persona: Persona,
+    _brainState: string,
+    _recentlyDiscussed: string[],
+    direction: ResearchDirection,
+  ): Promise<LearnedKnowledge> {
     this.researchCalls += 1;
+    this.researchDirections.push(direction);
     return learnedTopic;
   }
 }
@@ -194,6 +204,13 @@ const makeBrain = (
     return false;
   },
   recordResearchAttempt(): void {},
+  researchDirection(): ResearchDirection {
+    return {
+      kind: "public_subject",
+      focus: "A consequential subject people are discussing",
+      reason: "The brain needs a meaningful new area of knowledge.",
+    };
+  },
   topicForConversation(): LearnedKnowledge {
     return topic;
   },
@@ -645,6 +662,7 @@ test("researches once when a bot brain has no learned topic", async () => {
   await engine.run();
 
   assert.equal(mind.researchCalls, 1);
+  assert.equal(mind.researchDirections[0]?.kind, "public_subject");
   assert.equal(knowledge?.topic, "ocean heat");
   assert.equal(platform.posts.length, 1);
 });

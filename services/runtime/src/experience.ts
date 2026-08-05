@@ -22,6 +22,13 @@ export interface LearnedKnowledge {
   confidence: number;
   sources: KnowledgeSource[];
   curiosity?: string;
+  learningValue?: string;
+}
+
+export interface ResearchDirection {
+  kind: "room_subject" | "deepen" | "public_subject";
+  focus: string;
+  reason: string;
 }
 
 interface KnowledgeMemory extends LearnedKnowledge {
@@ -30,6 +37,7 @@ interface KnowledgeMemory extends LearnedKnowledge {
   recallCount: number;
   lastUsedAt?: string;
   useCount: number;
+  researchCount: number;
 }
 
 interface Episode {
@@ -160,11 +168,25 @@ const relevance = (query: Set<string>, value: string): number => {
   return matches / query.size;
 };
 
+const relatedness = (left: string, right: string): number =>
+  Math.max(relevance(words(left), right), relevance(words(right), left));
+
 const knowledgeText = (content: string): string => {
   const flattened = content.replace(/\s+/g, " ").trim();
-  return flattened.length <= 900
+  return flattened.length <= 1_800
     ? flattened
-    : `${flattened.slice(0, 897).trimEnd()}...`;
+    : `${flattened.slice(0, 1_797).trimEnd()}...`;
+};
+
+const isSubstantiveRoomSubject = (content: string): boolean => {
+  const flattened = content.replace(/\s+/g, " ").trim();
+
+  return (
+    words(flattened).size >= 4 &&
+    !/^\s*(?:hi|hello|hey|good\s+(?:morning|afternoon|evening)|thanks?|thank\s+you|bye)[!.?]*\s*$/i.test(
+      flattened,
+    )
+  );
 };
 
 const cleanSources = (value: unknown): KnowledgeSource[] =>
@@ -225,10 +247,22 @@ const cleanKnowledge = (value: unknown): KnowledgeMemory[] =>
                   typeof memory.lastUsedAt === "string"
                     ? memory.lastUsedAt
                     : undefined,
+                curiosity:
+                  typeof memory.curiosity === "string"
+                    ? memory.curiosity
+                    : undefined,
+                learningValue:
+                  typeof memory.learningValue === "string"
+                    ? memory.learningValue
+                    : undefined,
                 useCount:
                   typeof memory.useCount === "number"
                     ? Math.max(0, memory.useCount)
                     : 0,
+                researchCount:
+                  typeof memory.researchCount === "number"
+                    ? Math.max(1, memory.researchCount)
+                    : 1,
               },
             ]
           : [];
@@ -449,7 +483,68 @@ export class AgentBrain {
     this.saveSoon();
   }
 
-  public learn(learned: LearnedKnowledge, learnedAt = new Date().toISOString()): void {
+  public researchDirection(): ResearchDirection {
+    const roomSubject = [...this.state.workingMemory]
+      .reverse()
+      .find(
+        (episode) =>
+          episode.type === "human" &&
+          isSubstantiveRoomSubject(episode.content) &&
+          this.state.knowledge.every(
+            (memory) =>
+              relatedness(
+                episode.content,
+                `${memory.topic} ${memory.statement}`,
+              ) < 0.45,
+          ),
+      );
+
+    if (roomSubject !== undefined) {
+      return {
+        kind: "room_subject",
+        focus: excerpt(roomSubject.content),
+        reason:
+          "A human raised this subject in the chatroom and this brain does not yet know enough to understand it well.",
+      };
+    }
+
+    const openQuestion = [...this.state.curiosities]
+      .sort(
+        (left, right) =>
+          right.weight - left.weight ||
+          Date.parse(right.createdAt) - Date.parse(left.createdAt),
+      )
+      .find((curiosity) => {
+        const memory = this.state.knowledge.find(
+          (candidate) =>
+            relatedness(curiosity.subject, candidate.topic) >= 0.7,
+        );
+        return memory !== undefined && memory.researchCount < 3;
+      });
+
+    if (openQuestion !== undefined) {
+      return {
+        kind: "deepen",
+        focus: `${openQuestion.subject}: ${openQuestion.question}`,
+        reason:
+          "This is an unresolved question from existing knowledge, so answering it will deepen understanding instead of collecting another disconnected fact.",
+      };
+    }
+
+    return {
+      kind: "public_subject",
+      focus:
+        "A consequential subject people are currently discussing in public",
+      reason:
+        "The brain has no unresolved room subject or useful follow-up question, so it should broaden into a real subject with current human significance.",
+    };
+  }
+
+  public learn(
+    learned: LearnedKnowledge,
+    learnedAt = new Date().toISOString(),
+    direction?: ResearchDirection,
+  ): void {
     const topic = learned.topic.replace(/\s+/g, " ").trim().slice(0, 120);
     const statement = knowledgeText(learned.statement);
     const sources = cleanSources(learned.sources).slice(0, 8);
@@ -458,11 +553,20 @@ export class AgentBrain {
       return;
     }
 
-    const existing = this.state.knowledge.find(
-      (memory) =>
-        relevance(words(topic), memory.topic) >= 0.8 ||
-        relevance(words(statement), memory.statement) >= 0.8,
-    );
+    const directedExisting =
+      direction?.kind === "deepen"
+        ? this.state.knowledge.find(
+            (memory) =>
+              relatedness(direction.focus, memory.topic) >= 0.5,
+          )
+        : undefined;
+    const existing =
+      directedExisting ??
+      this.state.knowledge.find(
+        (memory) =>
+          relatedness(topic, memory.topic) >= 0.8 ||
+          relatedness(statement, memory.statement) >= 0.8,
+      );
 
     if (existing === undefined) {
       this.state.knowledge.push({
@@ -475,15 +579,46 @@ export class AgentBrain {
         recallCount: 0,
         lastUsedAt: undefined,
         useCount: 0,
+        researchCount: 1,
+        curiosity: learned.curiosity?.trim()
+          ? excerpt(learned.curiosity)
+          : undefined,
+        learningValue: learned.learningValue?.trim()
+          ? excerpt(learned.learningValue)
+          : undefined,
       });
     } else {
-      existing.statement = statement;
+      existing.statement =
+        direction?.kind === "deepen"
+          ? knowledgeText(`${existing.statement} ${statement}`)
+          : statement;
       existing.confidence = clamp(
         Math.max(existing.confidence, learned.confidence),
         1,
       );
       existing.sources = cleanSources([...existing.sources, ...sources]).slice(-8);
       existing.learnedAt = learnedAt;
+      existing.researchCount += 1;
+      existing.curiosity = learned.curiosity?.trim()
+        ? excerpt(learned.curiosity)
+        : existing.curiosity;
+      existing.learningValue = learned.learningValue?.trim()
+        ? excerpt(learned.learningValue)
+        : existing.learningValue;
+    }
+
+    if (direction?.kind === "deepen") {
+      const selected = words(direction.focus);
+      this.state.curiosities = this.state.curiosities.filter(
+        (curiosity) =>
+          Math.max(
+            relevance(selected, `${curiosity.subject} ${curiosity.question}`),
+            relevance(
+              words(`${curiosity.subject} ${curiosity.question}`),
+              direction.focus,
+            ),
+          ) < 0.5,
+      );
     }
 
     if (learned.curiosity?.trim()) {
@@ -633,9 +768,10 @@ export class AgentBrain {
         ? "I have no sourced long-term knowledge relevant to this thought yet."
         : `Sourced knowledge I recall:\n- ${knowledge
             .map(({ memory }) =>
-              `${memory.topic}: ${memory.statement} Sources: ${memory.sources
-                .map((source) => source.url)
-                .join(", ")}`,
+              `${memory.topic}: ${memory.statement}` +
+              (memory.learningValue === undefined
+                ? ""
+                : ` Why it matters: ${memory.learningValue}`),
             )
             .join("\n- ")}`,
       curiosities.length === 0

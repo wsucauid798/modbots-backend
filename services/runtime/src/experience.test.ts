@@ -152,8 +152,87 @@ test("stores and recalls sourced knowledge across restarts", async () => {
     const view = restored.view("coastal ocean weather");
 
     assert.match(view, /ocean heat/);
-    assert.match(view, /https:\/\/example.com\/ocean-heat/);
+    assert.doesNotMatch(view, /https:\/\/example.com\/ocean-heat/);
     assert.match(view, /How does stored heat affect coastal weather/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("researches a human-raised subject before autonomous discovery", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "modbots-brain-"));
+
+  try {
+    const brain = await AgentBrain.load(directory, persona);
+    brain.perceive({
+      speaker: "Mira",
+      type: "human",
+      content:
+        "My city is changing its rules for electric bicycles on shared paths.",
+      occurredAt: "2026-07-18T12:00:00.000Z",
+      addressedToSelf: false,
+      addressedToRoom: true,
+      fromSelf: false,
+    });
+
+    const direction = brain.researchDirection();
+    assert.equal(direction.kind, "room_subject");
+    assert.match(direction.focus, /electric bicycles/);
+    await brain.flush();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("deepens an unresolved question before collecting another subject", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "modbots-brain-"));
+
+  try {
+    const brain = await AgentBrain.load(directory, persona);
+    brain.learn({
+      topic: "urban heat",
+      statement: "Tree canopy changes neighborhood heat exposure.",
+      confidence: 0.8,
+      curiosity: "Which neighborhoods benefit most from new canopy?",
+      learningValue: "Heat exposure affects health and energy use.",
+      sources: [{ title: "Urban heat", url: "https://example.com/heat" }],
+    });
+
+    const direction = brain.researchDirection();
+    assert.equal(direction.kind, "deepen");
+    assert.match(direction.focus, /Which neighborhoods benefit most/);
+
+    brain.learn(
+      {
+        topic: "urban heat equity",
+        statement:
+          "Neighborhoods with less existing canopy often face greater heat exposure.",
+        confidence: 0.8,
+        curiosity: "Which planting policies close canopy gaps most effectively?",
+        learningValue: "Canopy distribution affects unequal heat exposure.",
+        sources: [{ title: "Heat equity", url: "https://example.com/equity" }],
+      },
+      "2026-07-18T13:00:00.000Z",
+      direction,
+    );
+    const secondDirection = brain.researchDirection();
+    assert.equal(secondDirection.kind, "deepen");
+
+    brain.learn(
+      {
+        topic: "urban canopy policy",
+        statement:
+          "Long-term maintenance and resident participation affect whether new canopy survives.",
+        confidence: 0.8,
+        curiosity: "How should cities measure whether canopy programs remain equitable?",
+        learningValue: "Program design determines whether planting creates durable benefits.",
+        sources: [{ title: "Canopy policy", url: "https://example.com/policy" }],
+      },
+      "2026-07-18T14:00:00.000Z",
+      secondDirection,
+    );
+    assert.equal(brain.researchDirection().kind, "public_subject");
+    await brain.flush();
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

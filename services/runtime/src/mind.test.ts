@@ -97,6 +97,10 @@ test("returns a model-grounded topic decision", async () => {
     );
     assert.match(
       JSON.stringify(requestBodies[0]),
+      /include research citations or source URLs/,
+    );
+    assert.match(
+      JSON.stringify(requestBodies[0]),
       /incidental noun is not a reason to replace the subject/,
     );
     assert.match(
@@ -437,7 +441,7 @@ test("allows two inference requests to proceed concurrently", async () => {
   }
 });
 
-test("research excludes recent and already learned subjects", async () => {
+test("research follows an explicit learning direction", async () => {
   const originalFetch = globalThis.fetch;
   let requestBody: Record<string, unknown> | undefined;
 
@@ -448,6 +452,7 @@ test("research excludes recent and already learned subjects", async () => {
         content:
           "TOPIC=Deep sea migration\n" +
           "KNOWLEDGE=Many marine animals migrate vertically each day. This movement transfers carbon into deeper water.\n" +
+          "WHY=It affects how carbon moves through the ocean and the climate system.\n" +
           "CURIOSITY=How much carbon does this daily migration move?",
         sources: [
           {
@@ -465,14 +470,21 @@ test("research excludes recent and already learned subjects", async () => {
       persona,
       "Existing knowledge: acrylamide and browning.",
       ["The Maillard Trade-Off"],
+      {
+        kind: "public_subject",
+        focus: "A consequential subject people are currently discussing",
+        reason: "The brain needs a meaningful new area of knowledge.",
+      },
     );
 
     const serializedRequest = JSON.stringify(requestBody);
-    assert.match(serializedRequest, /exclusion list for autonomous research/);
-    assert.match(serializedRequest, /substantively different subject/);
+    assert.match(serializedRequest, /real current significance/);
+    assert.match(serializedRequest, /Reject trivia/);
+    assert.match(serializedRequest, /public_subject/);
     assert.match(serializedRequest, /The Maillard Trade-Off/);
     assert.match(serializedRequest, /acrylamide and browning/);
     assert.equal(result.topic, "Deep sea migration");
+    assert.match(result.learningValue ?? "", /carbon moves/);
     assert.equal(result.sources.length, 1);
   } finally {
     globalThis.fetch = originalFetch;

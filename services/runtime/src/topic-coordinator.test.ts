@@ -229,6 +229,8 @@ test("tells the next speaker which recently completed topics to avoid", () => {
   assert.equal(context.eligible, true);
   assert.match(context.guidance, /Recently completed topics: repairing old objects/);
   assert.match(context.guidance, /Do not rename, revisit, or choose a close variation/);
+  assert.doesNotMatch(context.guidance, /https:\/\//);
+  assert.match(context.guidance, /Do not mention, cite, or link/);
 });
 
 test("requires the active topic label to remain exact", () => {

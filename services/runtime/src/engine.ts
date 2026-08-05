@@ -30,6 +30,7 @@ type ConversationBrain = Pick<
   | "learn"
   | "canResearch"
   | "recordResearchAttempt"
+  | "researchDirection"
   | "topicForConversation"
   | "markTopicUsed"
 >;
@@ -238,13 +239,17 @@ export class ConversationEngine {
     const attemptedAt = this.now().toISOString();
     this.internetResearchAttempts.push(now);
     bot.brain.recordResearchAttempt(attemptedAt);
-    console.log(`${bot.persona.displayName} is researching a new subject.`);
+    const direction = bot.brain.researchDirection();
+    console.log(
+      `${bot.persona.displayName} is researching ${direction.kind}: ${direction.focus}`,
+    );
     const learned = await this.mind.research(
       bot.persona,
       bot.brain.view("questions, uncertainty, and subjects worth learning"),
       this.topics.recentlyCompletedTopics(),
+      direction,
     );
-    bot.brain.learn(learned, attemptedAt);
+    bot.brain.learn(learned, attemptedAt, direction);
     console.log(
       `${bot.persona.displayName} learned about '${learned.topic}' from ` +
         `${learned.sources.length} internet source${learned.sources.length === 1 ? "" : "s"}.`,

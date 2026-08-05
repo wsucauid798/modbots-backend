@@ -179,7 +179,7 @@ export class TopicCoordinator {
           trigger === "autonomous"
             ? learnedKnowledge === undefined
               ? "There is no learned subject available. Stay silent."
-              : `There is no active topic. Start from knowledge already held in your brain. Keep TOPIC exactly '${learnedKnowledge.topic}', use SOURCE=knowledge, and use MOVE=start. What you learned: ${learnedKnowledge.statement} Your remaining curiosity: ${learnedKnowledge.curiosity ?? "none"}. Ground the message in this source and include its URL naturally so people can inspect it: ${learnedKnowledge.sources[0]?.url ?? ""}. Do not present a report or bibliography. Share one conversational thought, question, or reaction that follows from what you actually learned. ` +
+              : `There is no active topic. Start from knowledge already held in your brain. Keep TOPIC exactly '${learnedKnowledge.topic}', use SOURCE=knowledge, and use MOVE=start. What you learned: ${learnedKnowledge.statement} Why it matters: ${learnedKnowledge.learningValue ?? "It addresses a real knowledge gap."} Your remaining curiosity: ${learnedKnowledge.curiosity ?? "none"}. Research sources are private internal provenance. Do not mention, cite, or link them in the message. Share one natural conversational thought, question, or reaction that follows from what you actually learned. ` +
               (recentlyCompleted.length > 0
                 ? `Recently completed topics: ${recentlyCompleted}. Do not rename, revisit, or choose a close variation of them.`
                 : "")
