@@ -93,7 +93,7 @@ test("returns a model-grounded topic decision", async () => {
     );
     assert.match(
       JSON.stringify(requestBodies[0]),
-      /Background room memories, not the current conversation/,
+      /Your recalled brain state, including working memory/,
     );
     assert.match(
       JSON.stringify(requestBodies[0]),
@@ -432,6 +432,48 @@ test("allows two inference requests to proceed concurrently", async () => {
     ]);
 
     assert.equal(maximumActiveRequests, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("research excludes recent and already learned subjects", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestBody: Record<string, unknown> | undefined;
+
+  globalThis.fetch = async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return new Response(
+      JSON.stringify({
+        content:
+          "TOPIC=Deep sea migration\n" +
+          "KNOWLEDGE=Many marine animals migrate vertically each day. This movement transfers carbon into deeper water.\n" +
+          "CURIOSITY=How much carbon does this daily migration move?",
+        sources: [
+          {
+            title: "NOAA Ocean Exploration",
+            url: "https://oceanexplorer.noaa.gov/facts/diel-vertical-migration.html",
+          },
+        ],
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  };
+
+  try {
+    const result = await new Mind("http://ml.test").research(
+      persona,
+      "Existing knowledge: acrylamide and browning.",
+      ["The Maillard Trade-Off"],
+    );
+
+    const serializedRequest = JSON.stringify(requestBody);
+    assert.match(serializedRequest, /exclusion list for autonomous research/);
+    assert.match(serializedRequest, /substantively different subject/);
+    assert.match(serializedRequest, /The Maillard Trade-Off/);
+    assert.match(serializedRequest, /acrylamide and browning/);
+    assert.equal(result.topic, "Deep sea migration");
+    assert.equal(result.sources.length, 1);
   } finally {
     globalThis.fetch = originalFetch;
   }

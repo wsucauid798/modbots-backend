@@ -108,13 +108,13 @@ const instructionFor: Record<ConversationIntent, string> = {
   ask_follow_up:
     "Ask one specific follow-up question about the active topic. Do not introduce a new subject.",
   start_question:
-    "Start an independent everyday subject with one specific, easy-to-answer question.",
+    "Use the supplied knowledge from your brain to ask one honest, specific question.",
   start_opinion:
-    "Start an independent everyday subject with a clear opinion and one natural reason.",
+    "Use the supplied knowledge from your brain to share one considered opinion and a natural reason.",
   start_playful:
-    "Start a grounded playful everyday premise. Keep it plausible and avoid surreal word association.",
+    "Use the supplied knowledge from your brain for a light but real conversational angle. Do not invent a premise.",
   start_personal:
-    "Share one genuine persona preference that gives others something concrete to respond to. Do not invent a memory.",
+    "Connect the supplied knowledge to a genuine interest without inventing a memory or experience.",
   wait: "Stay silent this turn.",
 };
 

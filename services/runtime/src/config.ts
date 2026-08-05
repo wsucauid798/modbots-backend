@@ -8,6 +8,8 @@ export interface RuntimeConfig {
   // lower is chattier. Used to speed verification without code changes.
   tempo: number;
   autonomousInferenceLimitPerHour: number;
+  internetResearchLimitPerHour: number;
+  internetResearchCooldownMs: number;
 }
 
 const positiveNumber = (value: string | undefined, fallback: number): number => {
@@ -22,6 +24,12 @@ export const loadConfig = (
   const autonomousInferenceLimitPerHour = Math.floor(
     positiveNumber(environment.AUTONOMOUS_INFERENCE_LIMIT_PER_HOUR, 12),
   );
+  const internetResearchLimitPerHour = Math.floor(
+    positiveNumber(environment.INTERNET_RESEARCH_LIMIT_PER_HOUR, 4),
+  );
+  const internetResearchCooldownMs =
+    positiveNumber(environment.INTERNET_RESEARCH_COOLDOWN_MINUTES, 360) *
+    60_000;
 
   return {
     apiUrl: environment.MODBOTS_API_URL ?? "http://localhost:3001",
@@ -32,5 +40,7 @@ export const loadConfig = (
       environment.RUNTIME_EXPERIENCE_DIR ?? ".runtime-experience",
     tempo,
     autonomousInferenceLimitPerHour,
+    internetResearchLimitPerHour,
+    internetResearchCooldownMs,
   };
 };

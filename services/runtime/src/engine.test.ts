@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import { ConversationEngine } from "./engine.js";
 import type { PerceivedMessage } from "./experience.js";
+import type { LearnedKnowledge } from "./experience.js";
 import { InferenceError } from "./mind.js";
 import type { Decision } from "./mind.js";
 import type { Persona } from "./personas.js";
@@ -63,6 +64,7 @@ class FakeMind {
   public readonly roomTimesUtc: string[] = [];
   public readonly allowPassValues: boolean[] = [];
   public readonly addresseeCalls: string[] = [];
+  public researchCalls = 0;
 
   public constructor(
     private readonly decisions: Array<Decision | Error>,
@@ -94,12 +96,13 @@ class FakeMind {
       roomTimeUtc: string;
     },
     _transcript: string[],
-    _experience: string,
+    _brainState: string,
     _hint: string | null,
     _topicContext: {
       eligible: boolean;
       questionAllowed: boolean;
       guidance: string;
+      learnedKnowledge?: LearnedKnowledge;
     },
     _allowPass = true,
   ): Promise<Decision> {
@@ -130,11 +133,15 @@ class FakeMind {
     const autonomousStart = !humanTurn && activeTopic === undefined;
 
     return {
-      topic: activeTopic ?? (autonomousStart ? "general conversation" : "human message"),
+      topic:
+        activeTopic ??
+        (autonomousStart
+          ? (_topicContext.learnedKnowledge?.topic ?? "learned subject")
+          : "human message"),
       topicMove: autonomousStart ? "start" : "reply",
-      topicSource: autonomousStart ? "general" : "conversation",
+      topicSource: autonomousStart ? "knowledge" : "conversation",
       topicGrounding: autonomousStart
-        ? "a broadly familiar everyday subject"
+        ? "knowledge recalled from the brain"
         : "the current conversation",
       topicContribution: decision.message ?? "a direct response",
       ...decision,
@@ -144,7 +151,22 @@ class FakeMind {
   public async observe(_parts: InferencePart[]): Promise<string> {
     return "Observed content";
   }
+
+  public async research(): Promise<LearnedKnowledge> {
+    this.researchCalls += 1;
+    return learnedTopic;
+  }
 }
+
+const learnedTopic: LearnedKnowledge = {
+  topic: "ocean heat",
+  statement: "Measurements show that the ocean stores increasing heat.",
+  confidence: 0.8,
+  curiosity: "How does stored ocean heat affect daily weather?",
+  sources: [
+    { title: "Ocean observations", url: "https://example.com/ocean" },
+  ],
+};
 
 const makeActor = (id: string, display: string): Actor => ({
   id,
@@ -157,13 +179,25 @@ const makeActor = (id: string, display: string): Actor => ({
   retiredAt: null,
 });
 
-const makeExperience = (perceived: PerceivedMessage[] = []) => ({
+const makeBrain = (
+  perceived: PerceivedMessage[] = [],
+  topic: LearnedKnowledge = learnedTopic,
+) => ({
   perceive(message: PerceivedMessage): void {
     perceived.push(message);
   },
   view(): string {
     return "No established experience yet.";
   },
+  learn(): void {},
+  canResearch(): boolean {
+    return false;
+  },
+  recordResearchAttempt(): void {},
+  topicForConversation(): LearnedKnowledge {
+    return topic;
+  },
+  markTopicUsed(): void {},
 });
 
 const arwen: Persona = {
@@ -182,8 +216,8 @@ const jakob: Persona = {
 const noonUtc = () => new Date("2026-07-18T12:00:00.000Z");
 
 const makeBots = () => [
-  { persona: arwen, actorId: "bot-arwen", experience: makeExperience() },
-  { persona: jakob, actorId: "bot-jacob", experience: makeExperience() },
+  { persona: arwen, actorId: "bot-arwen", brain: makeBrain() },
+  { persona: jakob, actorId: "bot-jacob", brain: makeBrain() },
 ];
 
 const humanMessage = (
@@ -498,12 +532,12 @@ test("perceives the authoritative UTC event time", async () => {
       {
         persona: arwen,
         actorId: "bot-arwen",
-        experience: makeExperience(arwenPerceptions),
+        brain: makeBrain(arwenPerceptions),
       },
       {
         persona: jakob,
         actorId: "bot-jacob",
-        experience: makeExperience(),
+        brain: makeBrain(),
       },
     ],
     noonUtc,
@@ -581,6 +615,40 @@ test("requests autonomous inference in an empty chatroom", async () => {
   assert.equal(platform.posts.length, 1);
 });
 
+test("researches once when a bot brain has no learned topic", async () => {
+  const platform = new FakePlatform({});
+  const mind = new FakeMind([
+    { speak: true, message: "Ocean heat is changing what coastlines experience." },
+  ]);
+  let knowledge: LearnedKnowledge | null = null;
+  const brain = {
+    ...makeBrain(),
+    canResearch(): boolean {
+      return true;
+    },
+    topicForConversation(): LearnedKnowledge | null {
+      return knowledge;
+    },
+    learn(learned: LearnedKnowledge): void {
+      knowledge = learned;
+    },
+  };
+  const engine = new ConversationEngine(
+    platform,
+    mind,
+    0,
+    [{ persona: arwen, actorId: "bot-arwen", brain }],
+    noonUtc,
+  );
+  platform.onPost = () => engine.stop();
+
+  await engine.run();
+
+  assert.equal(mind.researchCalls, 1);
+  assert.equal(knowledge?.topic, "ocean heat");
+  assert.equal(platform.posts.length, 1);
+});
+
 test("rejects an incoherent autonomous topic jump", async () => {
   const platform = new FakePlatform({});
   const mind = new FakeMind([
@@ -610,7 +678,22 @@ test("rejects an incoherent autonomous topic jump", async () => {
       topicContribution: "tuning dial",
     },
   ]);
-  const engine = new ConversationEngine(platform, mind, 0, makeBots(), noonUtc);
+  const oldRadioKnowledge: LearnedKnowledge = {
+    topic: "old radio",
+    statement: "Old radios use tunable circuits to select a broadcast frequency.",
+    confidence: 0.8,
+    sources: [{ title: "Radio", url: "https://example.com/radio" }],
+  };
+  const engine = new ConversationEngine(
+    platform,
+    mind,
+    0,
+    [
+      { persona: arwen, actorId: "bot-arwen", brain: makeBrain([], oldRadioKnowledge) },
+      { persona: jakob, actorId: "bot-jacob", brain: makeBrain([], oldRadioKnowledge) },
+    ],
+    noonUtc,
+  );
   platform.onPost = () => {
     if (platform.posts.length === 2) {
       engine.stop();

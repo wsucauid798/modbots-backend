@@ -9,7 +9,8 @@ import { PlatformError } from "./platform.js";
 import type { PlatformClient } from "./platform.js";
 import type { ContentAddress, RoomEvent } from "./platform.js";
 import type { RoomContentPart } from "./platform.js";
-import type { AgentExperience } from "./experience.js";
+import type { AgentBrain } from "./experience.js";
+import type { LearnedKnowledge } from "./experience.js";
 import { ConversationPolicy } from "./conversation-policy.js";
 import { TopicCoordinator } from "./topic-coordinator.js";
 import type { TurnTrigger } from "./topic-coordinator.js";
@@ -18,10 +19,19 @@ type ConversationPlatform = Pick<
   PlatformClient,
   "getActor" | "inferenceParts" | "join" | "postMessage"
 >;
-type ConversationMind = Pick<Mind, "addressee" | "consider" | "observe">;
-type ConversationExperience = Pick<
-  AgentExperience,
-  "perceive" | "view"
+type ConversationMind = Pick<
+  Mind,
+  "addressee" | "consider" | "observe" | "research"
+>;
+type ConversationBrain = Pick<
+  AgentBrain,
+  | "perceive"
+  | "view"
+  | "learn"
+  | "canResearch"
+  | "recordResearchAttempt"
+  | "topicForConversation"
+  | "markTopicUsed"
 >;
 type ConversationLearningPolicy = Pick<
   ConversationPolicy,
@@ -37,7 +47,7 @@ type ConversationLearningPolicy = Pick<
 interface BotState {
   persona: Persona;
   actorId: string;
-  experience: ConversationExperience;
+  brain: ConversationBrain;
   muted: boolean;
   lastSpokeAt: number;
   lastAttemptedAt: number;
@@ -59,10 +69,14 @@ interface TranscriptEntry {
 
 export interface RuntimeCostControls {
   autonomousInferenceLimitPerHour: number;
+  internetResearchLimitPerHour?: number;
+  internetResearchCooldownMs?: number;
 }
 
 const defaultCostControls: RuntimeCostControls = {
   autonomousInferenceLimitPerHour: 12,
+  internetResearchLimitPerHour: 4,
+  internetResearchCooldownMs: 6 * 60 * 60_000,
 };
 
 const pick = <Item>(items: Item[]): Item =>
@@ -89,6 +103,7 @@ export class ConversationEngine {
   private inferenceBackoffMs = 0;
   private inferencePausedUntil = 0;
   private readonly autonomousInferenceAttempts: number[] = [];
+  private readonly internetResearchAttempts: number[] = [];
   private autonomousPauseReason: "budget" | null = null;
   private readonly topics: TopicCoordinator;
 
@@ -99,7 +114,7 @@ export class ConversationEngine {
     bots: Array<{
       persona: Persona;
       actorId: string;
-      experience: ConversationExperience;
+      brain: ConversationBrain;
     }>,
     private readonly now: () => Date = () => new Date(),
     topics: TopicCoordinator = new TopicCoordinator(),
@@ -190,6 +205,51 @@ export class ConversationEngine {
     } else {
       console.log("Autonomous inference resumed.");
     }
+  }
+
+  private pruneInternetResearchAttempts(now: number): void {
+    const hourAgo = now - 60 * 60_000;
+    while ((this.internetResearchAttempts[0] ?? now) <= hourAgo) {
+      this.internetResearchAttempts.shift();
+    }
+  }
+
+  private async learnedTopicFor(
+    bot: BotState,
+    now: number,
+  ): Promise<LearnedKnowledge | null> {
+    const remembered = bot.brain.topicForConversation(now);
+    if (remembered !== null) {
+      return remembered;
+    }
+
+    this.pruneInternetResearchAttempts(now);
+    const hourlyLimit = this.costControls.internetResearchLimitPerHour ?? 4;
+    const cooldownMs =
+      this.costControls.internetResearchCooldownMs ?? 6 * 60 * 60_000;
+
+    if (
+      this.internetResearchAttempts.length >= hourlyLimit ||
+      !bot.brain.canResearch(now, cooldownMs)
+    ) {
+      return null;
+    }
+
+    const attemptedAt = this.now().toISOString();
+    this.internetResearchAttempts.push(now);
+    bot.brain.recordResearchAttempt(attemptedAt);
+    console.log(`${bot.persona.displayName} is researching a new subject.`);
+    const learned = await this.mind.research(
+      bot.persona,
+      bot.brain.view("questions, uncertainty, and subjects worth learning"),
+      this.topics.recentlyCompletedTopics(),
+    );
+    bot.brain.learn(learned, attemptedAt);
+    console.log(
+      `${bot.persona.displayName} learned about '${learned.topic}' from ` +
+        `${learned.sources.length} internet source${learned.sources.length === 1 ? "" : "s"}.`,
+    );
+    return bot.brain.topicForConversation(now);
   }
 
   private deferForInferenceFailure(error: unknown): boolean {
@@ -324,7 +384,7 @@ export class ConversationEngine {
     });
 
     for (const bot of this.bots) {
-      bot.experience.perceive({
+      bot.brain.perceive({
         speaker: display,
         type,
         content,
@@ -693,10 +753,32 @@ export class ConversationEngine {
       return false;
     }
 
-    const topicContext = this.topics.turnContext(
+    let topicContext = this.topics.turnContext(
       trigger,
       this.now().getTime(),
     );
+
+    if (trigger === "autonomous" && topicContext.activeTopic === null) {
+      try {
+        const learnedKnowledge = await this.learnedTopicFor(
+          bot,
+          this.now().getTime(),
+        );
+        topicContext = this.topics.turnContext(
+          trigger,
+          this.now().getTime(),
+          learnedKnowledge ?? undefined,
+        );
+      } catch (error) {
+        this.deferForInferenceFailure(error);
+        console.error(
+          `${bot.persona.displayName} could not learn from the internet: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+        return false;
+      }
+    }
 
     if (!topicContext.eligible) {
       return false;
@@ -734,7 +816,7 @@ export class ConversationEngine {
           roomTimeUtc: this.now().toISOString(),
         },
         [...this.transcript],
-        bot.experience.view(),
+        bot.brain.view([...this.transcript].slice(-8).join("\n")),
         hint,
         topicContext,
         !mustSpeak,
@@ -747,7 +829,11 @@ export class ConversationEngine {
       // the coordinator's yield before posting the completed bot turn.
       if (
         trigger === "autonomous" &&
-        !this.topics.turnContext(trigger, this.now().getTime()).eligible
+        !this.topics.turnContext(
+          trigger,
+          this.now().getTime(),
+          topicContext.learnedKnowledge,
+        ).eligible
       ) {
         return false;
       }
@@ -795,6 +881,7 @@ export class ConversationEngine {
           decision.message,
           trigger,
           this.now().getTime(),
+          topicContext,
         );
 
         if (!evaluated.accepted || evaluated.message === undefined) {
@@ -843,6 +930,15 @@ export class ConversationEngine {
             decision.topic ?? topicContext.activeTopic ?? "conversation",
             this.now().getTime(),
           );
+          if (
+            trigger === "autonomous" &&
+            topicContext.learnedKnowledge !== undefined
+          ) {
+            bot.brain.markTopicUsed(
+              topicContext.learnedKnowledge.topic,
+              this.now().toISOString(),
+            );
+          }
         }
 
         return posted;

@@ -1,4 +1,5 @@
 import type { Decision } from "./mind.js";
+import type { LearnedKnowledge } from "./experience.js";
 
 export type TurnTrigger = "autonomous" | "human" | "room";
 
@@ -8,6 +9,7 @@ export interface TopicTurnContext {
   guidance: string;
   activeTopic: string | null;
   botTurnsOnTopic: number;
+  learnedKnowledge?: LearnedKnowledge;
 }
 
 interface ActiveTopic {
@@ -129,7 +131,11 @@ export class TopicCoordinator {
     this.closeActive(effectiveTime);
   }
 
-  public turnContext(trigger: TurnTrigger, now: number): TopicTurnContext {
+  public turnContext(
+    trigger: TurnTrigger,
+    now: number,
+    learnedKnowledge?: LearnedKnowledge,
+  ): TopicTurnContext {
     this.pruneClosed(now);
 
     if (
@@ -164,13 +170,16 @@ export class TopicCoordinator {
         .join("; ");
 
       return {
-        eligible: true,
+        eligible: trigger !== "autonomous" || learnedKnowledge !== undefined,
         questionAllowed: true,
         activeTopic: null,
         botTurnsOnTopic: 0,
+        learnedKnowledge,
         guidance:
           trigger === "autonomous"
-            ? "There is no active topic. Start an independent everyday subject with one specific question, opinion, or playful premise that gives the other residents something real to respond to. Use SOURCE=general unless a specific background memory or genuine character preference provides better grounding. Use MOVE=start. Do not use the recent conversation, current time, silence, presence, or the chatroom itself as the source. Do not manufacture an event, force a debate, or sound like a meeting agenda. " +
+            ? learnedKnowledge === undefined
+              ? "There is no learned subject available. Stay silent."
+              : `There is no active topic. Start from knowledge already held in your brain. Keep TOPIC exactly '${learnedKnowledge.topic}', use SOURCE=knowledge, and use MOVE=start. What you learned: ${learnedKnowledge.statement} Your remaining curiosity: ${learnedKnowledge.curiosity ?? "none"}. Ground the message in this source and include its URL naturally so people can inspect it: ${learnedKnowledge.sources[0]?.url ?? ""}. Do not present a report or bibliography. Share one conversational thought, question, or reaction that follows from what you actually learned. ` +
               (recentlyCompleted.length > 0
                 ? `Recently completed topics: ${recentlyCompleted}. Do not rename, revisit, or choose a close variation of them.`
                 : "")
@@ -202,6 +211,7 @@ export class TopicCoordinator {
     message: string,
     trigger: TurnTrigger,
     now: number,
+    context?: TopicTurnContext,
   ): TopicDecisionResult {
     if (
       decision.topic === undefined ||
@@ -230,14 +240,22 @@ export class TopicCoordinator {
         return { accepted: false, reason: "new topic did not start cleanly" };
       }
 
-      if (
-        decision.topicSource === "conversation" ||
-        decision.topicSource === "room"
-      ) {
+      if (decision.topicSource !== "knowledge") {
         return {
           accepted: false,
-          reason: "new topic reused room chatter as its source",
+          reason: "new topic did not come from the bot's learned knowledge",
         };
+      }
+
+      if (context?.learnedKnowledge === undefined) {
+        return { accepted: false, reason: "new topic had no learned knowledge" };
+      }
+
+      if (
+        decision.topic.trim().toLowerCase() !==
+        context.learnedKnowledge.topic.trim().toLowerCase()
+      ) {
+        return { accepted: false, reason: "learned topic label changed" };
       }
     }
 
@@ -348,6 +366,10 @@ export class TopicCoordinator {
 
     this.active.coveredAngles.splice(0, this.active.coveredAngles.length - 8);
     this.active.recentMessages.splice(0, this.active.recentMessages.length - 5);
+  }
+
+  public recentlyCompletedTopics(): string[] {
+    return this.recentlyClosed.slice(-12).map((topic) => topic.label);
   }
 
   public recordPass(availableBots: number, now: number): void {

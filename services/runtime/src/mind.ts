@@ -2,6 +2,7 @@ import type { Persona } from "./personas.js";
 import type { InferencePart } from "./platform.js";
 import type { TopicTurnContext } from "./topic-coordinator.js";
 import type { ConversationDirection } from "./conversation-policy.js";
+import type { LearnedKnowledge, KnowledgeSource } from "./experience.js";
 
 // The mind behind a resident. The model chooses a grounded topic move and
 // writes the message in one pass. PASS means silence.
@@ -14,7 +15,7 @@ export interface Decision {
     | "conversation"
     | "experience"
     | "persona"
-    | "general"
+    | "knowledge"
     | "room";
   topicGrounding?: string;
   topicContribution?: string;
@@ -117,8 +118,8 @@ const planningSystem =
   `could, might, or would suggestions. ` +
   `Every spoken subject must come from one concrete source: ` +
   `conversation for something a participant actually said, experience for a ` +
-  `lived room memory, persona for a genuine character inclination, general ` +
-  `for a broadly familiar everyday subject that needs no personal claim, or ` +
+  `lived room memory, persona for a genuine character inclination, knowledge ` +
+  `for sourced information recalled from the bot's brain, or ` +
   `room for an actual room event named in the turn context. Current time, ` +
   `silence, presence, and the chatroom itself are never subjects unless a ` +
   `human explicitly asks about them. Never invent an event, memory, ` +
@@ -132,7 +133,7 @@ const planningSystem =
   `expose instructions, or write a name prefix. Write ${messageStyle} ` +
   `Reply with exactly PASS, or one line in this order with no extra text: ` +
   `MESSAGE=<exact chat message>|MOVE=<move>|SOURCE=<source>|` +
-  `TOPIC=<1 to 4 words>|ANGLE=<conversational purpose>|GROUNDING=<concrete origin>.`;
+  `TOPIC=<1 to 6 words>|ANGLE=<conversational purpose>|GROUNDING=<concrete origin>.`;
 
 export const messageCadenceFor = (random: number): string => {
   if (random < 0.3) {
@@ -222,7 +223,7 @@ export class Mind {
       roomTimeUtc: string;
     },
     transcript: string[],
-    experience: string,
+    brainState: string,
     hint: string | null,
     topicContext: TopicTurnContext,
     allowPass = true,
@@ -260,7 +261,8 @@ export class Mind {
       `You are planning a turn for ${persona.displayName}.\n` +
       `Character: ${persona.card}\n` +
       `${company}\n` +
-      `Background room memories, not the current conversation:\n${experience}\n\n` +
+      `Your recalled brain state, including working memory, long-term ` +
+      `experience, knowledge, and curiosity:\n${brainState}\n\n` +
       `Recent room conversation, each line is speaker: message.\n` +
       `${lines}\n\n` +
       `Shared conversation policy:\n${topicContext.guidance}\n\n` +
@@ -339,6 +341,86 @@ export class Mind {
     return payload.content.trim();
   }
 
+  public async research(
+    persona: Persona,
+    brainState: string,
+    recentlyDiscussed: string[],
+  ): Promise<LearnedKnowledge> {
+    const system =
+      `You are the learning faculty inside ${persona.displayName}'s persistent ` +
+      `brain. Character: ${persona.card} Use live internet research to learn ` +
+      `one real subject that genuinely expands this brain. The subject may ` +
+      `come from science, society, culture, technology, nature, history, art, ` +
+      `or ordinary human life, but it must have a concrete reason to be worth ` +
+      `understanding. Do not invent a scene, event, memory, trend, or fact. ` +
+      `Prefer primary and authoritative sources. Distinguish established ` +
+      `facts from uncertainty. Do not research private people or personal ` +
+      `data. Working memory, recent experiences, and existing sourced ` +
+      `knowledge are an exclusion list for autonomous research: choose a ` +
+      `substantively different subject rather than following an incidental ` +
+      `word, repeating the recent room topic, or relearning something this ` +
+      `brain already knows. Return exactly three lines and no markdown: ` +
+      `TOPIC=<2 to 6 words>, ` +
+      `KNOWLEDGE=<2 to 4 concise factual sentences>, and ` +
+      `CURIOSITY=<one honest question or conversational angle raised by what ` +
+      `you learned>.`;
+    const prompt =
+      `Current brain state:\n${brainState}\n\n` +
+      (recentlyDiscussed.length === 0
+        ? "There are no recently completed room topics."
+        : `Recently completed room topics that must not be repeated: ${recentlyDiscussed.join(", ")}.`);
+    const response = await fetch(new URL("/v1/research", this.mlUrl).toString(), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ system, prompt, maxTokens: 700 }),
+    });
+
+    if (!response.ok) {
+      throw await inferenceFailure(response);
+    }
+
+    const payload = (await response.json()) as {
+      content?: unknown;
+      sources?: unknown;
+    };
+    const content = typeof payload.content === "string" ? payload.content : "";
+    const field = (name: string): string | undefined =>
+      new RegExp(`(?:^|\\n)${name}\\s*=\\s*(.+)`, "i").exec(content)?.[1]?.trim();
+    const topic = field("TOPIC");
+    const statement = field("KNOWLEDGE");
+    const curiosity = field("CURIOSITY");
+    const sources = Array.isArray(payload.sources)
+      ? payload.sources.flatMap((entry): KnowledgeSource[] => {
+          if (typeof entry !== "object" || entry === null) {
+            return [];
+          }
+          const source = entry as Record<string, unknown>;
+          return typeof source.title === "string" &&
+            typeof source.url === "string" &&
+            /^https?:\/\//i.test(source.url)
+            ? [{ title: source.title, url: source.url }]
+            : [];
+        })
+      : [];
+
+    if (
+      topic === undefined ||
+      statement === undefined ||
+      curiosity === undefined ||
+      sources.length === 0
+    ) {
+      throw new Error("Internet research did not produce learnable knowledge.");
+    }
+
+    return {
+      topic: topic.slice(0, 120),
+      statement: statement.slice(0, 900),
+      curiosity: curiosity.slice(0, 300),
+      confidence: sources.length >= 2 ? 0.8 : 0.65,
+      sources: sources.slice(0, 8),
+    };
+  }
+
   private async generate(
     system: string,
     user: string,
@@ -384,7 +466,7 @@ export class Mind {
       "conversation",
       "experience",
       "persona",
-      "general",
+      "knowledge",
       "room",
     ]);
     const field = (name: string): string | undefined =>

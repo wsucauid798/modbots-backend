@@ -123,6 +123,102 @@ class OpenAIInferenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("temperature", payload)
         self.assertEqual(result.content, "Hello.")
 
+    async def test_research_uses_required_live_web_search_and_returns_sources(self):
+        client = FakeClient(
+            chat_response=response(
+                200,
+                {
+                    "output": [
+                        {
+                            "type": "web_search_call",
+                            "action": {
+                                "sources": [
+                                    {
+                                    "title": "Example source",
+                                    "url": "https://example.com/research",
+                                    }
+                                ]
+                            },
+                        },
+                        {
+                            "type": "message",
+                            "content": [
+                                {
+                                    "type": "output_text",
+                                    "text": "TOPIC=Ocean heat\nKNOWLEDGE=Measured ocean heat has increased.",
+                                    "annotations": [
+                                        {
+                                            "type": "url_citation",
+                                            "title": "Cited source",
+                                            "url": "https://example.com/cited?utm_source=openai&id=7",
+                                        }
+                                    ],
+                                }
+                            ],
+                        },
+                    ]
+                },
+            )
+        )
+        main.state["client"] = client
+
+        result = await main.research(
+            main.ResearchRequest(
+                system="Learn one real subject.",
+                prompt="Research something worth understanding.",
+            )
+        )
+
+        path, payload = client.last_chat_request
+        self.assertEqual(path, "responses")
+        self.assertEqual(
+            payload["tools"],
+            [
+                {
+                    "type": "web_search",
+                    "search_context_size": "medium",
+                    "external_web_access": True,
+                }
+            ],
+        )
+        self.assertEqual(payload["tool_choice"], "required")
+        self.assertEqual(payload["include"], ["web_search_call.action.sources"])
+        self.assertEqual(result.sources[0].url, "https://example.com/cited?id=7")
+        self.assertEqual(result.sources[1].url, "https://example.com/research")
+        self.assertIn("TOPIC=Ocean heat", result.content)
+
+    async def test_research_rejects_unsourced_output(self):
+        main.state["client"] = FakeClient(
+            chat_response=response(
+                200,
+                {
+                    "output": [
+                        {
+                            "type": "message",
+                            "content": [
+                                {
+                                    "type": "output_text",
+                                    "text": "An unsupported answer",
+                                    "annotations": [],
+                                }
+                            ],
+                        }
+                    ]
+                },
+            )
+        )
+
+        with self.assertRaises(HTTPException) as raised:
+            await main.research(
+                main.ResearchRequest(
+                    system="Learn.",
+                    prompt="Research.",
+                )
+            )
+
+        self.assertEqual(raised.exception.status_code, 502)
+        self.assertIn("no sourced knowledge", str(raised.exception.detail))
+
     async def test_image_and_audio_use_openai_multimodal_parts(self):
         client = FakeClient(
             chat_response=response(

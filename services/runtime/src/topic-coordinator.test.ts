@@ -4,6 +4,14 @@ import test from "node:test";
 import type { Decision } from "./mind.js";
 import { TopicCoordinator } from "./topic-coordinator.js";
 
+const learnedKnowledge = {
+  topic: "repairing old objects",
+  statement: "Repair can preserve useful objects and their history.",
+  confidence: 0.8,
+  curiosity: "When is repair better than replacement?",
+  sources: [{ title: "Repair", url: "https://example.com/repair" }],
+};
+
 const decision = (
   contribution: string,
   move: NonNullable<Decision["topicMove"]> = "continue",
@@ -21,7 +29,10 @@ test("allows scheduled autonomous speech after loading history", () => {
   const topics = new TopicCoordinator();
   topics.observeHistoricalMessage("chat_bot", 1_000);
 
-  assert.equal(topics.turnContext("autonomous", 1_001).eligible, true);
+  assert.equal(
+    topics.turnContext("autonomous", 1_001, learnedKnowledge).eligible,
+    true,
+  );
   assert.equal(topics.turnContext("human", 1_001).eligible, true);
 });
 
@@ -30,7 +41,10 @@ test("a passed turn does not stop an idle room", () => {
 
   topics.recordPass(5, 1_000);
 
-  assert.equal(topics.turnContext("autonomous", 1_001).eligible, true);
+  assert.equal(
+    topics.turnContext("autonomous", 1_001, learnedKnowledge).eligible,
+    true,
+  );
 });
 
 test("keeps a topic active after one bot turn", () => {
@@ -89,7 +103,7 @@ test("ends an autonomous subject cleanly after three bot turns", () => {
     );
   }
 
-  const context = topics.turnContext("autonomous", 30_000);
+  const context = topics.turnContext("autonomous", 30_000, learnedKnowledge);
 
   assert.match(context.guidance, /There is no active topic/);
   assert.match(context.guidance, /Recently completed topics: repairing old objects/);
@@ -143,7 +157,10 @@ test("yields autonomous conversation after a human speaks", () => {
 
   assert.equal(topics.turnContext("autonomous", 16_999).eligible, false);
   assert.equal(topics.turnContext("human", 2_001).eligible, true);
-  assert.equal(topics.turnContext("autonomous", 17_000).eligible, true);
+  assert.equal(
+    topics.turnContext("autonomous", 17_000, learnedKnowledge).eligible,
+    true,
+  );
 });
 
 test("rejects a repeated angle on the active topic", () => {
@@ -181,13 +198,14 @@ test("keeps a closed topic on cooldown", () => {
   topics.turnContext("autonomous", 30_000);
   const restartDecision = {
     ...decision("another repair angle", "start"),
-    topicSource: "general" as const,
+    topicSource: "knowledge" as const,
   };
   const restart = topics.evaluate(
     restartDecision,
     "Here is another thought about repairing old objects.",
     "autonomous",
     150_000,
+    topics.turnContext("autonomous", 150_000, learnedKnowledge),
   );
 
   assert.equal(restart.accepted, false);
@@ -206,7 +224,7 @@ test("tells the next speaker which recently completed topics to avoid", () => {
     );
   }
 
-  const context = topics.turnContext("autonomous", 30_000);
+  const context = topics.turnContext("autonomous", 30_000, learnedKnowledge);
 
   assert.equal(context.eligible, true);
   assert.match(context.guidance, /Recently completed topics: repairing old objects/);
@@ -242,7 +260,7 @@ test("requires the active topic label to remain exact", () => {
   assert.equal(evaluated.reason, "active topic label changed");
 });
 
-test("requires a fresh autonomous topic to use independent grounding", () => {
+test("requires a fresh autonomous topic to use learned knowledge", () => {
   const topics = new TopicCoordinator();
   const fromConversation = {
     ...decision("turning repair into a breakfast analogy", "start"),
@@ -258,14 +276,14 @@ test("requires a fresh autonomous topic to use independent grounding", () => {
     ),
     {
       accepted: false,
-      reason: "new topic reused room chatter as its source",
+      reason: "new topic did not come from the bot's learned knowledge",
     },
   );
 
   const independentlyGrounded = {
     ...fromConversation,
-    topicSource: "general" as const,
-    topicGrounding: "a familiar everyday food preference",
+    topicSource: "knowledge" as const,
+    topicGrounding: "sourced knowledge in the bot brain",
   };
 
   assert.deepEqual(
@@ -274,6 +292,10 @@ test("requires a fresh autonomous topic to use independent grounding", () => {
       "Pears are better at breakfast.",
       "autonomous",
       1_000,
+      topics.turnContext("autonomous", 1_000, {
+        ...learnedKnowledge,
+        topic: "breakfast fruit",
+      }),
     ),
     { accepted: true, message: "Pears are better at breakfast." },
   );
@@ -290,5 +312,6 @@ test("a direct human reply does not become an autonomous bot topic", () => {
   );
 
   const context = topics.turnContext("autonomous", 2_000);
-  assert.match(context.guidance, /There is no active topic/);
+  assert.equal(context.eligible, false);
+  assert.match(context.guidance, /no learned subject available/i);
 });

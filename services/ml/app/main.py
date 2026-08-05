@@ -3,6 +3,7 @@ import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
 from fastapi import FastAPI, HTTPException
@@ -111,6 +112,23 @@ class ChatResponse(BaseModel):
     content: str
     model: str
     observations: list[DerivedObservation]
+
+
+class ResearchRequest(BaseModel):
+    system: str
+    prompt: str
+    maxTokens: int = Field(default=700, ge=100, le=4096)
+
+
+class ResearchSource(BaseModel):
+    title: str
+    url: str
+
+
+class ResearchResponse(BaseModel):
+    content: str
+    model: str
+    sources: list[ResearchSource]
 
 
 def _data_url(data: str, media_type: str) -> str:
@@ -540,3 +558,153 @@ async def chat(request: ChatRequest) -> ChatResponse:
         model=MODEL_ID,
         observations=observations,
     )
+
+
+def _response_text(payload: dict) -> str:
+    direct = payload.get("output_text")
+    if isinstance(direct, str) and direct.strip():
+        return direct.strip()
+
+    parts: list[str] = []
+    for item in payload.get("output", []):
+        if not isinstance(item, dict) or item.get("type") != "message":
+            continue
+        for content in item.get("content", []):
+            if not isinstance(content, dict):
+                continue
+            text = content.get("text")
+            if content.get("type") == "output_text" and isinstance(text, str):
+                parts.append(text.strip())
+    return "\n".join(part for part in parts if part)
+
+
+def _response_sources(payload: dict) -> list[ResearchSource]:
+    found: dict[str, ResearchSource] = {}
+
+    def remember(candidate: object) -> None:
+        if not isinstance(candidate, dict):
+            return
+        url = candidate.get("url")
+        if not isinstance(url, str) or not url.startswith(("http://", "https://")):
+            return
+        split = urlsplit(url)
+        clean_query = urlencode(
+            [
+                (key, value)
+                for key, value in parse_qsl(split.query, keep_blank_values=True)
+                if not key.lower().startswith("utm_")
+            ]
+        )
+        url = urlunsplit(
+            (split.scheme, split.netloc, split.path, clean_query, split.fragment)
+        )
+        title = candidate.get("title")
+        found[url] = ResearchSource(
+            title=title.strip() if isinstance(title, str) and title.strip() else url,
+            url=url,
+        )
+
+    for item in payload.get("output", []):
+        if not isinstance(item, dict):
+            continue
+        for content in item.get("content", []):
+            if not isinstance(content, dict):
+                continue
+            for annotation in content.get("annotations", []):
+                if (
+                    isinstance(annotation, dict)
+                    and annotation.get("type") == "url_citation"
+                ):
+                    remember(annotation)
+
+    for item in payload.get("output", []):
+        if not isinstance(item, dict):
+            continue
+        action = item.get("action")
+        if isinstance(action, dict):
+            for source in action.get("sources", []):
+                remember(source)
+
+    return list(found.values())
+
+
+@app.post("/v1/research", response_model=ResearchResponse)
+async def research(request: ResearchRequest) -> ResearchResponse:
+    payload = {
+        "model": MODEL_ID,
+        "instructions": request.system,
+        "input": request.prompt,
+        "tools": [
+            {
+                "type": "web_search",
+                "search_context_size": "medium",
+                "external_web_access": True,
+            }
+        ],
+        "tool_choice": "required",
+        "include": ["web_search_call.action.sources"],
+        "max_output_tokens": request.maxTokens,
+        "reasoning": {"effort": "low"},
+    }
+
+    try:
+        response = await _client().post("responses", json=payload)
+    except HTTPException:
+        raise
+    except httpx.TimeoutException as exception:
+        raise HTTPException(
+            status_code=504,
+            detail="The chat bot took too long to research.",
+        ) from exception
+    except httpx.RequestError as exception:
+        raise HTTPException(
+            status_code=503,
+            detail="Chat bots cannot reach the internet right now.",
+        ) from exception
+
+    if response.status_code == 429:
+        code = _upstream_error_code(response)
+        raise HTTPException(
+            status_code=503 if code == "insufficient_quota" else 429,
+            detail={
+                "code": code or "rate_limited",
+                "message": "Internet research is temporarily unavailable.",
+                "retryAfterMs": _retry_after_milliseconds(response),
+            },
+        )
+
+    if response.status_code in (401, 403):
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "OpenAI rejected the credentials "
+                f"(HTTP {response.status_code}). Check OPENAI_API_KEY."
+            ),
+        )
+
+    if response.status_code >= 400:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "OpenAI returned HTTP "
+                f"{response.status_code}: {_upstream_error(response)}"
+            ),
+        )
+
+    try:
+        upstream = response.json()
+        content = _response_text(upstream)
+        sources = _response_sources(upstream)
+    except (AttributeError, TypeError, ValueError) as exception:
+        raise HTTPException(
+            status_code=502,
+            detail="OpenAI returned invalid research.",
+        ) from exception
+
+    if not content or not sources:
+        raise HTTPException(
+            status_code=502,
+            detail="Internet research returned no sourced knowledge.",
+        )
+
+    return ResearchResponse(content=content, model=MODEL_ID, sources=sources)

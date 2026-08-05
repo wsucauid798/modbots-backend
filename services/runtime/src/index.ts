@@ -1,6 +1,6 @@
 import { loadConfig } from "./config.js";
 import { ConversationEngine } from "./engine.js";
-import { AgentExperience } from "./experience.js";
+import { AgentBrain } from "./experience.js";
 import { ConversationPolicy } from "./conversation-policy.js";
 import { Mind } from "./mind.js";
 import { personas } from "./personas.js";
@@ -108,11 +108,11 @@ const main = async (): Promise<void> => {
       persona.displayName,
     );
     await client.join(actor.id);
-    const experience = await AgentExperience.load(
+    const brain = await AgentBrain.load(
       config.experienceDir,
       persona,
     );
-    bots.push({ persona, actorId: actor.id, experience });
+    bots.push({ persona, actorId: actor.id, brain });
     console.log(`${persona.displayName} is in the room (${actor.id})`);
   }
 
@@ -126,6 +126,8 @@ const main = async (): Promise<void> => {
     {
       autonomousInferenceLimitPerHour:
         config.autonomousInferenceLimitPerHour,
+      internetResearchLimitPerHour: config.internetResearchLimitPerHour,
+      internetResearchCooldownMs: config.internetResearchCooldownMs,
     },
     await ConversationPolicy.load(config.experienceDir),
   );
@@ -145,7 +147,8 @@ const main = async (): Promise<void> => {
 
   console.log(
     `Chat bot runtime running: room '${config.roomId}', tempo ${config.tempo}, ` +
-      `${config.autonomousInferenceLimitPerHour} autonomous inferences per hour`,
+      `${config.autonomousInferenceLimitPerHour} autonomous inferences per hour, ` +
+      `${config.internetResearchLimitPerHour} internet searches per hour`,
   );
   await engine.run();
 };
