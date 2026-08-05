@@ -10,13 +10,8 @@ export interface TopicTurnContext {
 
 interface ActiveTopic {
   label: string;
-  source: NonNullable<Decision["topicSource"]>;
-  grounding: string;
   lastAdvancedAt: number;
-  humanTurns: number;
-  botTurns: number;
   botTurnsSinceHuman: number;
-  consecutiveBotTurns: number;
   botQuestionsSinceHuman: number;
   consecutivePasses: number;
   coveredAngles: string[];
@@ -35,9 +30,7 @@ export interface TopicDecisionResult {
 }
 
 const topicCooldownMs = 3 * 60 * 60_000;
-const minimumBotTurnsBeforeAutonomousChange = 2;
-const preferredBotTurnsBeforeChange = 4;
-const maximumBotTurnsWithoutHuman = 5;
+const maximumBotTurnsWithoutHuman = 3;
 const maximumTopicIdleMs = 15 * 60_000;
 const humanConversationYieldMs = 15_000;
 const relatedTopicSimilarity = 0.3;
@@ -128,16 +121,10 @@ export class TopicCoordinator {
       effectiveTime + humanConversationYieldMs,
     );
 
-    if (this.active === null) {
-      return;
-    }
-
-    this.active.humanTurns += 1;
-    this.active.botTurnsSinceHuman = 0;
-    this.active.consecutiveBotTurns = 0;
-    this.active.botQuestionsSinceHuman = 0;
-    this.active.consecutivePasses = 0;
-    this.active.lastAdvancedAt = effectiveTime;
+    // A human contribution owns the conversation. End any autonomous subject
+    // so one resident answers the human without the other bots extending that
+    // answer into another bot-only chain.
+    this.closeActive(effectiveTime);
   }
 
   public turnContext(trigger: TurnTrigger, now: number): TopicTurnContext {
@@ -177,7 +164,7 @@ export class TopicCoordinator {
         questionAllowed: true,
         guidance:
           trigger === "autonomous"
-            ? "There is no active topic. Start a casual subject with a grounded comment, question, or small story. Do not manufacture an event, force a debate, or sound like a meeting agenda. " +
+            ? "There is no active topic. Start an independent everyday subject with one specific question, opinion, or playful premise that gives the other residents something real to respond to. Use SOURCE=general unless a specific background memory or genuine character preference provides better grounding. Use MOVE=start. Do not use the recent conversation, current time, silence, presence, or the chatroom itself as the source. Do not manufacture an event, force a debate, or sound like a meeting agenda. " +
               (recentlyCompleted.length > 0
                 ? `Recently completed topics: ${recentlyCompleted}. Do not rename, revisit, or choose a close variation of them.`
                 : "")
@@ -186,19 +173,15 @@ export class TopicCoordinator {
     }
 
     const questionAllowed = this.active.botQuestionsSinceHuman === 0;
-    const topicProgression =
-      this.active.botTurnsSinceHuman < minimumBotTurnsBeforeAutonomousChange
-        ? `Stay with the subject for now and respond naturally to what was just said. `
-        : this.active.botTurnsSinceHuman < preferredBotTurnsBeforeChange
-          ? `Stay only if a natural response comes to mind. Otherwise make a clear conversational bridge from something actually said to a different subject. `
-          : `Let this subject end unless there is an immediate natural response. A different subject must follow a conversational bridge, not merely rename this one. `;
-
     return {
       eligible: true,
       questionAllowed,
       guidance:
         `The room's active topic is ${this.active.label}. ` +
-        topicProgression +
+        `Keep TOPIC exactly '${this.active.label}', use SOURCE=conversation, ` +
+        `and choose MOVE=reply or MOVE=continue. Respond to the central ` +
+        `subject, not an incidental word, metaphor, or joke. Do not change ` +
+        `the subject or create a bridge to another one. ` +
         `A reaction or personal response is enough. Do not turn the exchange into a sequence of tips, refinements, or recommendations. ` +
         (questionAllowed
           ? "At most one useful question may be asked."
@@ -225,10 +208,6 @@ export class TopicCoordinator {
     let prepared = message.trim();
     const questionAllowed =
       this.active === null || this.active.botQuestionsSinceHuman === 0;
-    const changesActiveTopic =
-      this.active !== null &&
-      (decision.topicMove === "start" || decision.topicMove === "change") &&
-      similarity(this.active.label, decision.topic) < relatedTopicSimilarity;
 
     if (!questionAllowed && asksQuestion(prepared)) {
       prepared = withoutQuestions(prepared);
@@ -238,13 +217,43 @@ export class TopicCoordinator {
       }
     }
 
-    if (
-      changesActiveTopic &&
-      trigger === "autonomous" &&
-      (this.active?.botTurnsSinceHuman ?? 0) <
-        minimumBotTurnsBeforeAutonomousChange
-    ) {
-      return { accepted: false, reason: "topic changed before it developed" };
+    if (trigger === "autonomous" && this.active === null) {
+      if (decision.topicMove !== "start") {
+        return { accepted: false, reason: "new topic did not start cleanly" };
+      }
+
+      if (
+        decision.topicSource === "conversation" ||
+        decision.topicSource === "room"
+      ) {
+        return {
+          accepted: false,
+          reason: "new topic reused room chatter as its source",
+        };
+      }
+    }
+
+    if (trigger === "autonomous" && this.active !== null) {
+      if (
+        decision.topicMove !== "reply" &&
+        decision.topicMove !== "continue"
+      ) {
+        return {
+          accepted: false,
+          reason: "active topic attempted an associative change",
+        };
+      }
+
+      if (
+        decision.topic.trim().toLowerCase() !==
+        this.active.label.trim().toLowerCase()
+      ) {
+        return { accepted: false, reason: "active topic label changed" };
+      }
+
+      if (decision.topicSource !== "conversation") {
+        return { accepted: false, reason: "active topic lost its grounding" };
+      }
     }
 
     if (
@@ -270,7 +279,7 @@ export class TopicCoordinator {
 
     if (
       trigger === "autonomous" &&
-      (this.active === null || changesActiveTopic) &&
+      this.active === null &&
       this.recentlyClosed.some(
         (topic) =>
           similarity(topic.label, decision.topic ?? "") >=
@@ -289,11 +298,15 @@ export class TopicCoordinator {
     trigger: TurnTrigger,
     now: number,
   ): void {
+    this.lastRoomActivityAt = now;
+
+    if (trigger !== "autonomous") {
+      return;
+    }
+
     const label = decision.topic ?? "current conversation";
     const startsNewTopic =
-      this.active === null ||
-      ((decision.topicMove === "start" || decision.topicMove === "change") &&
-        similarity(this.active.label, label) < relatedTopicSimilarity);
+      this.active === null;
 
     if (startsNewTopic) {
       if (this.active !== null) {
@@ -302,13 +315,8 @@ export class TopicCoordinator {
 
       this.active = {
         label,
-        source: decision.topicSource ?? "conversation",
-        grounding: decision.topicGrounding ?? label,
         lastAdvancedAt: now,
-        humanTurns: trigger === "human" ? 1 : 0,
-        botTurns: 0,
         botTurnsSinceHuman: 0,
-        consecutiveBotTurns: 0,
         botQuestionsSinceHuman: 0,
         consecutivePasses: 0,
         coveredAngles: [],
@@ -320,9 +328,7 @@ export class TopicCoordinator {
       return;
     }
 
-    this.active.botTurns += 1;
     this.active.botTurnsSinceHuman += 1;
-    this.active.consecutiveBotTurns += 1;
     this.active.consecutivePasses = 0;
     this.active.lastAdvancedAt = now;
     this.active.coveredAngles.push(decision.topicContribution ?? label);
@@ -334,7 +340,6 @@ export class TopicCoordinator {
 
     this.active.coveredAngles.splice(0, this.active.coveredAngles.length - 8);
     this.active.recentMessages.splice(0, this.active.recentMessages.length - 5);
-    this.lastRoomActivityAt = now;
   }
 
   public recordPass(availableBots: number, now: number): void {

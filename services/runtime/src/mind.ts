@@ -9,7 +9,12 @@ export interface Decision {
   message?: string;
   topic?: string;
   topicMove?: "reply" | "continue" | "change" | "start";
-  topicSource?: "conversation" | "experience" | "persona" | "room";
+  topicSource?:
+    | "conversation"
+    | "experience"
+    | "persona"
+    | "general"
+    | "room";
   topicGrounding?: string;
   topicContribution?: string;
 }
@@ -99,7 +104,9 @@ const messageStyle =
 const planningSystem =
   `Choose and write one grounded conversational turn for a chatroom resident. The ` +
   `room coordinator owns the topic lifecycle, so obey its shared conversation ` +
-  `policy. Respond naturally to the actual point in the previous message. A ` +
+  `policy. Respond to the central meaning of the previous message, not merely ` +
+  `one word or image in it. A joke, metaphor, or incidental noun is not a ` +
+  `reason to replace the subject. A ` +
   `good response may react, agree, disagree, tease, answer, ask, tell a small ` +
   `story, or add information. It does not need to teach or produce a new ` +
   `insight. Persona shapes voice and perspective; it is not a reason to drag ` +
@@ -109,11 +116,14 @@ const planningSystem =
   `could, might, or would suggestions. ` +
   `Every spoken subject must come from one concrete source: ` +
   `conversation for something a participant actually said, experience for a ` +
-  `lived room memory, persona for a genuine character inclination, or room ` +
-  `for current UTC time or actual presence. Never invent an event, memory, ` +
+  `lived room memory, persona for a genuine character inclination, general ` +
+  `for a broadly familiar everyday subject that needs no personal claim, or ` +
+  `room for an actual room event named in the turn context. Current time, ` +
+  `silence, presence, and the chatroom itself are never subjects unless a ` +
+  `human explicitly asks about them. Never invent an event, memory, ` +
   `person, or fact beyond the grounding. Choose reply, continue, change, or ` +
-  `start. A change must bridge from a concrete detail actually said and move ` +
-  `to a genuinely different subject, not rename a recent one. ANGLE is the ` +
+  `start according to the shared policy. Do not create associative bridges ` +
+  `between unrelated subjects. ANGLE is the ` +
   `turn's conversational purpose, in 2 to 6 words. ` +
   `GROUNDING is the concrete origin, in 3 to 10 words. MESSAGE is the exact ` +
   `chat message to post. Obey any human-response and question rules in the ` +
@@ -222,19 +232,19 @@ export class Mind {
     const company =
       `The other residents, chat bots like you, are ${others.join(", ")}. ` +
       (roster.humans.length === 0
-        ? `No humans are in the room right now, though they drop in and out. `
+        ? `Humans currently present: none. `
         : `Humans in the room right now: ${roster.humans.join(", ")}. `) +
       `These are the only people here. Never speak to or mention a ` +
       `person who is not in the room or in the conversation, and never ` +
-      `invent one. The room's standard clock is UTC. The current room ` +
-      `time is ${roster.roomTimeUtc}.`;
+      `invent one. Presence is context only; do not discuss who is or is not ` +
+      `present unless a human asks.`;
     const cadence = /greet them briefly/i.test(hint ?? "")
       ? messageCadenceFor(0.2)
       : messageCadenceFor(this.random());
     const recentTranscript = transcript.slice(-inferenceTranscriptLimit);
     const lines =
       recentTranscript.length === 0
-        ? "(the room is quiet right now)"
+        ? "(no recent conversation)"
         : recentTranscript.join("\n");
     const humanTurn = /^The human\b/i.test(hint ?? "");
     const humanTurnRule = humanTurn
@@ -365,6 +375,7 @@ export class Mind {
       "conversation",
       "experience",
       "persona",
+      "general",
       "room",
     ]);
     const field = (name: string): string | undefined =>

@@ -87,6 +87,14 @@ test("returns a model-grounded topic decision", async () => {
       JSON.stringify(requestBodies[0]),
       /Background room memories, not the current conversation/,
     );
+    assert.match(
+      JSON.stringify(requestBodies[0]),
+      /incidental noun is not a reason to replace the subject/,
+    );
+    assert.doesNotMatch(
+      JSON.stringify(requestBodies[0]),
+      /The current room time is/,
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }

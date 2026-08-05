@@ -123,11 +123,19 @@ class FakeMind {
       return decision;
     }
 
+    const humanTurn = /^The human\b/i.test(_hint ?? "");
+    const activeTopic = /active topic is ([^.]+)\./i.exec(
+      _topicContext.guidance,
+    )?.[1]?.trim();
+    const autonomousStart = !humanTurn && activeTopic === undefined;
+
     return {
-      topic: "human message",
-      topicMove: "reply",
-      topicSource: "conversation",
-      topicGrounding: "the human's current message",
+      topic: activeTopic ?? (autonomousStart ? "general conversation" : "human message"),
+      topicMove: autonomousStart ? "start" : "reply",
+      topicSource: autonomousStart ? "general" : "conversation",
+      topicGrounding: autonomousStart
+        ? "a broadly familiar everyday subject"
+        : "the current conversation",
       topicContribution: decision.message ?? "a direct response",
       ...decision,
     };
@@ -597,6 +605,7 @@ test("rejects an incoherent autonomous topic jump", async () => {
       message: "The tuning dial is satisfying too.",
       topic: "old radio",
       topicMove: "continue",
+      topicSource: "conversation",
       topicGrounding: "the current conversation about an old radio",
       topicContribution: "tuning dial",
     },
