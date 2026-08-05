@@ -79,6 +79,14 @@ test("returns a model-grounded topic decision", async () => {
       JSON.stringify(requestBodies[0]),
       /Do not turn the conversation into a productivity session/,
     );
+    assert.match(
+      JSON.stringify(requestBodies[0]),
+      /It does not need to teach or produce a new insight/,
+    );
+    assert.match(
+      JSON.stringify(requestBodies[0]),
+      /Background room memories, not the current conversation/,
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }

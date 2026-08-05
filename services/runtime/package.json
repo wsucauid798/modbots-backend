@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
-    "test": "tsx --test src/activity.test.ts src/engine.test.ts src/experience.test.ts src/message-cadence.test.ts src/mind.test.ts src/platform.test.ts src/topic-coordinator.test.ts",
+    "test": "tsx --test src/activity.test.ts src/engine.test.ts src/experience.test.ts src/message-cadence.test.ts src/mind.test.ts src/platform.test.ts src/startup-history.test.ts src/topic-coordinator.test.ts",
     "start": "node dist/index.js"
   },
   "devDependencies": {

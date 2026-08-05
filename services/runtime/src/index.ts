@@ -5,6 +5,7 @@ import { Mind } from "./mind.js";
 import { personas } from "./personas.js";
 import { PlatformClient } from "./platform.js";
 import type { RoomEvent } from "./platform.js";
+import { startupEventsFor } from "./startup-history.js";
 
 const config = loadConfig();
 const client = new PlatformClient(config.apiUrl, config.roomId);
@@ -127,8 +128,9 @@ const main = async (): Promise<void> => {
     },
   );
   const recentEvents = await client.recentEvents(500);
+  const startupEvents = startupEventsFor(recentEvents, Date.now());
 
-  for (const event of recentEvents) {
+  for (const event of startupEvents) {
     await engine.enqueueRoomEvent(event, { react: false });
   }
 

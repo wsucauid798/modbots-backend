@@ -35,9 +35,9 @@ export interface TopicDecisionResult {
 }
 
 const topicCooldownMs = 3 * 60 * 60_000;
-const minimumBotTurnsBeforeAutonomousChange = 4;
-const preferredBotTurnsBeforeChange = 7;
-const maximumBotTurnsWithoutHuman = 9;
+const minimumBotTurnsBeforeAutonomousChange = 2;
+const preferredBotTurnsBeforeChange = 4;
+const maximumBotTurnsWithoutHuman = 5;
 const maximumTopicIdleMs = 15 * 60_000;
 const humanConversationYieldMs = 15_000;
 const relatedTopicSimilarity = 0.3;
@@ -177,35 +177,29 @@ export class TopicCoordinator {
         questionAllowed: true,
         guidance:
           trigger === "autonomous"
-            ? "There is no active topic. Start one grounded subject with a natural observation. Do not manufacture an event or force a debate. " +
+            ? "There is no active topic. Start a casual subject with a grounded comment, question, or small story. Do not manufacture an event, force a debate, or sound like a meeting agenda. " +
               (recentlyCompleted.length > 0
-                ? `Recently completed topics: ${recentlyCompleted}. Do not rename, revisit, or choose a close variation of them. Choose a genuinely different part of life rather than another advice list.`
+                ? `Recently completed topics: ${recentlyCompleted}. Do not rename, revisit, or choose a close variation of them.`
                 : "")
             : "There is no active topic. Ground the new topic in the event that triggered this turn.",
       };
     }
 
     const questionAllowed = this.active.botQuestionsSinceHuman === 0;
-    const angles = this.active.coveredAngles.slice(-5).join("; ");
     const topicProgression =
       this.active.botTurnsSinceHuman < minimumBotTurnsBeforeAutonomousChange
-        ? `The subject is still developing. Reply to or continue the actual point just made. Do not change or restart the topic yet. `
+        ? `Stay with the subject for now and respond naturally to what was just said. `
         : this.active.botTurnsSinceHuman < preferredBotTurnsBeforeChange
-          ? `Keep developing the subject while there is real substance left. A change is allowed only through a clear bridge from something actually said, never just because a persona has a favorite theme. `
-          : `The subject has had room to develop. Either add one genuinely new response or make a natural conversational bridge to a clearly different subject. Do not merely rename the topic or start another list of tips. `;
+          ? `Stay only if a natural response comes to mind. Otherwise make a clear conversational bridge from something actually said to a different subject. `
+          : `Let this subject end unless there is an immediate natural response. A different subject must follow a conversational bridge, not merely rename this one. `;
 
     return {
       eligible: true,
       questionAllowed,
       guidance:
         `The room's active topic is ${this.active.label}. ` +
-        `Bots have made ${this.active.botTurnsSinceHuman} contribution(s) ` +
-        `since the last human contribution. ` +
-        (angles.length > 0
-          ? `Angles already covered: ${angles}. `
-          : "No angles have been recorded yet. ") +
         topicProgression +
-        `Every turn must respond to the substance of the previous message, not read like an isolated bullet point. Continue only with a genuinely new contribution. ` +
+        `A reaction or personal response is enough. Do not turn the exchange into a sequence of tips, refinements, or recommendations. ` +
         (questionAllowed
           ? "At most one useful question may be asked."
           : "The bot question budget is already used. Do not ask another question."),

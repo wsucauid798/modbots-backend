@@ -573,6 +573,53 @@ test("requests autonomous inference in an empty chatroom", async () => {
   assert.equal(platform.posts.length, 1);
 });
 
+test("rejects an incoherent autonomous topic jump", async () => {
+  const platform = new FakePlatform({});
+  const mind = new FakeMind([
+    {
+      speak: true,
+      message: "That old radio still has a warm sound.",
+      topic: "old radio",
+      topicMove: "start",
+      topicGrounding: "a grounded personal interest",
+      topicContribution: "warm sound",
+    },
+    {
+      speak: true,
+      message: "Pears are better at breakfast.",
+      topic: "breakfast fruit",
+      topicMove: "change",
+      topicGrounding: "an unrelated personal preference",
+      topicContribution: "pears at breakfast",
+    },
+    {
+      speak: true,
+      message: "The tuning dial is satisfying too.",
+      topic: "old radio",
+      topicMove: "continue",
+      topicGrounding: "the current conversation about an old radio",
+      topicContribution: "tuning dial",
+    },
+  ]);
+  const engine = new ConversationEngine(platform, mind, 0, makeBots(), noonUtc);
+  platform.onPost = () => {
+    if (platform.posts.length === 2) {
+      engine.stop();
+    }
+  };
+
+  await engine.run();
+
+  assert.deepEqual(
+    platform.posts.map((post) => post.content),
+    [
+      "That old radio still has a warm sound.",
+      "The tuning dial is satisfying too.",
+    ],
+  );
+  assert.equal(mind.considered.length, 3);
+});
+
 test("enforces the hourly autonomous inference limit", async () => {
   const platform = new FakePlatform({
     "human-one": makeActor("human-one", "Mina"),

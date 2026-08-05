@@ -695,7 +695,7 @@ export class ConversationEngine {
       this.now().getTime(),
     );
 
-    if (trigger !== "autonomous" && !topicContext.eligible) {
+    if (!topicContext.eligible) {
       return false;
     }
 
@@ -721,6 +721,16 @@ export class ConversationEngine {
       );
       this.inferenceBackoffMs = 0;
       this.inferencePausedUntil = 0;
+
+      // A human may speak while an autonomous inference is in flight. Honor
+      // the coordinator's yield before posting the completed bot turn.
+      if (
+        trigger === "autonomous" &&
+        !this.topics.turnContext(trigger, this.now().getTime()).eligible
+      ) {
+        return false;
+      }
+
       if (decision.speak && decision.message !== undefined) {
         // A message that is nothing but someone's name is a mimicry
         // artifact, not speech.
@@ -759,15 +769,12 @@ export class ConversationEngine {
           return false;
         }
 
-        const evaluated =
-          trigger === "autonomous"
-            ? { accepted: true, message: decision.message }
-            : this.topics.evaluate(
-                decision,
-                decision.message,
-                trigger,
-                this.now().getTime(),
-              );
+        const evaluated = this.topics.evaluate(
+          decision,
+          decision.message,
+          trigger,
+          this.now().getTime(),
+        );
 
         if (!evaluated.accepted || evaluated.message === undefined) {
           console.log(
