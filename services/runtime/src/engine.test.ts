@@ -69,6 +69,7 @@ class FakeMind {
   public readonly addresseeCalls: string[] = [];
   public researchCalls = 0;
   public readonly researchDirections: ResearchDirection[] = [];
+  public onResearch?: () => void;
 
   public constructor(
     private readonly decisions: Array<Decision | Error>,
@@ -164,6 +165,7 @@ class FakeMind {
   ): Promise<LearnedKnowledge> {
     this.researchCalls += 1;
     this.researchDirections.push(direction);
+    this.onResearch?.();
     return learnedTopic;
   }
 }
@@ -638,10 +640,14 @@ test("researches once when a bot brain has no learned topic", async () => {
     { speak: true, message: "Ocean heat is changing what coastlines experience." },
   ]);
   let knowledge: LearnedKnowledge | null = null;
+  let researchAllowed = true;
   const brain = {
     ...makeBrain(),
     canResearch(): boolean {
-      return true;
+      return researchAllowed;
+    },
+    recordResearchAttempt(): void {
+      researchAllowed = false;
     },
     topicForConversation(): LearnedKnowledge | null {
       return knowledge;
@@ -665,6 +671,75 @@ test("researches once when a bot brain has no learned topic", async () => {
   assert.equal(mind.researchDirections[0]?.kind, "public_subject");
   assert.equal(knowledge?.topic, "ocean heat");
   assert.equal(platform.posts.length, 1);
+});
+
+test("starts learning without waiting for a conversation topic", async () => {
+  const platform = new FakePlatform({});
+  const mind = new FakeMind([]);
+  let researchAllowed = true;
+  const brain = {
+    ...makeBrain(),
+    canResearch(): boolean {
+      return researchAllowed;
+    },
+    recordResearchAttempt(): void {
+      researchAllowed = false;
+    },
+    topicForConversation(): null {
+      return null;
+    },
+    learn(): void {},
+  };
+  const engine = new ConversationEngine(
+    platform,
+    mind,
+    0,
+    [{ persona: arwen, actorId: "bot-arwen", brain }],
+    noonUtc,
+  );
+  mind.onResearch = () => engine.stop();
+
+  await engine.run();
+
+  assert.equal(mind.researchCalls, 1);
+  assert.equal(platform.posts.length, 0);
+});
+
+test("learning continues when the conversation inference budget is exhausted", async () => {
+  const platform = new FakePlatform({});
+  const mind = new FakeMind([{ speak: true, message: "A grounded thought." }]);
+  let researchAllowed = false;
+  const brain = {
+    ...makeBrain(),
+    canResearch(): boolean {
+      return researchAllowed;
+    },
+    recordResearchAttempt(): void {
+      researchAllowed = false;
+    },
+  };
+  const engine = new ConversationEngine(
+    platform,
+    mind,
+    0,
+    [{ persona: arwen, actorId: "bot-arwen", brain }],
+    noonUtc,
+    undefined,
+    {
+      autonomousInferenceLimitPerHour: 1,
+      internetResearchLimitPerHour: 4,
+      internetResearchCooldownMs: 6 * 60 * 60_000,
+    },
+  );
+  platform.onPost = () => {
+    researchAllowed = true;
+  };
+  mind.onResearch = () => engine.stop();
+
+  await engine.run();
+
+  assert.equal(platform.posts.length, 1);
+  assert.equal(mind.researchCalls, 1);
 });
 
 test("rejects an incoherent autonomous topic jump", async () => {

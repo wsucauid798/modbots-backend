@@ -26,7 +26,7 @@ export interface LearnedKnowledge {
 }
 
 export interface ResearchDirection {
-  kind: "room_subject" | "deepen" | "public_subject";
+  kind: "participant_subject" | "deepen" | "public_subject";
   focus: string;
   reason: string;
 }
@@ -484,11 +484,13 @@ export class AgentBrain {
   }
 
   public researchDirection(): ResearchDirection {
-    const roomSubject = [...this.state.workingMemory]
+    const participantSubject = [...this.state.workingMemory]
       .reverse()
       .find(
         (episode) =>
-          episode.type === "human" &&
+          episode.speaker !== this.state.displayName &&
+          episode.type !== "room" &&
+          episode.type !== "system" &&
           isSubstantiveRoomSubject(episode.content) &&
           this.state.knowledge.every(
             (memory) =>
@@ -499,12 +501,12 @@ export class AgentBrain {
           ),
       );
 
-    if (roomSubject !== undefined) {
+    if (participantSubject !== undefined) {
       return {
-        kind: "room_subject",
-        focus: excerpt(roomSubject.content),
+        kind: "participant_subject",
+        focus: excerpt(participantSubject.content),
         reason:
-          "A human raised this subject in the chatroom and this brain does not yet know enough to understand it well.",
+          `${participantSubject.speaker} raised this subject in the chatroom and this brain does not yet know enough to understand it well.`,
       };
     }
 

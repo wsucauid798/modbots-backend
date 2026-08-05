@@ -105,6 +105,7 @@ export class ConversationEngine {
   private inferencePausedUntil = 0;
   private readonly autonomousInferenceAttempts: number[] = [];
   private readonly internetResearchAttempts: number[] = [];
+  private nextLearningBotIndex = 0;
   private autonomousPauseReason: "budget" | null = null;
   private readonly topics: TopicCoordinator;
 
@@ -215,46 +216,67 @@ export class ConversationEngine {
     }
   }
 
-  private async learnedTopicFor(
-    bot: BotState,
-    now: number,
-  ): Promise<LearnedKnowledge | null> {
-    const remembered = bot.brain.topicForConversation(now);
-    if (remembered !== null) {
-      return remembered;
-    }
-
+  private async learnOneEligibleBot(now: number): Promise<boolean> {
     this.pruneInternetResearchAttempts(now);
     const hourlyLimit = this.costControls.internetResearchLimitPerHour ?? 4;
     const cooldownMs =
       this.costControls.internetResearchCooldownMs ?? 6 * 60 * 60_000;
 
-    if (
-      this.internetResearchAttempts.length >= hourlyLimit ||
-      !bot.brain.canResearch(now, cooldownMs)
-    ) {
-      return null;
+    if (this.internetResearchAttempts.length >= hourlyLimit) {
+      return false;
+    }
+
+    let selected: BotState | undefined;
+    for (let offset = 0; offset < this.bots.length; offset += 1) {
+      const index = (this.nextLearningBotIndex + offset) % this.bots.length;
+      const candidate = this.bots[index];
+      if (candidate?.brain.canResearch(now, cooldownMs)) {
+        selected = candidate;
+        this.nextLearningBotIndex = (index + 1) % this.bots.length;
+        break;
+      }
+    }
+
+    if (selected === undefined) {
+      return false;
     }
 
     const attemptedAt = this.now().toISOString();
     this.internetResearchAttempts.push(now);
-    bot.brain.recordResearchAttempt(attemptedAt);
-    const direction = bot.brain.researchDirection();
+    selected.brain.recordResearchAttempt(attemptedAt);
+    const direction = selected.brain.researchDirection();
     console.log(
-      `${bot.persona.displayName} is researching ${direction.kind}: ${direction.focus}`,
+      `${selected.persona.displayName} is researching ${direction.kind}: ${direction.focus}`,
     );
     const learned = await this.mind.research(
-      bot.persona,
-      bot.brain.view("questions, uncertainty, and subjects worth learning"),
+      selected.persona,
+      selected.brain.view("questions, uncertainty, and subjects worth learning"),
       this.topics.recentlyCompletedTopics(),
       direction,
     );
-    bot.brain.learn(learned, attemptedAt, direction);
+    selected.brain.learn(learned, attemptedAt, direction);
     console.log(
-      `${bot.persona.displayName} learned about '${learned.topic}' from ` +
+      `${selected.persona.displayName} learned about '${learned.topic}' from ` +
         `${learned.sources.length} internet source${learned.sources.length === 1 ? "" : "s"}.`,
     );
-    return bot.brain.topicForConversation(now);
+    return true;
+  }
+
+  private async continueLearning(): Promise<void> {
+    if (this.stopped || this.inferencePausedUntil > this.now().getTime()) {
+      return;
+    }
+
+    try {
+      await this.learnOneEligibleBot(this.now().getTime());
+    } catch (error) {
+      this.deferForInferenceFailure(error);
+      console.error(
+        `A chat bot could not learn from the internet: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
   }
 
   private deferForInferenceFailure(error: unknown): boolean {
@@ -681,6 +703,12 @@ export class ConversationEngine {
 
   public async run(): Promise<void> {
     while (!this.stopped) {
+      await this.continueLearning();
+
+      if (this.stopped) {
+        continue;
+      }
+
       const now = this.now().getTime();
       const pausedFor = Math.max(0, this.inferencePausedUntil - now);
 
@@ -764,25 +792,14 @@ export class ConversationEngine {
     );
 
     if (trigger === "autonomous" && topicContext.activeTopic === null) {
-      try {
-        const learnedKnowledge = await this.learnedTopicFor(
-          bot,
-          this.now().getTime(),
-        );
-        topicContext = this.topics.turnContext(
-          trigger,
-          this.now().getTime(),
-          learnedKnowledge ?? undefined,
-        );
-      } catch (error) {
-        this.deferForInferenceFailure(error);
-        console.error(
-          `${bot.persona.displayName} could not learn from the internet: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        );
-        return false;
-      }
+      const learnedKnowledge = bot.brain.topicForConversation(
+        this.now().getTime(),
+      );
+      topicContext = this.topics.turnContext(
+        trigger,
+        this.now().getTime(),
+        learnedKnowledge ?? undefined,
+      );
     }
 
     if (!topicContext.eligible) {

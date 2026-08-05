@@ -159,14 +159,14 @@ test("stores and recalls sourced knowledge across restarts", async () => {
   }
 });
 
-test("researches a human-raised subject before autonomous discovery", async () => {
+test("researches a subject raised by another chat bot before discovery", async () => {
   const directory = await mkdtemp(join(tmpdir(), "modbots-brain-"));
 
   try {
     const brain = await AgentBrain.load(directory, persona);
     brain.perceive({
-      speaker: "Mira",
-      type: "human",
+      speaker: "Arwen",
+      type: "chat_bot",
       content:
         "My city is changing its rules for electric bicycles on shared paths.",
       occurredAt: "2026-07-18T12:00:00.000Z",
@@ -176,7 +176,7 @@ test("researches a human-raised subject before autonomous discovery", async () =
     });
 
     const direction = brain.researchDirection();
-    assert.equal(direction.kind, "room_subject");
+    assert.equal(direction.kind, "participant_subject");
     assert.match(direction.focus, /electric bicycles/);
     await brain.flush();
   } finally {

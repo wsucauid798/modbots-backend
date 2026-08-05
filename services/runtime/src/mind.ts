@@ -357,7 +357,8 @@ export class Mind {
       `brain. Character affects perspective, not the research subject. ` +
       `Use live internet research to satisfy the explicit learning direction. ` +
       `A subject is worth learning only when it helps the bot understand ` +
-      `something a human raised, resolves an existing knowledge gap, or has ` +
+      `something another participant raised, resolves an existing knowledge ` +
+      `gap, or has ` +
       `real current significance for people and communities. Reject trivia, ` +
       `ambient observations, generic lifestyle filler, household-object ` +
       `topics, and novelty chosen merely because it is unusual. The research ` +
@@ -367,8 +368,11 @@ export class Mind {
       `trend, or fact. ` +
       `Prefer primary and authoritative sources. Distinguish established ` +
       `facts from uncertainty. Do not research private people or personal ` +
-      `data. If the direction is room_subject, research the general subject ` +
-      `without searching for the participant. If it is deepen, build on ` +
+      `data. If the direction is participant_subject, first test the focus ` +
+      `against the learning-value criteria. If it is filler, trivia, or an ` +
+      `incidental object, do not reinforce it: switch to the public_subject ` +
+      `criteria. Otherwise research the general subject without searching ` +
+      `for the participant. If it is deepen, build on ` +
       `existing knowledge instead of restating it. If it is public_subject, ` +
       `choose a documented subject people are actually discussing now and ` +
       `that can sustain a real conversation. Recent completed room topics ` +
