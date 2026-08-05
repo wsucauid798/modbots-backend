@@ -1,6 +1,7 @@
 import { loadConfig } from "./config.js";
 import { ConversationEngine } from "./engine.js";
 import { AgentExperience } from "./experience.js";
+import { ConversationPolicy } from "./conversation-policy.js";
 import { Mind } from "./mind.js";
 import { personas } from "./personas.js";
 import { PlatformClient } from "./platform.js";
@@ -126,6 +127,7 @@ const main = async (): Promise<void> => {
       autonomousInferenceLimitPerHour:
         config.autonomousInferenceLimitPerHour,
     },
+    await ConversationPolicy.load(config.experienceDir),
   );
   const recentEvents = await client.recentEvents(500);
   const startupEvents = startupEventsFor(recentEvents, Date.now());

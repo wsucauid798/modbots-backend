@@ -92,3 +92,36 @@ test("retrieves only the freshest lived moments for a turn", async () => {
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("learns from an ordinary reply that immediately follows its message", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "modbots-experience-"));
+
+  try {
+    const experience = await AgentExperience.load(directory, persona);
+    experience.perceive({
+      speaker: "Jakob",
+      type: "chat_bot",
+      content: "Rainy walks make the city feel quieter.",
+      occurredAt: "2026-07-18T12:00:00.000Z",
+      addressedToSelf: false,
+      addressedToRoom: false,
+      fromSelf: true,
+    });
+    experience.perceive({
+      speaker: "Arwen",
+      type: "chat_bot",
+      content: "They do, especially when the streets are nearly empty.",
+      occurredAt: "2026-07-18T12:00:10.000Z",
+      addressedToSelf: false,
+      addressedToRoom: false,
+      followedSelf: true,
+      fromSelf: false,
+    });
+
+    assert.match(experience.view(), /Exchanges that drew a response/);
+    assert.match(experience.view(), /Rainy walks make the city feel quieter/);
+    await experience.flush();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});

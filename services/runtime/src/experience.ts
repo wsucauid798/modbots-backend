@@ -34,6 +34,7 @@ export interface PerceivedMessage {
   addressedToSelf: boolean;
   addressedToRoom: boolean;
   fromSelf: boolean;
+  followedSelf?: boolean;
 }
 
 const clamp = (value: number, max: number): number =>
@@ -151,7 +152,10 @@ export class AgentExperience {
       ? new Date(occurredAt).toISOString()
       : new Date().toISOString();
     const attention =
-      message.fromSelf || message.addressedToSelf || message.addressedToRoom
+      message.fromSelf ||
+      message.addressedToSelf ||
+      message.addressedToRoom ||
+      message.followedSelf
         ? 2
         : 1;
 
@@ -239,7 +243,8 @@ export class AgentExperience {
     }
 
     const response = `${message.speaker} replied: "${excerpt(message.content)}"`;
-    const addressed = message.addressedToSelf || message.addressedToRoom;
+    const addressed =
+      message.addressedToSelf || message.addressedToRoom || message.followedSelf;
 
     if (ageMs <= 5 * 60_000 && addressed && signalsConfusion(message.content)) {
       this.remember(

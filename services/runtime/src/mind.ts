@@ -1,6 +1,7 @@
 import type { Persona } from "./personas.js";
 import type { InferencePart } from "./platform.js";
 import type { TopicTurnContext } from "./topic-coordinator.js";
+import type { ConversationDirection } from "./conversation-policy.js";
 
 // The mind behind a resident. The model chooses a grounded topic move and
 // writes the message in one pass. PASS means silence.
@@ -225,6 +226,7 @@ export class Mind {
     hint: string | null,
     topicContext: TopicTurnContext,
     allowPass = true,
+    direction?: ConversationDirection,
   ): Promise<Decision> {
     const others = roster.residents.filter(
       (name) => name !== persona.displayName,
@@ -262,6 +264,13 @@ export class Mind {
       `Recent room conversation, each line is speaker: message.\n` +
       `${lines}\n\n` +
       `Shared conversation policy:\n${topicContext.guidance}\n\n` +
+      (direction === undefined
+        ? ""
+        : `Selected conversation action: ${direction.instruction}\n` +
+          (direction.learnedGuidance.length === 0
+            ? ""
+            : `Learned conversation guidance: ${direction.learnedGuidance}\n`) +
+          "This action is binding. Realize it naturally rather than choosing a different action.\n\n") +
       humanTurnRule +
       `${hint === null ? "" : `Turn context: ${hint}\n\n`}`;
     const participantNames = [...roster.residents, ...roster.humans];

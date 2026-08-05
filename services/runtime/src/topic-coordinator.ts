@@ -6,6 +6,8 @@ export interface TopicTurnContext {
   eligible: boolean;
   questionAllowed: boolean;
   guidance: string;
+  activeTopic: string | null;
+  botTurnsOnTopic: number;
 }
 
 interface ActiveTopic {
@@ -149,6 +151,8 @@ export class TopicCoordinator {
       return {
         eligible: false,
         questionAllowed: false,
+        activeTopic: this.active?.label ?? null,
+        botTurnsOnTopic: this.active?.botTurnsSinceHuman ?? 0,
         guidance: "A human just spoke. Give the human conversation room and stay silent.",
       };
     }
@@ -162,6 +166,8 @@ export class TopicCoordinator {
       return {
         eligible: true,
         questionAllowed: true,
+        activeTopic: null,
+        botTurnsOnTopic: 0,
         guidance:
           trigger === "autonomous"
             ? "There is no active topic. Start an independent everyday subject with one specific question, opinion, or playful premise that gives the other residents something real to respond to. Use SOURCE=general unless a specific background memory or genuine character preference provides better grounding. Use MOVE=start. Do not use the recent conversation, current time, silence, presence, or the chatroom itself as the source. Do not manufacture an event, force a debate, or sound like a meeting agenda. " +
@@ -176,6 +182,8 @@ export class TopicCoordinator {
     return {
       eligible: true,
       questionAllowed,
+      activeTopic: this.active.label,
+      botTurnsOnTopic: this.active.botTurnsSinceHuman,
       guidance:
         `The room's active topic is ${this.active.label}. ` +
         `Keep TOPIC exactly '${this.active.label}', use SOURCE=conversation, ` +

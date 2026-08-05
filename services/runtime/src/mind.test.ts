@@ -20,6 +20,8 @@ const topicContext = {
   eligible: true,
   questionAllowed: true,
   guidance: "The active topic is rainy bike commutes.",
+  activeTopic: "rainy bike commutes",
+  botTurnsOnTopic: 1,
 };
 
 test("returns a model-grounded topic decision", async () => {
@@ -51,6 +53,12 @@ test("returns a model-grounded topic decision", async () => {
       "Mira has talked about cycling before.",
       null,
       topicContext,
+      true,
+      {
+        intent: "respond_topic",
+        instruction: "Respond to the active topic's central point.",
+        learnedGuidance: "Human responses have been strongest around: cycling.",
+      },
     );
 
     assert.deepEqual(decision, {
@@ -90,6 +98,14 @@ test("returns a model-grounded topic decision", async () => {
     assert.match(
       JSON.stringify(requestBodies[0]),
       /incidental noun is not a reason to replace the subject/,
+    );
+    assert.match(
+      JSON.stringify(requestBodies[0]),
+      /Selected conversation action: Respond to the active topic's central point/,
+    );
+    assert.match(
+      JSON.stringify(requestBodies[0]),
+      /Learned conversation guidance: Human responses have been strongest around: cycling/,
     );
     assert.doesNotMatch(
       JSON.stringify(requestBodies[0]),

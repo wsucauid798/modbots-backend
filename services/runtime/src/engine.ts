@@ -10,6 +10,7 @@ import type { PlatformClient } from "./platform.js";
 import type { ContentAddress, RoomEvent } from "./platform.js";
 import type { RoomContentPart } from "./platform.js";
 import type { AgentExperience } from "./experience.js";
+import { ConversationPolicy } from "./conversation-policy.js";
 import { TopicCoordinator } from "./topic-coordinator.js";
 import type { TurnTrigger } from "./topic-coordinator.js";
 
@@ -21,6 +22,16 @@ type ConversationMind = Pick<Mind, "addressee" | "consider" | "observe">;
 type ConversationExperience = Pick<
   AgentExperience,
   "perceive" | "view"
+>;
+type ConversationLearningPolicy = Pick<
+  ConversationPolicy,
+  | "chooseSpeaker"
+  | "chooseDirection"
+  | "recordTurn"
+  | "observeHumanMessage"
+  | "recordModeration"
+  | "recordRejected"
+  | "recordPass"
 >;
 
 interface BotState {
@@ -93,6 +104,7 @@ export class ConversationEngine {
     private readonly now: () => Date = () => new Date(),
     topics: TopicCoordinator = new TopicCoordinator(),
     private readonly costControls: RuntimeCostControls = defaultCostControls,
+    private readonly policy: ConversationLearningPolicy = ConversationPolicy.inMemory(),
   ) {
     this.topics = topics;
     this.bots = bots.map((bot) => ({
@@ -301,6 +313,7 @@ export class ConversationEngine {
     const standardizedTime = Number.isFinite(parsedTime)
       ? new Date(parsedTime).toISOString()
       : this.now().toISOString();
+    const previousSpeaker = this.transcriptEntries.at(-1)?.speaker;
     this.transcript.push(`${display}: ${content}`);
     this.transcriptEntries.push({
       speaker: display,
@@ -321,6 +334,9 @@ export class ConversationEngine {
           bot.persona.displayName,
         ),
         addressedToRoom: resolvedAddresses.addressedToRoom,
+        followedSelf:
+          previousSpeaker === bot.persona.displayName &&
+          bot.persona.displayName !== display,
       });
     }
 
@@ -494,18 +510,6 @@ export class ConversationEngine {
       );
     }
 
-    const last = this.transcriptEntries.at(-1);
-
-    if (
-      last?.type === "chat_bot" &&
-      this.now().getTime() - last.occurredAt < 45_000
-    ) {
-      return (
-        `${last.speaker} just spoke. Do not simply agree with them. Add a ` +
-        `different angle.${styleGuidance}`
-      );
-    }
-
     return styleGuidance.trim().length > 0 ? styleGuidance.trim() : null;
   }
 
@@ -650,19 +654,17 @@ export class ConversationEngine {
         continue;
       }
 
-      // Rotate attempts as well as successful turns. A resident whose output
-      // is rejected must not monopolize the scheduler simply because they
-      // remain the least recent successful speaker.
-      candidates.sort(
-        (a, b) =>
-          a.lastAttemptedAt - b.lastAttemptedAt ||
-          a.lastSpokeAt - b.lastSpokeAt,
+      const selected = this.policy.chooseSpeaker(
+        candidates.map((candidate) => ({
+          displayName: candidate.persona.displayName,
+          lastAttemptedAt: candidate.lastAttemptedAt,
+          lastSpokeAt: candidate.lastSpokeAt,
+        })),
+        this.now().getTime(),
       );
-      const leastRecentlyAttempted = candidates.filter(
-        (candidate) =>
-          candidate.lastAttemptedAt === candidates[0]?.lastAttemptedAt,
+      const first = candidates.find(
+        (candidate) => candidate.persona.displayName === selected?.displayName,
       );
-      const first = pick(leastRecentlyAttempted);
       if (first !== undefined) {
         await this.takeTurn(
           first,
@@ -681,6 +683,7 @@ export class ConversationEngine {
     mustSpeak = false,
     replyTo?: { contentItemId: string },
     addressedTo?: ContentAddress[],
+    directQuestion = false,
   ): Promise<boolean> {
     if (bot.muted || this.stopped) {
       return false;
@@ -696,6 +699,23 @@ export class ConversationEngine {
     );
 
     if (!topicContext.eligible) {
+      return false;
+    }
+
+    const direction = this.policy.chooseDirection({
+      trigger,
+      activeTopic: topicContext.activeTopic,
+      questionAllowed: topicContext.questionAllowed,
+      botTurnsOnTopic: topicContext.botTurnsOnTopic,
+      directQuestion,
+    });
+
+    if (direction.intent === "wait") {
+      this.policy.recordPass(direction.intent);
+      bot.lastAttemptedAt = this.now().getTime();
+      if (trigger === "autonomous") {
+        this.topics.recordPass(this.availableBots().length, this.now().getTime());
+      }
       return false;
     }
 
@@ -718,6 +738,7 @@ export class ConversationEngine {
         hint,
         topicContext,
         !mustSpeak,
+        direction,
       );
       this.inferenceBackoffMs = 0;
       this.inferencePausedUntil = 0;
@@ -777,6 +798,7 @@ export class ConversationEngine {
         );
 
         if (!evaluated.accepted || evaluated.message === undefined) {
+          this.policy.recordRejected(direction.intent);
           console.log(
             `${bot.persona.displayName} stayed silent because ${evaluated.reason ?? "the topic did not advance"}.`,
           );
@@ -813,6 +835,12 @@ export class ConversationEngine {
             decision,
             evaluated.message,
             trigger,
+            this.now().getTime(),
+          );
+          this.policy.recordTurn(
+            bot.persona.displayName,
+            direction.intent,
+            decision.topic ?? topicContext.activeTopic ?? "conversation",
             this.now().getTime(),
           );
         }
@@ -861,6 +889,10 @@ export class ConversationEngine {
       if (error instanceof PlatformError) {
         if (error.code === "actor_muted") {
           bot.muted = true;
+          this.policy.recordModeration(
+            bot.persona.displayName,
+            this.now().getTime(),
+          );
           return false;
         }
 
@@ -901,6 +933,10 @@ export class ConversationEngine {
     if (bot !== undefined) {
       if (event.type === "actor_muted") {
         bot.muted = true;
+        this.policy.recordModeration(
+          bot.persona.displayName,
+          Date.parse(event.occurredAt),
+        );
       } else if (event.type === "actor_unmuted") {
         bot.muted = false;
         void this.sleep(1_000, 3_000).then(() =>
@@ -1009,15 +1045,24 @@ export class ConversationEngine {
       event.type === "message_posted" &&
       typeof event.payload.content === "string"
     ) {
+      const addresses = this.addressesFromEvent(
+        event.payload,
+        event.payload.content,
+      );
       this.remember(
         info.display,
         info.type,
         event.payload.content,
         event.occurredAt,
-        this.addressesFromEvent(event.payload, event.payload.content),
+        addresses,
       );
 
       if (info.type === "human") {
+        this.policy.observeHumanMessage(
+          event.payload.content,
+          Date.parse(event.occurredAt),
+          addresses.addressedTo[0],
+        );
         if (options.react) {
           this.topics.noteHumanMessage(this.now().getTime());
         } else {
@@ -1093,6 +1138,15 @@ export class ConversationEngine {
         event.occurredAt,
         this.addressesFromEvent(event.payload, content),
       );
+
+      if (info.type === "human") {
+        const addresses = this.addressesFromEvent(event.payload, content);
+        this.policy.observeHumanMessage(
+          content,
+          Date.parse(event.occurredAt),
+          addresses.addressedTo[0],
+        );
+      }
 
       if (info.type === "human" && !options.react) {
         this.topics.observeHistoricalMessage(
@@ -1214,6 +1268,7 @@ export class ConversationEngine {
       true,
       replyTo,
       addressedTo,
+      directQuestion,
     );
 
     if (!spoke) {
@@ -1228,6 +1283,7 @@ export class ConversationEngine {
           true,
           replyTo,
           addressedTo,
+          directQuestion,
         );
       }
     }

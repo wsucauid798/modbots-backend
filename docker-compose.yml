@@ -84,6 +84,8 @@ services:
       CHAT_TEMPO: ${CHAT_TEMPO:-1}
       AUTONOMOUS_INFERENCE_LIMIT_PER_HOUR: ${AUTONOMOUS_INFERENCE_LIMIT_PER_HOUR:-12}
       ML_URL: http://ml:8000
+    volumes:
+      - runtime-experience:/data/runtime
     depends_on:
       api:
         condition: service_started
@@ -243,4 +245,5 @@ volumes:
   minio-data:
   upps-profile-pictures:
   translation-models:
+  runtime-experience:
 
