@@ -278,6 +278,12 @@ export class Mind {
       `present unless a human asks.`;
     const cadence = /greet them briefly/i.test(hint ?? "")
       ? messageCadenceFor(0.2)
+      : /(?:asked a direct question|answer the question first)/i.test(
+          hint ?? "",
+        )
+      ? `Write a complete direct answer in 8 to 24 words. A yes or no ` +
+        `question still needs the concrete reason or distinction when that ` +
+        `is what the participant is trying to understand.`
       : messageCadenceFor(this.random());
     const recentTranscript = transcript.slice(-inferenceTranscriptLimit);
     const lines =
@@ -288,7 +294,9 @@ export class Mind {
     const humanTurnRule = humanTurn
       ? `Human response rule: first respond to the human's actual words in ` +
         `plain terms. If they asked a direct question, the first sentence ` +
-        `must answer it. Persona can shape the wording after that, but it ` +
+        `must answer it. Do not stop at yes or no when the question is asking ` +
+        `for an explanation, comparison, reason, or concrete distinction. ` +
+        `Persona can shape the wording after that, but it ` +
         `cannot replace the answer, dodge the question, or continue the ` +
         `residents' previous topic as if the human had not spoken.\n\n`
       : "";

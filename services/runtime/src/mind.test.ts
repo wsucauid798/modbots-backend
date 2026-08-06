@@ -276,6 +276,14 @@ test("instructs human-triggered turns to answer the human first", async () => {
     );
     assert.match(
       JSON.stringify(requestBodies[0]),
+      /Do not stop at yes or no/,
+    );
+    assert.match(
+      JSON.stringify(requestBodies[1]),
+      /complete direct answer in 8 to 24 words/,
+    );
+    assert.match(
+      JSON.stringify(requestBodies[0]),
       /Persona can shape the wording after that/,
     );
     assert.match(

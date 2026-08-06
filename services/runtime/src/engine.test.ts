@@ -453,6 +453,8 @@ test("researches exact follow-up questions about a current information answer", 
   const mind = new FakeMind([
     { speak: true, message: "A current UK story concerns a major event." },
     { speak: true, message: "The event developed after an earlier report." },
+    { speak: true, message: "It is separate from the London event." },
+    { speak: true, message: "They take place in different cities." },
   ]);
   const engine = new ConversationEngine(
     platform,
@@ -469,18 +471,69 @@ test("researches exact follow-up questions about a current information answer", 
     humanMessage(
       "current-follow-up",
       "human-one",
-      "Tell me what happened; I had not heard of this.",
+      "That is the story. Tell me what happened; I had not heard of this.",
     ),
   );
-  assert.equal(mind.researchCalls, 2);
+  await engine.enqueueRoomEvent(
+    humanMessage(
+      "current-comparison",
+      "human-one",
+      "Is that different from the other festival?",
+    ),
+  );
+  await engine.enqueueRoomEvent(
+    humanMessage(
+      "current-difference",
+      "human-one",
+      "What are the differences?",
+    ),
+  );
+  assert.equal(mind.researchCalls, 4);
   assert.deepEqual(
     mind.researchDirections.map((direction) => direction.focus),
     [
       "What's the top UK news?",
-      "Tell me what happened; I had not heard of this.",
+      "That is the story. Tell me what happened; I had not heard of this.",
+      "Is that different from the other festival?",
+      "What are the differences?",
     ],
   );
-  assert.equal(platform.posts.length, 2);
+  assert.equal(platform.posts.length, 4);
+});
+
+test("hands a natural whole-room question to a different available resident", async () => {
+  const platform = new FakePlatform({
+    "human-one": makeActor("human-one", "Mina"),
+  });
+  const mind = new FakeMind([
+    { speak: true, message: "The first answer belongs to Jakob." },
+    { speak: true, message: "I enjoy the music and shared celebration." },
+  ]);
+  const engine = new ConversationEngine(
+    platform,
+    mind,
+    0,
+    makeBots(mind),
+    noonUtc,
+  );
+
+  await engine.enqueueRoomEvent(
+    humanMessage("named-question", "human-one", "Jakob, is that different?", {
+      addressedTo: [{ targetType: "actor", actorId: "bot-jacob" }],
+    }),
+  );
+  await engine.enqueueRoomEvent(
+    humanMessage(
+      "whole-room-question",
+      "human-one",
+      "Does anyone here like carnivals?",
+      { addressedTo: [] },
+    ),
+  );
+
+  assert.deepEqual(mind.considered, ["Jakob", "Arwen"]);
+  assert.equal(mind.addresseeCalls.length, 0);
+  assert.equal(platform.posts[1]?.actorId, "bot-arwen");
 });
 
 test("chat bots do not steal a message addressed to a mod bot", async () => {

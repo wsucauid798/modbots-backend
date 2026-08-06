@@ -366,7 +366,15 @@ export class ConversationEngine {
         ).test(content),
       )
       .map((bot) => bot.persona.displayName);
-    const addressedToRoom = /@(room|everyone|everybody|all)\b/i.test(content);
+    const addressedToRoom =
+      /@(room|everyone|everybody|all)\b/i.test(content) ||
+      /\b(?:you all|all of you|who here)\b/i.test(content) ||
+      /\b(?:does|do|is|are|can|could|would|will|has|have)\s+(?:anyone|anybody|everyone|everybody)\b/i.test(
+        content,
+      ) ||
+      /^(?:hi|hello|hey|good\s+(?:morning|afternoon|evening))\s+(?:everyone|everybody|all|folks)\b/i.test(
+        content.trim(),
+      );
 
     return { addressedTo, addressedToRoom };
   }
@@ -426,6 +434,10 @@ export class ConversationEngine {
           addressedTo.push(bot.persona.displayName);
         }
       }
+    }
+
+    if (addressedTo.length === 0 && !addressedToRoom) {
+      return this.addressesIn(fallbackContent);
     }
 
     return { addressedTo, addressedToRoom };
@@ -605,10 +617,11 @@ export class ConversationEngine {
       );
     const requestsInformation =
       ConversationEngine.asksQuestion(content) ||
-      /^(tell|show|give|find|look up|check|update)\b/.test(text);
+      /(?:^|[.!?]\s+)(tell|show|give|find|look up|check|update)\b/.test(text);
     const asksForDetailsFromCurrentThread =
       continuingCurrentInformation &&
-      /\b(what happened|tell me more|more details?|the details?|describe what happened|explain what happened|who was involved|where did|when did|why did)\b/.test(
+      requestsInformation &&
+      /\b(what happened|tell me more|more details?|the details?|describe what happened|explain what happened|who was involved|where did|when did|why did|different from|the differences?|that|this|those|these|it|they|them|the dates?|the locations?|the causes?|the reasons?)\b/.test(
         text,
       );
 
@@ -1500,7 +1513,21 @@ export class ConversationEngine {
     }
 
     await this.sleep(350, 900);
-    const first = target ?? pick(responsePool);
+    const openSpeakerSelection = target === undefined
+      ? this.policy.chooseSpeaker(
+          responsePool.map((entry) => ({
+            displayName: entry.persona.displayName,
+            lastAttemptedAt: entry.lastAttemptedAt,
+            lastSpokeAt: entry.lastSpokeAt,
+          })),
+          this.now().getTime(),
+        )
+      : undefined;
+    const openSpeaker = responsePool.find(
+      (entry) =>
+        entry.persona.displayName === openSpeakerSelection?.displayName,
+    );
+    const first = target ?? openSpeaker ?? pick(responsePool);
     const directQuestion = ConversationEngine.asksQuestion(content);
     const currentInformationQuery =
       ConversationEngine.currentInformationQuery(
