@@ -61,7 +61,7 @@ interface Curiosity {
 }
 
 interface BrainState {
-  version: 4;
+  version: 5;
   handle: string;
   displayName: string;
   people: Record<string, PersonMemory>;
@@ -70,7 +70,7 @@ interface BrainState {
   knowledge: KnowledgeMemory[];
   curiosities: Curiosity[];
   lastBackgroundResearchAt?: string;
-  lastParticipantResearchAt?: string;
+  lastConversationResearchAt?: string;
   impressions: string[];
   responsiveMoments: string[];
   confusingMoments: string[];
@@ -375,7 +375,11 @@ export class AgentBrain {
           ? (parsed.people as Record<string, PersonMemory>)
           : {};
 
-      if (parsed.version === 4 || parsed.version === 3) {
+      if (
+        parsed.version === 5 ||
+        parsed.version === 4 ||
+        parsed.version === 3
+      ) {
         const pending = parsed.pendingAttempt as
           | Record<string, unknown>
           | undefined;
@@ -384,13 +388,26 @@ export class AgentBrain {
           parsed.version === 3,
         ).slice(-160);
         const inferredBackgroundResearchAt = knowledge
-          .filter((memory) => memory.origin !== "participant_question")
+          .filter(
+            (memory) =>
+              memory.origin === "public_subject" ||
+              memory.origin === "deepen",
+          )
+          .map((memory) => memory.learnedAt)
+          .filter((value) => Number.isFinite(Date.parse(value)))
+          .sort((left, right) => Date.parse(right) - Date.parse(left))[0];
+        const inferredConversationResearchAt = knowledge
+          .filter(
+            (memory) =>
+              memory.origin === "participant_question" ||
+              memory.origin === "participant_subject",
+          )
           .map((memory) => memory.learnedAt)
           .filter((value) => Number.isFinite(Date.parse(value)))
           .sort((left, right) => Date.parse(right) - Date.parse(left))[0];
 
         return new AgentBrain(filePath, {
-          version: 4,
+          version: 5,
           handle: persona.handle,
           displayName: persona.displayName,
           people,
@@ -399,15 +416,15 @@ export class AgentBrain {
           knowledge,
           curiosities: cleanCuriosities(parsed.curiosities).slice(-40),
           lastBackgroundResearchAt:
-            typeof parsed.lastBackgroundResearchAt === "string"
+            parsed.version === 5 &&
+              typeof parsed.lastBackgroundResearchAt === "string"
               ? parsed.lastBackgroundResearchAt
               : inferredBackgroundResearchAt,
-          lastParticipantResearchAt:
-            typeof parsed.lastParticipantResearchAt === "string"
-              ? parsed.lastParticipantResearchAt
-              : typeof parsed.lastResearchAt === "string"
-              ? parsed.lastResearchAt
-              : undefined,
+          lastConversationResearchAt:
+            parsed.version === 5 &&
+              typeof parsed.lastConversationResearchAt === "string"
+              ? parsed.lastConversationResearchAt
+              : inferredConversationResearchAt,
           impressions: stringList(parsed.impressions),
           responsiveMoments: stringList(parsed.responsiveMoments),
           confusingMoments: stringList(parsed.confusingMoments),
@@ -427,7 +444,7 @@ export class AgentBrain {
           | undefined;
 
         return new AgentBrain(filePath, {
-          version: 4,
+          version: 5,
           handle: persona.handle,
           displayName: persona.displayName,
           people,
@@ -436,7 +453,7 @@ export class AgentBrain {
           knowledge: [],
           curiosities: [],
           lastBackgroundResearchAt: undefined,
-          lastParticipantResearchAt: undefined,
+          lastConversationResearchAt: undefined,
           impressions: stringList(parsed.impressions),
           responsiveMoments: stringList(parsed.responsiveMoments),
           confusingMoments: stringList(parsed.confusingMoments),
@@ -454,7 +471,7 @@ export class AgentBrain {
       // Preserve familiar people, but let room replay rebuild real moments.
       if (parsed.version === 1) {
         return new AgentBrain(filePath, {
-          version: 4,
+          version: 5,
           handle: persona.handle,
           displayName: persona.displayName,
           people,
@@ -463,7 +480,7 @@ export class AgentBrain {
           knowledge: [],
           curiosities: [],
           lastBackgroundResearchAt: undefined,
-          lastParticipantResearchAt: undefined,
+          lastConversationResearchAt: undefined,
           impressions: [],
           responsiveMoments: [],
           confusingMoments: [],
@@ -475,7 +492,7 @@ export class AgentBrain {
     }
 
     return new AgentBrain(filePath, {
-      version: 4,
+      version: 5,
       handle: persona.handle,
       displayName: persona.displayName,
       people: {},
@@ -484,7 +501,7 @@ export class AgentBrain {
       knowledge: [],
       curiosities: [],
       lastBackgroundResearchAt: undefined,
-      lastParticipantResearchAt: undefined,
+      lastConversationResearchAt: undefined,
       impressions: [],
       responsiveMoments: [],
       confusingMoments: [],
@@ -613,7 +630,14 @@ export class AgentBrain {
           (candidate) =>
             relatedness(curiosity.subject, candidate.topic) >= 0.7,
         );
-        return memory !== undefined && memory.researchCount < 3;
+        const subject = `${curiosity.subject} ${curiosity.question}`;
+        return (
+          memory !== undefined &&
+          memory.researchCount < 3 &&
+          excludedTopics.every(
+            (topic) => relatedness(subject, topic) < 0.3,
+          )
+        );
       });
 
     if (openQuestion !== undefined) {
@@ -725,10 +749,14 @@ export class AgentBrain {
       });
     }
 
-    if (direction?.kind === "participant_question") {
-      this.state.lastParticipantResearchAt = learnedAt;
-    } else {
+    if (
+      direction?.kind === undefined ||
+      direction.kind === "public_subject" ||
+      direction.kind === "deepen"
+    ) {
       this.state.lastBackgroundResearchAt = learnedAt;
+    } else {
+      this.state.lastConversationResearchAt = learnedAt;
     }
 
     this.state.knowledge.splice(
@@ -747,20 +775,38 @@ export class AgentBrain {
     now: string,
     kind: ResearchDirection["kind"] = "public_subject",
   ): void {
-    if (kind === "participant_question") {
-      this.state.lastParticipantResearchAt = now;
-    } else {
+    if (kind === "public_subject" || kind === "deepen") {
       this.state.lastBackgroundResearchAt = now;
+    } else {
+      this.state.lastConversationResearchAt = now;
     }
     this.saveSoon();
+  }
+
+  public knownTopicsSince(since: number): string[] {
+    return this.state.knowledge
+      .filter((memory) => {
+        const learnedAt = Date.parse(memory.learnedAt);
+        return Number.isFinite(learnedAt) && learnedAt >= since;
+      })
+      .map((memory) => memory.topic);
+  }
+
+  public usedTopicsSince(since: number): string[] {
+    return this.state.knowledge
+      .filter((memory) => {
+        const lastUsedAt = Date.parse(memory.lastUsedAt ?? "");
+        return Number.isFinite(lastUsedAt) && lastUsedAt >= since;
+      })
+      .map((memory) => memory.topic);
   }
 
   public topicForConversation(
     now = Date.now(),
     excludedTopics: string[] = [],
   ): LearnedKnowledge | null {
-    // A subject the room has finished stays finished for the rest of the
-    // day. Returning to it after half an hour reads as a broken record.
+    // Time alone cannot turn exhausted knowledge into a new conversation.
+    // The brain must deepen the subject before it can speak from it again.
     const reuseAfterMs = 24 * 60 * 60_000;
     const available = this.state.knowledge
       .filter((memory) => {
@@ -770,6 +816,7 @@ export class AgentBrain {
           excludedTopics.some((topic) => relatedness(topic, subject) >= 0.3);
         return (
           memory.origin !== "participant_question" &&
+          memory.researchCount > memory.useCount &&
           memory.confidence >= 0.5 &&
           memory.sources.length > 0 &&
           !wasRecentlyDiscussed &&

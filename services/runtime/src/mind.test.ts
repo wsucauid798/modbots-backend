@@ -102,6 +102,14 @@ test("returns a model-grounded topic decision", async () => {
     );
     assert.match(
       JSON.stringify(requestBodies[1]),
+      /genuinely new conversational thought/,
+    );
+    assert.match(
+      JSON.stringify(requestBodies[1]),
+      /Do not invent a connection between the subjects/,
+    );
+    assert.match(
+      JSON.stringify(requestBodies[1]),
       /Retrieval happen silently inside the brain|retrieval happen silently inside the brain/i,
     );
     assert.match(
@@ -596,6 +604,8 @@ test("research follows an explicit learning direction", async () => {
     assert.match(serializedRequest, /real current significance/);
     assert.match(serializedRequest, /Reject trivia/);
     assert.match(serializedRequest, /public_subject/);
+    assert.match(serializedRequest, /evidence could answer or deepen/);
+    assert.match(serializedRequest, /participant's private preference/);
     assert.match(serializedRequest, /The Maillard Trade-Off/);
     assert.match(serializedRequest, /acrylamide and browning/);
     assert.equal(result.topic, "Deep sea migration");

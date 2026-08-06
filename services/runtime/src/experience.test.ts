@@ -274,6 +274,10 @@ test("deepens an unresolved question before collecting another subject", async (
     const direction = brain.researchDirection();
     assert.equal(direction.kind, "deepen");
     assert.match(direction.focus, /Which neighborhoods benefit most/);
+    assert.equal(
+      brain.researchDirection(["urban heat and tree canopy"]).kind,
+      "public_subject",
+    );
 
     brain.learn(
       {
@@ -311,7 +315,7 @@ test("deepens an unresolved question before collecting another subject", async (
   }
 });
 
-test("reuses learned knowledge before spending another internet search", async () => {
+test("reuses knowledge only after the brain deepens it again", async () => {
   const directory = await mkdtemp(join(tmpdir(), "modbots-brain-"));
 
   try {
@@ -332,9 +336,34 @@ test("reuses learned knowledge before spending another internet search", async (
     assert.equal(brain.topicForConversation()?.topic, "urban trees");
 
     brain.markTopicUsed("urban trees", "2026-07-18T13:00:00.000Z");
+    assert.deepEqual(
+      brain.usedTopicsSince(Date.parse("2026-07-18T12:59:00.000Z")),
+      ["urban trees"],
+    );
     assert.equal(
       brain.topicForConversation(Date.parse("2026-07-19T12:59:59.999Z")),
       null,
+    );
+    assert.equal(
+      brain.topicForConversation(Date.parse("2026-07-19T13:00:00.000Z")),
+      null,
+    );
+    brain.learn(
+      {
+        topic: "urban trees",
+        statement:
+          "Tree canopy placement determines which neighborhoods receive cooling benefits.",
+        confidence: 0.85,
+        sources: [
+          { title: "Canopy equity", url: "https://example.com/canopy-equity" },
+        ],
+      },
+      "2026-07-19T13:00:00.000Z",
+      {
+        kind: "deepen",
+        focus: "urban trees and neighborhood cooling",
+        reason: "The brain has a new unresolved angle to learn.",
+      },
     );
     assert.equal(
       brain.topicForConversation(Date.parse("2026-07-19T13:00:00.000Z"))
@@ -439,6 +468,53 @@ test("participant retrieval does not block background learning or restart as a t
     assert.equal(
       brain.topicForConversation(Date.parse("2026-08-07T12:01:00.000Z")),
       null,
+    );
+    assert.deepEqual(
+      brain.knownTopicsSince(Date.parse("2026-08-07T11:59:00.000Z")),
+      ["Manchester news today"],
+    );
+    await brain.flush();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("learning from a room subject does not block public discovery", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "modbots-brain-"));
+
+  try {
+    const brain = await AgentBrain.load(directory, persona);
+    const direction = {
+      kind: "participant_subject" as const,
+      focus: "Does anyone here like carnivals?",
+      reason: "A participant raised a subject the brain wants to understand.",
+    };
+    brain.recordResearchAttempt(
+      "2026-08-07T12:00:00.000Z",
+      direction.kind,
+    );
+    brain.learn(
+      {
+        topic: "Caribbean carnival culture",
+        statement: "Carnivals preserve heritage and create community space.",
+        confidence: 0.8,
+        sources: [{ title: "Culture", url: "https://example.com/culture" }],
+      },
+      "2026-08-07T12:00:00.000Z",
+      direction,
+    );
+
+    assert.equal(
+      brain.canResearch(
+        Date.parse("2026-08-07T12:01:00.000Z"),
+        6 * 60 * 60_000,
+      ),
+      true,
+    );
+    assert.equal(
+      brain.topicForConversation(Date.parse("2026-08-07T12:01:00.000Z"))
+        ?.topic,
+      "Caribbean carnival culture",
     );
     await brain.flush();
   } finally {

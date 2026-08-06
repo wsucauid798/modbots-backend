@@ -157,7 +157,10 @@ const expressionSystem =
   `grounding. Use only facts contained in the recent conversation or recalled ` +
   `brain state. Conversation grounding never licenses a new factual claim. ` +
   `When the move starts a topic, explicitly name its concrete subject so the ` +
-  `message makes sense without hidden context. When replying, use a noun ` +
+  `message makes sense without hidden context. Introduce it as a genuinely ` +
+  `new conversational thought, not as though it logically follows the ` +
+  `previous subject. Do not invent a connection between the subjects. When ` +
+  `replying, use a noun ` +
   `instead of an ambiguous word such as it, this, that, the effect, or the ` +
   `specific thing when the referent is not unmistakable in the immediately ` +
   `previous message. Do not paraphrase a point another resident just made. ` +
@@ -419,7 +422,7 @@ export class Mind {
   public async research(
     persona: Persona,
     brainState: string,
-    recentlyDiscussed: string[],
+    excludedTopics: string[],
     direction: ResearchDirection,
   ): Promise<LearnedKnowledge> {
     const learningRole = persona.type === "mod_bot"
@@ -460,7 +463,10 @@ export class Mind {
       `existing knowledge instead of restating it. If it is public_subject, ` +
       `choose a documented subject people are actually discussing now and ` +
       `that can sustain a real conversation. Recent completed room topics ` +
-      `remain excluded. Return exactly four lines and no markdown: ` +
+      `remain excluded. CURIOSITY must be a question about the public subject ` +
+      `that evidence could answer or deepen. Never make it a question about ` +
+      `a participant's private preference, feeling, intention, or identity. ` +
+      `Return exactly four lines and no markdown: ` +
       `TOPIC=<2 to 6 words>, ` +
       `KNOWLEDGE=<4 to 8 concise factual sentences>, ` +
       `WHY=<one concise sentence explaining its real learning value>, and ` +
@@ -471,9 +477,10 @@ export class Mind {
       `Focus: ${direction.focus}\n` +
       `Reason: ${direction.reason}\n\n` +
       `Current brain state:\n${brainState}\n\n` +
-      (recentlyDiscussed.length === 0
-        ? "There are no recently completed room topics."
-        : `Recently completed room topics that must not be repeated: ${recentlyDiscussed.join(", ")}.`);
+      (excludedTopics.length === 0
+        ? "No room or resident-brain topics need to be excluded."
+        : `Topics already known by resident brains or recently completed in ` +
+          `the room that must not be repeated: ${excludedTopics.join(", ")}.`);
     const response = await fetch(new URL("/v1/research", this.mlUrl).toString(), {
       method: "POST",
       headers: { "content-type": "application/json" },

@@ -97,8 +97,16 @@ export class BotBrain {
     return this.memory.canResearch(now, cooldownMs);
   }
 
+  public knownTopicsSince(since: number): string[] {
+    return this.memory.knownTopicsSince(since);
+  }
+
+  public usedTopicsSince(since: number): string[] {
+    return this.memory.usedTopicsSince(since);
+  }
+
   public async research(
-    recentlyDiscussed: string[],
+    excludedTopics: string[],
     attemptedAt: string,
   ): Promise<LearningResult> {
     const direction: ResearchDirection = this.persona.type === "mod_bot"
@@ -111,10 +119,10 @@ export class BotBrain {
             "This mod bot needs grounded knowledge that improves how it " +
             "understands room behavior and learns from moderation outcomes.",
         }
-      : this.memory.researchDirection(recentlyDiscussed);
+      : this.memory.researchDirection(excludedTopics);
     return this.learn(
       direction,
-      recentlyDiscussed,
+      excludedTopics,
       attemptedAt,
       this.memory.view("questions, uncertainty, and subjects worth learning"),
     );
@@ -140,7 +148,7 @@ export class BotBrain {
 
   private async learn(
     direction: ResearchDirection,
-    recentlyDiscussed: string[],
+    excludedTopics: string[],
     attemptedAt: string,
     brainState: string,
   ): Promise<LearningResult> {
@@ -148,7 +156,7 @@ export class BotBrain {
     const knowledge = await this.cognition.research(
       this.persona,
       brainState,
-      recentlyDiscussed,
+      excludedTopics,
       direction,
     );
     this.memory.learn(knowledge, attemptedAt, direction);

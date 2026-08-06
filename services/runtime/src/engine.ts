@@ -29,6 +29,8 @@ type ConversationBrain = Pick<
   | "perceive"
   | "consider"
   | "canResearch"
+  | "knownTopicsSince"
+  | "usedTopicsSince"
   | "research"
   | "researchForParticipant"
   | "topicForConversation"
@@ -81,6 +83,7 @@ const defaultCostControls: RuntimeCostControls = {
 };
 
 const activeConversationDelayRange = [15_000, 35_000] as const;
+const sharedTopicReuseWindowMs = 7 * 24 * 60 * 60_000;
 
 const pick = <Item>(items: Item[]): Item =>
   items[Math.floor(Math.random() * items.length)];
@@ -227,6 +230,18 @@ export class ConversationEngine {
     }
   }
 
+  private excludedConversationTopics(now: number): string[] {
+    const recentlyUsed = this.bots.flatMap((bot) =>
+      bot.brain.usedTopicsSince(now - sharedTopicReuseWindowMs),
+    );
+    return [
+      ...new Set([
+        ...this.topics.recentlyCompletedTopics(),
+        ...recentlyUsed,
+      ]),
+    ];
+  }
+
   private async learnOneEligibleBot(now: number): Promise<boolean> {
     this.pruneInternetResearchAttempts(now);
     const hourlyLimit = this.costControls.internetResearchLimitPerHour ?? 4;
@@ -254,9 +269,13 @@ export class ConversationEngine {
 
     const attemptedAt = this.now().toISOString();
     this.internetResearchAttempts.push(now);
-    const recentlyCompleted = this.topics.recentlyCompletedTopics();
+    const oneDayAgo = now - 24 * 60 * 60_000;
+    const conversationExcluded = this.excludedConversationTopics(now);
+    const alreadyKnown = this.bots.flatMap((bot) =>
+      bot.brain.knownTopicsSince(oneDayAgo),
+    );
     const result = await selected.brain.research(
-      recentlyCompleted,
+      [...new Set([...conversationExcluded, ...alreadyKnown])],
       attemptedAt,
     );
     console.log(
@@ -843,12 +862,14 @@ export class ConversationEngine {
       );
 
       if (topicContext.activeTopic === null) {
-        const recentlyCompleted = this.topics.recentlyCompletedTopics();
+        const excludedTopics = this.excludedConversationTopics(
+          this.now().getTime(),
+        );
         candidates = candidates.filter(
           (candidate) =>
             candidate.brain.topicForConversation(
               this.now().getTime(),
-              recentlyCompleted,
+              excludedTopics,
             ) !== null,
         );
       }
@@ -908,7 +929,7 @@ export class ConversationEngine {
     if (trigger === "autonomous" && topicContext.activeTopic === null) {
       const learnedKnowledge = bot.brain.topicForConversation(
         this.now().getTime(),
-        this.topics.recentlyCompletedTopics(),
+        this.excludedConversationTopics(this.now().getTime()),
       );
       topicContext = this.topics.turnContext(
         trigger,

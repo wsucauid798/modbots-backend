@@ -70,6 +70,7 @@ class FakeMind {
   public readonly addresseeCalls: string[] = [];
   public researchCalls = 0;
   public readonly researchDirections: ResearchDirection[] = [];
+  public readonly researchExcludedTopics: string[][] = [];
   public readonly currentKnowledge: Array<LearnedKnowledge | undefined> = [];
   public onResearch?: () => void;
 
@@ -164,11 +165,12 @@ class FakeMind {
   public async research(
     _persona: Persona,
     _brainState: string,
-    _recentlyDiscussed: string[],
+    excludedTopics: string[],
     direction: ResearchDirection,
   ): Promise<LearnedKnowledge> {
     this.researchCalls += 1;
     this.researchDirections.push(direction);
+    this.researchExcludedTopics.push(excludedTopics);
     this.onResearch?.();
     return learnedTopic;
   }
@@ -237,7 +239,13 @@ const makeBrain = (
   canResearch(): boolean {
     return false;
   },
-  async research(): Promise<{
+  knownTopicsSince(): string[] {
+    return [];
+  },
+  usedTopicsSince(): string[] {
+    return [];
+  },
+  async research(excludedTopics: string[] = []): Promise<{
     direction: ResearchDirection;
     knowledge: LearnedKnowledge;
   }> {
@@ -251,7 +259,7 @@ const makeBrain = (
       knowledge: await mind.research(
         persona,
         "No established experience yet.",
-        [],
+        excludedTopics,
         direction,
       ),
     };
@@ -939,8 +947,23 @@ test("selects a bot with usable knowledge for a new topic", async () => {
   ]);
   const unavailableBrain = {
     ...makeBrain(arwen, mind),
+    usedTopicsSince(): string[] {
+      return ["Caribbean carnivals"];
+    },
     topicForConversation(): null {
       return null;
+    },
+  };
+  let excludedTopics: string[] = [];
+  const availableBase = makeBrain(jakob, mind);
+  const availableBrain = {
+    ...availableBase,
+    topicForConversation(
+      _now?: number,
+      excluded: string[] = [],
+    ): LearnedKnowledge {
+      excludedTopics = excluded;
+      return learnedTopic;
     },
   };
   const engine = new ConversationEngine(
@@ -949,7 +972,7 @@ test("selects a bot with usable knowledge for a new topic", async () => {
     0,
     [
       { actorId: "bot-arwen", brain: unavailableBrain },
-      { actorId: "bot-jacob", brain: makeBrain(jakob, mind) },
+      { actorId: "bot-jacob", brain: availableBrain },
     ],
     noonUtc,
   );
@@ -958,6 +981,7 @@ test("selects a bot with usable knowledge for a new topic", async () => {
   await engine.run();
 
   assert.equal(mind.considered[0], "Jakob");
+  assert.ok(excludedTopics.includes("Caribbean carnivals"));
   assert.equal(platform.posts.length, 1);
 });
 
@@ -1032,6 +1056,49 @@ test("starts learning without waiting for a conversation topic", async () => {
 
   assert.equal(mind.researchCalls, 1);
   assert.equal(platform.posts.length, 0);
+});
+
+test("background learning excludes subjects known or recently used by resident brains", async () => {
+  const platform = new FakePlatform({});
+  const mind = new FakeMind([]);
+  let researchAllowed = true;
+  const baseBrain = makeBrain(arwen, mind);
+  const brain = {
+    ...baseBrain,
+    canResearch(): boolean {
+      return researchAllowed;
+    },
+    knownTopicsSince(): string[] {
+      return ["Caribbean carnival culture"];
+    },
+    usedTopicsSince(): string[] {
+      return ["Cooking water and nutrients"];
+    },
+    async research(
+      excludedTopics: string[],
+    ): ReturnType<typeof baseBrain.research> {
+      researchAllowed = false;
+      return baseBrain.research(excludedTopics);
+    },
+    topicForConversation(): null {
+      return null;
+    },
+  };
+  const engine = new ConversationEngine(
+    platform,
+    mind,
+    0,
+    [{ actorId: "bot-arwen", brain }],
+    noonUtc,
+  );
+  mind.onResearch = () => engine.stop();
+
+  await engine.run();
+
+  assert.deepEqual(mind.researchExcludedTopics[0], [
+    "Cooking water and nutrients",
+    "Caribbean carnival culture",
+  ]);
 });
 
 test("learning continues when the conversation inference budget is exhausted", async () => {
