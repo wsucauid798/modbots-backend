@@ -832,6 +832,48 @@ test("perceives the authoritative UTC event time", async () => {
   );
 });
 
+test("lets another resident independently join a human-led topic", async () => {
+  const platform = new FakePlatform({
+    "human-one": makeActor("human-one", "Mina"),
+  });
+  const mind = new FakeMind([
+    { speak: true, message: "Manchester has its own Caribbean carnival." },
+    {
+      speak: true,
+      message: "The music and neighborhood atmosphere are what interest me.",
+    },
+  ]);
+  let currentTime = new Date("2026-07-18T12:00:00.000Z");
+  const engine = new ConversationEngine(
+    platform,
+    mind,
+    0,
+    makeBots(mind),
+    () => currentTime,
+  );
+
+  await engine.enqueueRoomEvent(
+    humanMessage(
+      "human-led-topic",
+      "human-one",
+      "Jakob, tell me about the Manchester carnival.",
+      { addressedTo: [{ targetType: "actor", actorId: "bot-jacob" }] },
+    ),
+  );
+
+  currentTime = new Date(currentTime.getTime() + 20_000);
+  platform.onPost = () => {
+    if (platform.posts.length === 2) {
+      engine.stop();
+    }
+  };
+  await engine.run();
+
+  assert.deepEqual(mind.considered, ["Jakob", "Arwen"]);
+  assert.deepEqual(mind.allowPassValues, [false, true]);
+  assert.equal(platform.posts[1]?.actorId, "bot-arwen");
+});
+
 test("an autonomous turn rotates residents until one speaks", async () => {
   const platform = new FakePlatform({});
   const mind = new FakeMind([

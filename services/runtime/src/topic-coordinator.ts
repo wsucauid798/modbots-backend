@@ -140,9 +140,10 @@ export class TopicCoordinator {
       effectiveTime + humanConversationYieldMs,
     );
 
-    // A human contribution owns the conversation. End any autonomous subject
-    // so one resident answers the human without the other bots extending that
-    // answer into another bot-only chain.
+    // A human contribution owns the conversation. End any previous subject
+    // so the direct reply can establish the human's subject as the room's new
+    // active conversation, with a short pause before another resident decides
+    // whether to join it.
     this.closeActive(effectiveTime);
   }
 
@@ -350,19 +351,14 @@ export class TopicCoordinator {
   ): void {
     this.lastRoomActivityAt = now;
 
-    if (trigger !== "autonomous") {
+    if (trigger === "room") {
       return;
     }
 
     const label = decision.topic ?? "current conversation";
-    const startsNewTopic =
-      this.active === null;
+    const startsNewTopic = this.active === null;
 
     if (startsNewTopic) {
-      if (this.active !== null) {
-        this.closeActive(now);
-      }
-
       this.active = {
         label,
         lastAdvancedAt: now,

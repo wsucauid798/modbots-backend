@@ -331,17 +331,22 @@ test("rejects a vague autonomous opening with a hidden subject", () => {
   assert.equal(result.reason, "new topic message did not name its subject");
 });
 
-test("a direct human reply does not become an autonomous bot topic", () => {
+test("a direct human exchange remains active for other resident brains", () => {
   const topics = new TopicCoordinator();
 
   topics.recordBotTurn(
-    decision("answering the human directly", "reply"),
-    "Yes, I am here.",
+    {
+      ...decision("Manchester and Notting Hill differences", "reply"),
+      topic: "Caribbean carnivals",
+    },
+    "Manchester and Notting Hill are separate Caribbean carnivals.",
     "human",
     1_000,
   );
 
   const context = topics.turnContext("autonomous", 2_000);
-  assert.equal(context.eligible, false);
-  assert.match(context.guidance, /no learned subject available/i);
+  assert.equal(context.eligible, true);
+  assert.equal(context.activeTopic, "Caribbean carnivals");
+  assert.equal(context.botTurnsOnTopic, 1);
+  assert.match(context.guidance, /active topic is Caribbean carnivals/i);
 });

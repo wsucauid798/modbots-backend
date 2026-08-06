@@ -80,6 +80,8 @@ const defaultCostControls: RuntimeCostControls = {
   internetResearchCooldownMs: 6 * 60 * 60_000,
 };
 
+const activeConversationDelayRange = [15_000, 35_000] as const;
+
 const pick = <Item>(items: Item[]): Item =>
   items[Math.floor(Math.random() * items.length)];
 
@@ -814,8 +816,11 @@ export class ConversationEngine {
           continue;
         }
 
-        const activityLevel = roomActivityLevelAtUtc(this.now());
-        const [minimumWait, maximumWait] = autonomousDelayRange(activityLevel);
+        const activeConversation =
+          this.topics.turnContext("autonomous", now).activeTopic !== null;
+        const [minimumWait, maximumWait] = activeConversation
+          ? activeConversationDelayRange
+          : autonomousDelayRange(roomActivityLevelAtUtc(this.now()));
         await this.sleep(minimumWait, maximumWait);
       }
 
@@ -868,7 +873,7 @@ export class ConversationEngine {
           first,
           this.guidanceForOpenTurn(),
           "autonomous",
-          true,
+          topicContext.activeTopic === null,
         );
       }
     }
