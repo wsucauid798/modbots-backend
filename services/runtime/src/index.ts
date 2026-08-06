@@ -150,7 +150,8 @@ const main = async (): Promise<void> => {
   console.log(
     `Bot runtime running: room '${config.roomId}', tempo ${config.tempo}, ` +
       `${config.autonomousInferenceLimitPerHour} autonomous inferences per hour, ` +
-      `${config.internetResearchLimitPerHour} internet searches per hour`,
+      `${config.internetResearchLimitPerHour} background internet searches ` +
+      `and participant lookups per hour each`,
   );
   await engine.run();
 };

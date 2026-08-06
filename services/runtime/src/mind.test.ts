@@ -101,6 +101,10 @@ test("returns a model-grounded topic decision", async () => {
       /include research citations or source URLs/,
     );
     assert.match(
+      JSON.stringify(requestBodies[1]),
+      /Retrieval happen silently inside the brain|retrieval happen silently inside the brain/i,
+    );
+    assert.match(
       JSON.stringify(requestBodies[0]),
       /incidental noun is not a reason to replace the subject/,
     );
@@ -191,6 +195,40 @@ test("treats a participant-named source as conversation grounding", async () => 
 
     assert.equal(result.speak, true);
     assert.equal(result.topicSource, "conversation");
+    assert.equal(requestCount, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("rejects narration about checking or verifying sources", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestCount = 0;
+
+  globalThis.fetch = async () => {
+    requestCount += 1;
+    const content = requestCount === 1
+      ? "MOVE=reply|SOURCE=knowledge|TOPIC=current news|" +
+        "ANGLE=answer with details|GROUNDING=current sourced knowledge"
+      : "I need to verify the details first using live sources.";
+    return new Response(JSON.stringify({ content }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  try {
+    const decision = await new Mind("http://ml.test").consider(
+      persona,
+      roster,
+      ["Mira: Tell me what happened."],
+      "Current sourced knowledge: The event happened after a public report.",
+      "The human Mira asked what happened. Answer directly.",
+      topicContext,
+      false,
+    );
+
+    assert.deepEqual(decision, { speak: false });
     assert.equal(requestCount, 2);
   } finally {
     globalThis.fetch = originalFetch;

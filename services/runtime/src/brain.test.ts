@@ -227,6 +227,8 @@ test("puts freshly researched news into the answering brain", async () => {
     assert.match(serialized, /Current sourced knowledge retrieved/);
     assert.match(serialized, /Several major public events/);
     assert.match(serialized, /do not claim that you lack access/);
+    assert.match(serialized, /You can retrieve and verify current information/);
+    assert.match(serialized, /while you remain in the chatroom/);
   } finally {
     globalThis.fetch = originalFetch;
     await rm(directory, { recursive: true, force: true });

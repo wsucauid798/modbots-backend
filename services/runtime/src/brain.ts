@@ -61,6 +61,16 @@ export class BotBrain {
     let recalledState = this.memory.view(
       transcript.slice(-8).join("\n"),
     );
+    recalledState +=
+      `\n\nYour actual retrieval capability:\n` +
+      `You can retrieve and verify current information through live internet ` +
+      `research when a participant's question requires it. This happens ` +
+      `inside your own brain while you remain in the chatroom. Use this ` +
+      `capability silently before speaking. Never announce, explain, promise, ` +
+      `or discuss research, retrieval, verification, tools, sources, access, ` +
+      `or what you are about to do. Never claim that you cannot check, ` +
+      `retrieve, access, or verify current information. Just answer from ` +
+      `what your brain retrieved.`;
 
     if (currentKnowledge !== undefined) {
       recalledState +=

@@ -446,6 +446,43 @@ test("ordinary conversation uses chat bots and never mod bots", async () => {
   assert.equal(mind.currentKnowledge[0]?.topic, "ocean heat");
 });
 
+test("researches exact follow-up questions about a current information answer", async () => {
+  const platform = new FakePlatform({
+    "human-one": makeActor("human-one", "Mina"),
+  });
+  const mind = new FakeMind([
+    { speak: true, message: "A current UK story concerns a major event." },
+    { speak: true, message: "The event developed after an earlier report." },
+  ]);
+  const engine = new ConversationEngine(
+    platform,
+    mind,
+    0,
+    makeBots(mind),
+    noonUtc,
+  );
+
+  await engine.enqueueRoomEvent(
+    humanMessage("current-question", "human-one", "What's the top UK news?"),
+  );
+  await engine.enqueueRoomEvent(
+    humanMessage(
+      "current-follow-up",
+      "human-one",
+      "Tell me what happened; I had not heard of this.",
+    ),
+  );
+  assert.equal(mind.researchCalls, 2);
+  assert.deepEqual(
+    mind.researchDirections.map((direction) => direction.focus),
+    [
+      "What's the top UK news?",
+      "Tell me what happened; I had not heard of this.",
+    ],
+  );
+  assert.equal(platform.posts.length, 2);
+});
+
 test("chat bots do not steal a message addressed to a mod bot", async () => {
   const platform = new FakePlatform({
     "human-one": makeActor("human-one", "Mina"),
@@ -939,6 +976,61 @@ test("learning continues when the conversation inference budget is exhausted", a
 
   assert.equal(platform.posts.length, 1);
   assert.equal(mind.researchCalls, 1);
+});
+
+test("background learning cannot consume participant retrieval capacity", async () => {
+  const platform = new FakePlatform({
+    "human-one": makeActor("human-one", "Mina"),
+  });
+  const mind = new FakeMind([
+    { speak: true, message: "Ocean heat is a grounded subject." },
+    { speak: true, message: "Here is the current news answer." },
+  ]);
+  let researchAllowed = true;
+  const baseBrain = makeBrain(arwen, mind);
+  const brain = {
+    ...baseBrain,
+    canResearch(): boolean {
+      return researchAllowed;
+    },
+    async research(): ReturnType<typeof baseBrain.research> {
+      researchAllowed = false;
+      return baseBrain.research();
+    },
+  };
+  const engine = new ConversationEngine(
+    platform,
+    mind,
+    0,
+    [{ actorId: "bot-arwen", brain }],
+    noonUtc,
+    undefined,
+    {
+      autonomousInferenceLimitPerHour: 4,
+      internetResearchLimitPerHour: 1,
+      internetResearchCooldownMs: 6 * 60 * 60_000,
+    },
+  );
+  let humanReply: Promise<void> | undefined;
+  platform.onPost = () => {
+    if (platform.posts.length === 1) {
+      humanReply = engine.enqueueRoomEvent(
+        humanMessage("news-after-learning", "human-one", "What's the news?"),
+      );
+    } else {
+      engine.stop();
+    }
+  };
+
+  await engine.run();
+  await humanReply;
+
+  assert.equal(mind.researchCalls, 2);
+  assert.deepEqual(
+    mind.researchDirections.map((direction) => direction.kind),
+    ["public_subject", "participant_question"],
+  );
+  assert.equal(platform.posts.length, 2);
 });
 
 test("rejects an incoherent autonomous topic jump", async () => {

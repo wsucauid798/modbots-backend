@@ -105,6 +105,8 @@ export class ConversationEngine {
   private inferencePausedUntil = 0;
   private readonly autonomousInferenceAttempts: number[] = [];
   private readonly internetResearchAttempts: number[] = [];
+  private readonly participantResearchAttempts: number[] = [];
+  private currentInformationThreadUntil = 0;
   private nextLearningBotIndex = 0;
   private autonomousPauseReason: "budget" | null = null;
   private readonly topics: TopicCoordinator;
@@ -216,16 +218,20 @@ export class ConversationEngine {
     }
   }
 
+  private pruneParticipantResearchAttempts(now: number): void {
+    const hourAgo = now - 60 * 60_000;
+    while ((this.participantResearchAttempts[0] ?? now) <= hourAgo) {
+      this.participantResearchAttempts.shift();
+    }
+  }
+
   private async learnOneEligibleBot(now: number): Promise<boolean> {
     this.pruneInternetResearchAttempts(now);
     const hourlyLimit = this.costControls.internetResearchLimitPerHour ?? 4;
-    const autonomousLimit = Math.max(0, hourlyLimit - 1);
     const cooldownMs =
       this.costControls.internetResearchCooldownMs ?? 6 * 60 * 60_000;
 
-    // Background learning must leave one lookup available for a participant
-    // who asks for current public information.
-    if (this.internetResearchAttempts.length >= autonomousLimit) {
+    if (this.internetResearchAttempts.length >= hourlyLimit) {
       return false;
     }
 
@@ -283,15 +289,15 @@ export class ConversationEngine {
     question: string,
   ): Promise<LearnedKnowledge | undefined> {
     const now = this.now().getTime();
-    this.pruneInternetResearchAttempts(now);
+    this.pruneParticipantResearchAttempts(now);
     const hourlyLimit = this.costControls.internetResearchLimitPerHour ?? 4;
 
-    if (this.internetResearchAttempts.length >= hourlyLimit) {
+    if (this.participantResearchAttempts.length >= hourlyLimit) {
       return undefined;
     }
 
     const attemptedAt = this.now().toISOString();
-    this.internetResearchAttempts.push(now);
+    this.participantResearchAttempts.push(now);
 
     try {
       const result = await bot.brain.researchForParticipant(
@@ -584,7 +590,10 @@ export class ConversationEngine {
     );
   }
 
-  private static currentInformationQuery(content: string): string | null {
+  private static currentInformationQuery(
+    content: string,
+    continuingCurrentInformation: boolean,
+  ): string | null {
     const text = content.trim().toLowerCase();
     const changingPublicInformation =
       /\b(news|headlines?|breaking news|current events?|weather|forecast|scores?|standings|prices?|exchange rates?|schedules?|election results?|latest releases?|latest versions?)\b/.test(
@@ -597,10 +606,16 @@ export class ConversationEngine {
     const requestsInformation =
       ConversationEngine.asksQuestion(content) ||
       /^(tell|show|give|find|look up|check|update)\b/.test(text);
+    const asksForDetailsFromCurrentThread =
+      continuingCurrentInformation &&
+      /\b(what happened|tell me more|more details?|the details?|describe what happened|explain what happened|who was involved|where did|when did|why did)\b/.test(
+        text,
+      );
 
     if (
-      requestsInformation &&
-      (changingPublicInformation || asksForFreshness)
+      (requestsInformation &&
+        (changingPublicInformation || asksForFreshness)) ||
+      asksForDetailsFromCurrentThread
     ) {
       return content.trim();
     }
@@ -1488,7 +1503,10 @@ export class ConversationEngine {
     const first = target ?? pick(responsePool);
     const directQuestion = ConversationEngine.asksQuestion(content);
     const currentInformationQuery =
-      ConversationEngine.currentInformationQuery(content);
+      ConversationEngine.currentInformationQuery(
+        content,
+        this.now().getTime() < this.currentInformationThreadUntil,
+      );
     const addressedTo =
       humanActorId === undefined
         ? undefined
@@ -1533,6 +1551,10 @@ export class ConversationEngine {
       );
 
       if (spoke) {
+        if (currentKnowledge !== undefined) {
+          this.currentInformationThreadUntil =
+            this.now().getTime() + 10 * 60_000;
+        }
         return;
       }
     }
