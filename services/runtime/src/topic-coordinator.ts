@@ -1,5 +1,6 @@
 import type { Decision } from "./mind.js";
 import type { LearnedKnowledge } from "./experience.js";
+import { subjectSimilarity as similarity } from "./subject-similarity.js";
 
 export type TurnTrigger = "autonomous" | "human" | "room";
 
@@ -39,75 +40,6 @@ const maximumBotTurnsWithoutHuman = 3;
 const maximumTopicIdleMs = 15 * 60_000;
 const humanConversationYieldMs = 15_000;
 const relatedTopicSimilarity = 0.3;
-
-const stopWords = new Set([
-  "a",
-  "an",
-  "and",
-  "are",
-  "as",
-  "at",
-  "be",
-  "but",
-  "by",
-  "for",
-  "from",
-  "in",
-  "is",
-  "it",
-  "of",
-  "on",
-  "or",
-  "that",
-  "the",
-  "this",
-  "to",
-  "was",
-  "with",
-]);
-
-const words = (text: string): string[] =>
-  text
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s]/gu, " ")
-    .split(/\s+/)
-    .filter((word) => word.length > 1 && !stopWords.has(word))
-    .map((word) => {
-      // Reduce plural forms so "potatoes" matches "potato". Stripping only
-      // the final "s" left "potatoe", which matched nothing.
-      if (word.length > 4 && word.endsWith("ies")) {
-        return `${word.slice(0, -3)}y`;
-      }
-
-      if (word.length > 4 && word.endsWith("oes")) {
-        return word.slice(0, -2);
-      }
-
-      if (word.length > 3 && word.endsWith("s") && !word.endsWith("ss")) {
-        return word.slice(0, -1);
-      }
-
-      return word;
-    });
-
-const similarity = (left: string, right: string): number => {
-  const leftWords = new Set(words(left));
-  const rightWords = new Set(words(right));
-
-  if (leftWords.size === 0 || rightWords.size === 0) {
-    return 0;
-  }
-
-  let overlap = 0;
-
-  for (const word of leftWords) {
-    if (rightWords.has(word)) {
-      overlap += 1;
-    }
-  }
-
-  return overlap / new Set([...leftWords, ...rightWords]).size;
-};
 
 const asksQuestion = (message: string): boolean => message.includes("?");
 

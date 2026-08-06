@@ -144,7 +144,7 @@ export class BotBrain {
     attemptedAt: string,
     brainState: string,
   ): Promise<LearningResult> {
-    this.memory.recordResearchAttempt(attemptedAt);
+    this.memory.recordResearchAttempt(attemptedAt, direction.kind);
     const knowledge = await this.cognition.research(
       this.persona,
       brainState,

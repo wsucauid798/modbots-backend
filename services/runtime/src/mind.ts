@@ -2,6 +2,7 @@ import type { Persona } from "./personas.js";
 import type { InferencePart } from "./platform.js";
 import type { TopicTurnContext } from "./topic-coordinator.js";
 import type { ConversationDirection } from "./conversation-policy.js";
+import { subjectSimilarity } from "./subject-similarity.js";
 import type {
   LearnedKnowledge,
   KnowledgeSource,
@@ -342,16 +343,37 @@ export class Mind {
       return { speak: false };
     }
 
-    const expressionText = await this.generate(
-      expressionSystem,
+    const expressionContext =
       `${roomContext}Decided intention:\n` +
         `MOVE=${plan.move}\nSOURCE=${plan.source}\nTOPIC=${plan.topic}\n` +
         `ANGLE=${plan.contribution}\nGROUNDING=${plan.grounding}\n\n` +
-        `Cadence for the message: ${cadence}`,
+        `Cadence for the message: ${cadence}`;
+    let expressionText = await this.generate(
+      expressionSystem,
+      expressionContext,
       90,
       0.65,
     );
-    const cleaned = this.parseMessage(persona, expressionText);
+    let cleaned = this.parseMessage(persona, expressionText);
+
+    if (
+      cleaned !== null &&
+      plan.move === "start" &&
+      plan.source === "knowledge" &&
+      subjectSimilarity(plan.topic, cleaned) === 0
+    ) {
+      expressionText = await this.generate(
+        expressionSystem,
+        `${expressionContext}\n\nYour previous draft did not name the decided ` +
+          `subject, so it could not be understood as a new conversation: ` +
+          `${expressionText.trim()}\nRewrite the message once. Naturally name ` +
+          `the concrete subject '${plan.topic}' while preserving the decided ` +
+          `intention and cadence. Return only the revised message.`,
+        90,
+        0.35,
+      );
+      cleaned = this.parseMessage(persona, expressionText);
+    }
 
     if (cleaned === null) {
       return { speak: false };

@@ -354,7 +354,7 @@ test("reuses learned knowledge before spending another internet search", async (
   }
 });
 
-test("does not restart another brain's recently discussed subject", async () => {
+test("hearing a subject does not make learned knowledge unusable", async () => {
   const directory = await mkdtemp(join(tmpdir(), "modbots-brain-"));
 
   try {
@@ -380,16 +380,67 @@ test("does not restart another brain's recently discussed subject", async () => 
     });
 
     assert.equal(
-      brain.topicForConversation(Date.parse("2026-08-07T12:20:00.000Z")),
+      brain.topicForConversation(Date.parse("2026-08-07T12:20:00.000Z"))
+        ?.topic,
+      "moisture aroma and bitterness",
+    );
+    assert.equal(
+      brain.topicForConversation(
+        Date.parse("2026-08-07T12:20:00.000Z"),
+        ["moisture aroma and bitterness"],
+      ),
       null,
     );
     await brain.flush();
 
     const reloaded = await AgentBrain.load(directory, persona);
     assert.equal(
-      reloaded.topicForConversation(Date.parse("2026-08-07T12:20:00.000Z")),
+      reloaded.topicForConversation(Date.parse("2026-08-07T12:20:00.000Z"))
+        ?.topic,
+      "moisture aroma and bitterness",
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("participant retrieval does not block background learning or restart as a topic", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "modbots-brain-"));
+
+  try {
+    const brain = await AgentBrain.load(directory, persona);
+    const direction = {
+      kind: "participant_question" as const,
+      focus: "What is the latest Manchester news?",
+      reason: "A participant asked for current information.",
+    };
+    brain.recordResearchAttempt(
+      "2026-08-07T12:00:00.000Z",
+      direction.kind,
+    );
+    brain.learn(
+      {
+        topic: "Manchester news today",
+        statement: "Current reports describe several events in Manchester.",
+        confidence: 0.8,
+        sources: [{ title: "News", url: "https://example.com/news" }],
+      },
+      "2026-08-07T12:00:00.000Z",
+      direction,
+    );
+
+    assert.equal(
+      brain.canResearch(
+        Date.parse("2026-08-07T12:01:00.000Z"),
+        6 * 60 * 60_000,
+      ),
+      true,
+    );
+    assert.equal(
+      brain.topicForConversation(Date.parse("2026-08-07T12:01:00.000Z")),
       null,
     );
+    await brain.flush();
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

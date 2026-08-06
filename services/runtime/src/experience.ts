@@ -36,6 +36,7 @@ export interface ResearchDirection {
 }
 
 interface KnowledgeMemory extends LearnedKnowledge {
+  origin: ResearchDirection["kind"];
   learnedAt: string;
   lastRecalledAt: string;
   recallCount: number;
@@ -60,7 +61,7 @@ interface Curiosity {
 }
 
 interface BrainState {
-  version: 3;
+  version: 4;
   handle: string;
   displayName: string;
   people: Record<string, PersonMemory>;
@@ -68,7 +69,8 @@ interface BrainState {
   episodes: Episode[];
   knowledge: KnowledgeMemory[];
   curiosities: Curiosity[];
-  lastResearchAt?: string;
+  lastBackgroundResearchAt?: string;
+  lastParticipantResearchAt?: string;
   impressions: string[];
   responsiveMoments: string[];
   confusingMoments: string[];
@@ -265,13 +267,31 @@ const cleanEpisodes = (value: unknown): Episode[] =>
       })
     : [];
 
-const cleanKnowledge = (value: unknown): KnowledgeMemory[] =>
+const researchKinds = new Set<ResearchDirection["kind"]>([
+  "participant_question",
+  "participant_subject",
+  "deepen",
+  "public_subject",
+]);
+
+const cleanKnowledge = (
+  value: unknown,
+  inferLegacyOrigin = false,
+): KnowledgeMemory[] =>
   Array.isArray(value)
     ? value.flatMap((entry): KnowledgeMemory[] => {
         if (typeof entry !== "object" || entry === null) {
           return [];
         }
         const memory = entry as Record<string, unknown>;
+        const useCount =
+          typeof memory.useCount === "number"
+            ? Math.max(0, memory.useCount)
+            : 0;
+        const storedOrigin = typeof memory.origin === "string" &&
+            researchKinds.has(memory.origin as ResearchDirection["kind"])
+          ? memory.origin as ResearchDirection["kind"]
+          : undefined;
         return typeof memory.topic === "string" &&
           typeof memory.statement === "string" &&
           typeof memory.confidence === "number" &&
@@ -284,6 +304,11 @@ const cleanKnowledge = (value: unknown): KnowledgeMemory[] =>
                 statement: memory.statement,
                 confidence: clamp(memory.confidence, 1),
                 sources: cleanSources(memory.sources),
+                origin:
+                  storedOrigin ??
+                  (inferLegacyOrigin && useCount === 0
+                    ? "participant_question"
+                    : "public_subject"),
                 learnedAt: memory.learnedAt,
                 lastRecalledAt: memory.lastRecalledAt,
                 recallCount: Math.max(0, memory.recallCount),
@@ -299,10 +324,7 @@ const cleanKnowledge = (value: unknown): KnowledgeMemory[] =>
                   typeof memory.learningValue === "string"
                     ? memory.learningValue
                     : undefined,
-                useCount:
-                  typeof memory.useCount === "number"
-                    ? Math.max(0, memory.useCount)
-                    : 0,
+                useCount,
                 researchCount:
                   typeof memory.researchCount === "number"
                     ? Math.max(1, memory.researchCount)
@@ -353,22 +375,37 @@ export class AgentBrain {
           ? (parsed.people as Record<string, PersonMemory>)
           : {};
 
-      if (parsed.version === 3) {
+      if (parsed.version === 4 || parsed.version === 3) {
         const pending = parsed.pendingAttempt as
           | Record<string, unknown>
           | undefined;
+        const knowledge = cleanKnowledge(
+          parsed.knowledge,
+          parsed.version === 3,
+        ).slice(-160);
+        const inferredBackgroundResearchAt = knowledge
+          .filter((memory) => memory.origin !== "participant_question")
+          .map((memory) => memory.learnedAt)
+          .filter((value) => Number.isFinite(Date.parse(value)))
+          .sort((left, right) => Date.parse(right) - Date.parse(left))[0];
 
         return new AgentBrain(filePath, {
-          version: 3,
+          version: 4,
           handle: persona.handle,
           displayName: persona.displayName,
           people,
           workingMemory: cleanEpisodes(parsed.workingMemory).slice(-24),
           episodes: cleanEpisodes(parsed.episodes).slice(-240),
-          knowledge: cleanKnowledge(parsed.knowledge).slice(-160),
+          knowledge,
           curiosities: cleanCuriosities(parsed.curiosities).slice(-40),
-          lastResearchAt:
-            typeof parsed.lastResearchAt === "string"
+          lastBackgroundResearchAt:
+            typeof parsed.lastBackgroundResearchAt === "string"
+              ? parsed.lastBackgroundResearchAt
+              : inferredBackgroundResearchAt,
+          lastParticipantResearchAt:
+            typeof parsed.lastParticipantResearchAt === "string"
+              ? parsed.lastParticipantResearchAt
+              : typeof parsed.lastResearchAt === "string"
               ? parsed.lastResearchAt
               : undefined,
           impressions: stringList(parsed.impressions),
@@ -390,7 +427,7 @@ export class AgentBrain {
           | undefined;
 
         return new AgentBrain(filePath, {
-          version: 3,
+          version: 4,
           handle: persona.handle,
           displayName: persona.displayName,
           people,
@@ -398,7 +435,8 @@ export class AgentBrain {
           episodes: [],
           knowledge: [],
           curiosities: [],
-          lastResearchAt: undefined,
+          lastBackgroundResearchAt: undefined,
+          lastParticipantResearchAt: undefined,
           impressions: stringList(parsed.impressions),
           responsiveMoments: stringList(parsed.responsiveMoments),
           confusingMoments: stringList(parsed.confusingMoments),
@@ -416,7 +454,7 @@ export class AgentBrain {
       // Preserve familiar people, but let room replay rebuild real moments.
       if (parsed.version === 1) {
         return new AgentBrain(filePath, {
-          version: 3,
+          version: 4,
           handle: persona.handle,
           displayName: persona.displayName,
           people,
@@ -424,7 +462,8 @@ export class AgentBrain {
           episodes: [],
           knowledge: [],
           curiosities: [],
-          lastResearchAt: undefined,
+          lastBackgroundResearchAt: undefined,
+          lastParticipantResearchAt: undefined,
           impressions: [],
           responsiveMoments: [],
           confusingMoments: [],
@@ -436,7 +475,7 @@ export class AgentBrain {
     }
 
     return new AgentBrain(filePath, {
-      version: 3,
+      version: 4,
       handle: persona.handle,
       displayName: persona.displayName,
       people: {},
@@ -444,7 +483,8 @@ export class AgentBrain {
       episodes: [],
       knowledge: [],
       curiosities: [],
-      lastResearchAt: undefined,
+      lastBackgroundResearchAt: undefined,
+      lastParticipantResearchAt: undefined,
       impressions: [],
       responsiveMoments: [],
       confusingMoments: [],
@@ -628,6 +668,7 @@ export class AgentBrain {
         statement,
         confidence: clamp(learned.confidence, 1),
         sources,
+        origin: direction?.kind ?? "public_subject",
         learnedAt,
         lastRecalledAt: learnedAt,
         recallCount: 0,
@@ -684,7 +725,11 @@ export class AgentBrain {
       });
     }
 
-    this.state.lastResearchAt = learnedAt;
+    if (direction?.kind === "participant_question") {
+      this.state.lastParticipantResearchAt = learnedAt;
+    } else {
+      this.state.lastBackgroundResearchAt = learnedAt;
+    }
 
     this.state.knowledge.splice(
       0,
@@ -694,12 +739,19 @@ export class AgentBrain {
   }
 
   public canResearch(now: number, cooldownMs: number): boolean {
-    const last = Date.parse(this.state.lastResearchAt ?? "");
+    const last = Date.parse(this.state.lastBackgroundResearchAt ?? "");
     return !Number.isFinite(last) || now - last >= cooldownMs;
   }
 
-  public recordResearchAttempt(now: string): void {
-    this.state.lastResearchAt = now;
+  public recordResearchAttempt(
+    now: string,
+    kind: ResearchDirection["kind"] = "public_subject",
+  ): void {
+    if (kind === "participant_question") {
+      this.state.lastParticipantResearchAt = now;
+    } else {
+      this.state.lastBackgroundResearchAt = now;
+    }
     this.saveSoon();
   }
 
@@ -710,22 +762,14 @@ export class AgentBrain {
     // A subject the room has finished stays finished for the rest of the
     // day. Returning to it after half an hour reads as a broken record.
     const reuseAfterMs = 24 * 60 * 60_000;
-    const recentRoomMessages = this.state.workingMemory
-      .filter((episode) => {
-        const occurredAt = Date.parse(episode.occurredAt);
-        return Number.isFinite(occurredAt) && now - occurredAt < reuseAfterMs;
-      })
-      .map((episode) => episode.content);
     const available = this.state.knowledge
       .filter((memory) => {
         const lastUsed = Date.parse(memory.lastUsedAt ?? "");
         const subject = `${memory.topic} ${memory.statement}`;
         const wasRecentlyDiscussed =
-          excludedTopics.some((topic) => relatedness(topic, subject) >= 0.3) ||
-          recentRoomMessages.some(
-            (message) => relatedness(message, subject) >= 0.25,
-          );
+          excludedTopics.some((topic) => relatedness(topic, subject) >= 0.3);
         return (
+          memory.origin !== "participant_question" &&
           memory.confidence >= 0.5 &&
           memory.sources.length > 0 &&
           !wasRecentlyDiscussed &&

@@ -133,6 +133,64 @@ test("returns a model-grounded topic decision", async () => {
   }
 });
 
+test("repairs an autonomous opening that omits its subject", async () => {
+  const originalFetch = globalThis.fetch;
+  const requestBodies: Record<string, unknown>[] = [];
+
+  globalThis.fetch = async (_input, init) => {
+    const requestBody = JSON.parse(
+      String(init?.body),
+    ) as Record<string, unknown>;
+    requestBodies.push(requestBody);
+    const content = requestBodies.length === 1
+      ? "MOVE=start|SOURCE=knowledge|TOPIC=Caribbean carnivals|" +
+        "ANGLE=community celebration|GROUNDING=sourced carnival knowledge"
+      : requestBodies.length === 2
+      ? "They can turn a neighborhood into a shared celebration."
+      : "Caribbean carnivals can turn a neighborhood into a shared celebration.";
+
+    return new Response(JSON.stringify({ content }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  try {
+    const decision = await new Mind("http://ml.test").consider(
+      persona,
+      roster,
+      [],
+      "Sourced knowledge: Caribbean carnivals bring communities together.",
+      null,
+      {
+        eligible: true,
+        questionAllowed: true,
+        guidance: "Start from knowledge already held in your brain.",
+        activeTopic: null,
+        botTurnsOnTopic: 0,
+      },
+      false,
+      {
+        intent: "start_opinion",
+        instruction: "Share one considered opinion from learned knowledge.",
+        learnedGuidance: "",
+      },
+    );
+
+    assert.equal(requestBodies.length, 3);
+    assert.equal(
+      decision.message,
+      "Caribbean carnivals can turn a neighborhood into a shared celebration.",
+    );
+    assert.match(
+      JSON.stringify(requestBodies[2]),
+      /previous draft did not name the decided subject/,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("does not speak when a model decision has no topic grounding", async () => {
   const originalFetch = globalThis.fetch;
   let requestCount = 0;

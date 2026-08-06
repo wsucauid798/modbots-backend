@@ -1584,6 +1584,10 @@ export class ConversationEngine {
 
       if (spoke) {
         if (currentKnowledge !== undefined) {
+          candidate.brain.markTopicUsed(
+            currentKnowledge.topic,
+            this.now().toISOString(),
+          );
           this.currentInformationThreadUntil =
             this.now().getTime() + 10 * 60_000;
         }
