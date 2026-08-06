@@ -125,3 +125,127 @@ test("gives mod bot brains a moderation learning direction", async () => {
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("researches current news without sending private room text", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "modbots-brains-"));
+  const originalFetch = globalThis.fetch;
+  let requestBody: Record<string, unknown> | undefined;
+
+  globalThis.fetch = async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return new Response(
+      JSON.stringify({
+        content:
+          "TOPIC=Current public news\n" +
+          "KNOWLEDGE=Several major public events were reported today. " +
+          "The details were confirmed by current sources.\n" +
+          "WHY=People asked what is happening today.\n" +
+          "CURIOSITY=Which report matters most to the conversation?",
+        sources: [
+          {
+            title: "Public news source",
+            url: "https://example.com/news",
+          },
+        ],
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  };
+
+  try {
+    const arwen = personas.find((persona) => persona.handle === "arwen");
+    assert.notEqual(arwen, undefined);
+    const brain = await BotBrain.load(
+      directory,
+      arwen as (typeof personas)[number],
+      "http://ml.test",
+    );
+    brain.perceive({
+      speaker: "Mina",
+      type: "human",
+      content: "My private account number is 12345.",
+      occurredAt: "2026-08-07T00:00:00.000Z",
+      fromSelf: false,
+      addressedToSelf: false,
+      addressedToRoom: true,
+      followedSelf: false,
+    });
+
+    const result = await brain.researchForParticipant(
+      "Major public news headlines reported today",
+      "2026-08-07T00:01:00.000Z",
+    );
+    const serialized = JSON.stringify(requestBody);
+
+    assert.equal(result.direction.kind, "participant_subject");
+    assert.match(serialized, /Major public news headlines reported today/);
+    assert.doesNotMatch(serialized, /private account number|12345/);
+    assert.match(serialized, /No participant messages, identities/);
+    await brain.flush();
+  } finally {
+    globalThis.fetch = originalFetch;
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("puts freshly researched news into the answering brain", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "modbots-brains-"));
+  const originalFetch = globalThis.fetch;
+  const requestBodies: string[] = [];
+
+  globalThis.fetch = async (_input, init) => {
+    requestBodies.push(String(init?.body));
+    const content = requestBodies.length === 1
+      ? "MOVE=reply|SOURCE=knowledge|TOPIC=current public news|ANGLE=answer headlines|GROUNDING=current sourced knowledge"
+      : "Several major public events were reported today.";
+    return new Response(JSON.stringify({ content }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  try {
+    const arwen = personas.find((persona) => persona.handle === "arwen");
+    assert.notEqual(arwen, undefined);
+    const brain = await BotBrain.load(
+      directory,
+      arwen as (typeof personas)[number],
+      "http://ml.test",
+    );
+    const knowledge = {
+      topic: "current public news",
+      statement: "Several major public events were reported today.",
+      confidence: 0.8,
+      sources: [{ title: "Public news", url: "https://example.com/news" }],
+    };
+
+    const decision = await brain.consider(
+      {
+        residents: ["Arwen"],
+        humans: ["Mina"],
+        roomTimeUtc: "2026-08-07T00:01:00.000Z",
+      },
+      ["Mina: What's the latest news today?"],
+      "The human Mina asked for today's news. Answer the question first.",
+      {
+        eligible: true,
+        questionAllowed: true,
+        activeTopic: null,
+        botTurnsOnTopic: 0,
+        guidance: "Ground the reply in the human's question.",
+      },
+      false,
+      undefined,
+      knowledge,
+    );
+    const serialized = requestBodies.join("\n");
+
+    assert.equal(decision.speak, true);
+    assert.match(serialized, /Current sourced knowledge retrieved/);
+    assert.match(serialized, /Several major public events/);
+    assert.match(serialized, /do not claim that you lack access/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    await rm(directory, { recursive: true, force: true });
+  }
+});

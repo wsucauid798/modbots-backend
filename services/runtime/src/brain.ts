@@ -56,10 +56,20 @@ export class BotBrain {
     topicContext: TopicTurnContext,
     allowPass = true,
     direction?: ConversationDirection,
+    currentKnowledge?: LearnedKnowledge,
   ): Promise<Decision> {
-    const recalledState = this.memory.view(
+    let recalledState = this.memory.view(
       transcript.slice(-8).join("\n"),
     );
+
+    if (currentKnowledge !== undefined) {
+      recalledState +=
+        `\n\nCurrent sourced knowledge retrieved for this reply:\n` +
+        `${currentKnowledge.topic}: ${currentKnowledge.statement}\n` +
+        `This information came from live internet research requested by ` +
+        `the participant's question. Use it directly and do not claim that ` +
+        `you lack access to current information.`;
+    }
 
     return this.cognition.consider(
       this.persona,
@@ -81,7 +91,6 @@ export class BotBrain {
     recentlyDiscussed: string[],
     attemptedAt: string,
   ): Promise<LearningResult> {
-    this.memory.recordResearchAttempt(attemptedAt);
     const direction: ResearchDirection = this.persona.type === "mod_bot"
       ? {
           kind: "public_subject",
@@ -93,9 +102,43 @@ export class BotBrain {
             "understands room behavior and learns from moderation outcomes.",
         }
       : this.memory.researchDirection(recentlyDiscussed);
+    return this.learn(
+      direction,
+      recentlyDiscussed,
+      attemptedAt,
+      this.memory.view("questions, uncertainty, and subjects worth learning"),
+    );
+  }
+
+  public async researchForParticipant(
+    focus: string,
+    attemptedAt: string,
+  ): Promise<LearningResult> {
+    return this.learn(
+      {
+        kind: "participant_subject",
+        focus,
+        reason:
+          "A participant asked for information that may have changed, so " +
+          "this brain needs current sourced knowledge before answering.",
+      },
+      [],
+      attemptedAt,
+      "No participant messages, identities, or private room context are " +
+        "included in this public current-information lookup.",
+    );
+  }
+
+  private async learn(
+    direction: ResearchDirection,
+    recentlyDiscussed: string[],
+    attemptedAt: string,
+    brainState: string,
+  ): Promise<LearningResult> {
+    this.memory.recordResearchAttempt(attemptedAt);
     const knowledge = await this.cognition.research(
       this.persona,
-      this.memory.view("questions, uncertainty, and subjects worth learning"),
+      brainState,
       recentlyDiscussed,
       direction,
     );

@@ -32,6 +32,7 @@ type ConversationBrain = Pick<
   | "consider"
   | "canResearch"
   | "research"
+  | "researchForParticipant"
   | "topicForConversation"
   | "markTopicUsed"
 >;
@@ -299,10 +300,13 @@ export class ConversationEngine {
   private async learnOneEligibleBot(now: number): Promise<boolean> {
     this.pruneInternetResearchAttempts(now);
     const hourlyLimit = this.costControls.internetResearchLimitPerHour ?? 4;
+    const autonomousLimit = Math.max(0, hourlyLimit - 1);
     const cooldownMs =
       this.costControls.internetResearchCooldownMs ?? 6 * 60 * 60_000;
 
-    if (this.internetResearchAttempts.length >= hourlyLimit) {
+    // Background learning must leave one lookup available for a participant
+    // who asks for current public information.
+    if (this.internetResearchAttempts.length >= autonomousLimit) {
       return false;
     }
 
@@ -357,6 +361,46 @@ export class ConversationEngine {
           error instanceof Error ? error.message : String(error)
         }`,
       );
+    }
+  }
+
+  private async currentKnowledgeFor(
+    bot: BotState,
+    publicFocus: string,
+  ): Promise<LearnedKnowledge | undefined> {
+    const now = this.now().getTime();
+    this.pruneInternetResearchAttempts(now);
+    const hourlyLimit = this.costControls.internetResearchLimitPerHour ?? 4;
+
+    if (this.internetResearchAttempts.length >= hourlyLimit) {
+      return undefined;
+    }
+
+    const attemptedAt = this.now().toISOString();
+    this.internetResearchAttempts.push(now);
+
+    try {
+      const result = await bot.brain.researchForParticipant(
+        publicFocus,
+        attemptedAt,
+      );
+      console.log(
+        `${bot.persona.displayName} researched a participant's current ` +
+          `question and learned '${result.knowledge.topic}' from ` +
+          `${result.knowledge.sources.length} internet source${
+            result.knowledge.sources.length === 1 ? "" : "s"
+          }.`,
+      );
+      return result.knowledge;
+    } catch (error) {
+      this.deferForInferenceFailure(error);
+      console.error(
+        `${bot.persona.displayName} could not research the participant's ` +
+          `current question: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+      );
+      return undefined;
     }
   }
 
@@ -633,6 +677,16 @@ export class ConversationEngine {
     );
   }
 
+  private static currentInformationFocus(content: string): string | null {
+    const text = content.trim().toLowerCase();
+
+    if (/\b(news|headlines?|breaking news|current events?)\b/.test(text)) {
+      return "Major public news headlines reported today";
+    }
+
+    return null;
+  }
+
   private recentHumanQuestionWithoutBotReply():
     | TranscriptEntry
     | undefined {
@@ -881,6 +935,7 @@ export class ConversationEngine {
     replyTo?: { contentItemId: string },
     addressedTo?: ContentAddress[],
     directQuestion = false,
+    currentKnowledge?: LearnedKnowledge,
   ): Promise<boolean> {
     // This is the conversation engine. Mod bot speech must enter through an
     // explicit moderation-purpose path, never ordinary reply or autonomous
@@ -954,6 +1009,7 @@ export class ConversationEngine {
         topicContext,
         !mustSpeak,
         direction,
+        currentKnowledge,
       );
       this.inferenceBackoffMs = 0;
       this.inferencePausedUntil = 0;
@@ -1512,41 +1568,53 @@ export class ConversationEngine {
     await this.sleep(350, 900);
     const first = target ?? pick(responsePool);
     const directQuestion = ConversationEngine.asksQuestion(content);
+    const currentInformationFocus =
+      ConversationEngine.currentInformationFocus(content);
     const addressedTo =
       humanActorId === undefined
         ? undefined
         : [{ targetType: "actor", actorId: humanActorId } satisfies ContentAddress];
-    const spoke = await this.takeTurn(
+    const candidates = [
       first,
-      `The human ${display} just said: ${content}` +
-        `${target !== undefined ? " They are speaking to you." : ""}` +
-        (greeting
-          ? " This is a greeting. Greet them briefly without recapping or extending the bots' existing topic."
-          : directQuestion
-          ? " They asked a direct question, so answer the question first."
-          : " Respond to what they actually said before changing the subject.") +
-        ` Reply to them.`,
-      "human",
-      true,
-      replyTo,
-      addressedTo,
-      directQuestion,
-    );
+      ...responsePool.filter((entry) => entry !== first),
+    ];
 
-    if (!spoke) {
-      const second = pick(responsePool.filter((entry) => entry !== first));
+    for (let index = 0; index < candidates.length; index += 1) {
+      const candidate = candidates[index];
 
-      if (second !== undefined) {
-        await this.takeTurn(
-          second,
-          `The human ${display} just said: ${content} No one has answered ` +
-            `them yet. Reply to them.`,
-          "human",
-          true,
-          replyTo,
-          addressedTo,
-          directQuestion,
-        );
+      if (candidate === undefined) {
+        continue;
+      }
+
+      const currentKnowledge = currentInformationFocus === null
+        ? undefined
+        : await this.currentKnowledgeFor(candidate, currentInformationFocus);
+      const hint = index === 0
+        ? `The human ${display} just said: ${content}` +
+          `${target !== undefined ? " They are speaking to you." : ""}` +
+          (greeting
+            ? " This is a greeting. Greet them briefly without recapping or extending the bots' existing topic."
+            : directQuestion
+            ? " They asked a direct question, so answer the question first."
+            : " Respond to what they actually said before changing the subject.") +
+          " Reply to them."
+        : `The human ${display} just said: ${content} No chat bot has ` +
+          `answered them yet. ${
+            directQuestion ? "Answer the question first. " : ""
+          }Reply to them.`;
+      const spoke = await this.takeTurn(
+        candidate,
+        hint,
+        "human",
+        true,
+        replyTo,
+        addressedTo,
+        directQuestion,
+        currentKnowledge,
+      );
+
+      if (spoke) {
+        return;
       }
     }
   }

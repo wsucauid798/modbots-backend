@@ -9,6 +9,7 @@ import type {
 } from "./experience.js";
 import { InferenceError } from "./mind.js";
 import type { Decision } from "./mind.js";
+import { personas } from "./personas.js";
 import type { Persona } from "./personas.js";
 import type {
   Actor,
@@ -77,6 +78,7 @@ class FakeMind {
   public readonly addresseeCalls: string[] = [];
   public researchCalls = 0;
   public readonly researchDirections: ResearchDirection[] = [];
+  public readonly currentKnowledge: Array<LearnedKnowledge | undefined> = [];
   public onResearch?: () => void;
 
   public constructor(
@@ -118,10 +120,12 @@ class FakeMind {
       learnedKnowledge?: LearnedKnowledge;
     },
     _allowPass = true,
+    currentKnowledge?: LearnedKnowledge,
   ): Promise<Decision> {
     this.considered.push(persona.displayName);
     this.roomTimesUtc.push(_roster.roomTimeUtc);
     this.allowPassValues.push(_allowPass);
+    this.currentKnowledge.push(currentKnowledge);
 
     if (this.considered.length === 1 && this.firstDecisionDelayMs > 0) {
       await new Promise((resolve) =>
@@ -224,6 +228,8 @@ const makeBrain = (
       learnedKnowledge?: LearnedKnowledge;
     },
     allowPass = true,
+    _direction?: unknown,
+    currentKnowledge?: LearnedKnowledge,
   ): Promise<Decision> {
     return mind.consider(
       persona,
@@ -233,6 +239,7 @@ const makeBrain = (
       hint,
       topicContext,
       allowPass,
+      currentKnowledge,
     );
   },
   canResearch(): boolean {
@@ -246,6 +253,25 @@ const makeBrain = (
       kind: "public_subject",
       focus: "A consequential subject people are discussing",
       reason: "The brain needs a meaningful new area of knowledge.",
+    };
+    return {
+      direction,
+      knowledge: await mind.research(
+        persona,
+        "No established experience yet.",
+        [],
+        direction,
+      ),
+    };
+  },
+  async researchForParticipant(focus: string): Promise<{
+    direction: ResearchDirection;
+    knowledge: LearnedKnowledge;
+  }> {
+    const direction: ResearchDirection = {
+      kind: "participant_subject",
+      focus,
+      reason: "A participant asked for current sourced knowledge.",
     };
     return {
       direction,
@@ -294,6 +320,14 @@ const makeBotsWithModBot = (mind: FakeMind) => [
   ...makeBots(mind),
   { actorId: "mod-iris", brain: makeBrain(iris, mind) },
 ];
+
+const makeAllChatBots = (mind: FakeMind) =>
+  personas
+    .filter((persona) => persona.type === "chat_bot")
+    .map((persona) => ({
+      actorId: `bot-${persona.handle}`,
+      brain: makeBrain(persona, mind),
+    }));
 
 const humanMessage = (
   sequence: string,
@@ -409,6 +443,13 @@ test("ordinary conversation uses chat bots and never mod bots", async () => {
   assert.equal(mind.considered.length, 1);
   assert.notEqual(mind.considered[0], "Iris");
   assert.notEqual(platform.posts[0]?.actorId, "mod-iris");
+  assert.equal(mind.researchCalls, 1);
+  assert.equal(mind.researchDirections[0]?.kind, "participant_subject");
+  assert.equal(
+    mind.researchDirections[0]?.focus,
+    "Major public news headlines reported today",
+  );
+  assert.equal(mind.currentKnowledge[0]?.topic, "ocean heat");
 });
 
 test("chat bots do not steal a message addressed to a mod bot", async () => {
@@ -434,6 +475,34 @@ test("chat bots do not steal a message addressed to a mod bot", async () => {
 
   assert.equal(mind.considered.length, 0);
   assert.equal(platform.posts.length, 0);
+});
+
+test("tries every available chat bot until one answers the human", async () => {
+  const platform = new FakePlatform({
+    "human-one": makeActor("human-one", "Mina"),
+  });
+  const mind = new FakeMind([
+    { speak: false },
+    { speak: false },
+    { speak: false },
+    { speak: false },
+    { speak: true, message: "The fifth chat bot can answer that." },
+  ]);
+  const engine = new ConversationEngine(
+    platform,
+    mind,
+    0,
+    makeAllChatBots(mind),
+    noonUtc,
+  );
+
+  await engine.enqueueRoomEvent(
+    humanMessage("all-fallbacks", "human-one", "Can anyone answer this?"),
+  );
+
+  assert.equal(mind.considered.length, 5);
+  assert.equal(new Set(mind.considered).size, 5);
+  assert.equal(platform.posts.length, 1);
 });
 
 test("only the on-clock mod bot joins work while chat bots stay unscheduled", async () => {
