@@ -166,9 +166,7 @@ export class ConversationEngine {
       if (onClock && !wasWorking) {
         await this.client.join(bot.actorId);
         this.workingModBotIds.add(bot.actorId);
-        console.log(
-          `${bot.persona.displayName} started their moderation shift.`,
-        );
+        console.log(`${bot.persona.displayName} started work.`);
       } else if (!onClock && (!this.workClockStarted || wasWorking)) {
         await this.client.leave(bot.actorId);
         this.workingModBotIds.delete(bot.actorId);
