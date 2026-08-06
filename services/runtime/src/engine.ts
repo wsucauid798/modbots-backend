@@ -2,8 +2,6 @@ import { InferenceError } from "./mind.js";
 import type { Persona } from "./personas.js";
 import {
   autonomousDelayRange,
-  isOnClockAtUtc,
-  millisecondsUntilNextShiftBoundary,
   roomActivityLevelAtUtc,
 } from "./activity.js";
 import { PlatformError } from "./platform.js";
@@ -19,7 +17,7 @@ import type { TurnTrigger } from "./topic-coordinator.js";
 
 type ConversationPlatform = Pick<
   PlatformClient,
-  "getActor" | "inferenceParts" | "join" | "leave" | "postMessage"
+  "getActor" | "inferenceParts" | "join" | "postMessage"
 >;
 type ConversationRoomInterpreter = Pick<
   RoomInterpreter,
@@ -89,8 +87,8 @@ const pick = <Item>(items: Item[]): Item =>
 // on each turn a bot perceives the recent conversation and its mind decides
 // whether to speak, whom to address, and whether to change the subject.
 // The engine keeps the resident loop running and obeys hard room state such
-// as muting. Room activity sets the beat between autonomous turns. That room
-// pacing is separate from the work clock followed only by mod bots.
+// as muting. The room clock is UTC, and its activity level sets the beat
+// between autonomous turns so night remains alive without becoming a pile-on.
 export class ConversationEngine {
   private readonly bots: BotState[];
   private readonly transcript: string[] = [];
@@ -110,9 +108,6 @@ export class ConversationEngine {
   private nextLearningBotIndex = 0;
   private autonomousPauseReason: "budget" | null = null;
   private readonly topics: TopicCoordinator;
-  private readonly workingModBotIds = new Set<string>();
-  private workClockStarted = false;
-  private workShiftTimer: ReturnType<typeof setTimeout> | undefined;
 
   public constructor(
     private readonly client: ConversationPlatform,
@@ -146,82 +141,6 @@ export class ConversationEngine {
 
   public stop(): void {
     this.stopped = true;
-    if (this.workShiftTimer !== undefined) {
-      clearTimeout(this.workShiftTimer);
-      this.workShiftTimer = undefined;
-    }
-  }
-
-  private async syncModBotWorkShifts(): Promise<void> {
-    const now = this.now();
-    const modBots = this.bots.filter(
-      (bot) => bot.persona.type === "mod_bot",
-    );
-
-    for (const bot of modBots) {
-      const onClock =
-        bot.persona.type === "mod_bot" &&
-        isOnClockAtUtc(now, bot.persona.workShift);
-      const wasWorking = this.workingModBotIds.has(bot.actorId);
-
-      if (onClock && !wasWorking) {
-        await this.client.join(bot.actorId);
-        this.workingModBotIds.add(bot.actorId);
-        console.log(`${bot.persona.displayName} started work.`);
-      } else if (!onClock && (!this.workClockStarted || wasWorking)) {
-        await this.client.leave(bot.actorId);
-        this.workingModBotIds.delete(bot.actorId);
-        console.log(`${bot.persona.displayName} is off the clock.`);
-      }
-    }
-  }
-
-  private scheduleNextWorkShiftChange(retryInMs?: number): void {
-    if (this.stopped) {
-      return;
-    }
-
-    const shifts = this.bots.flatMap((bot) =>
-      bot.persona.type === "mod_bot" ? [bot.persona.workShift] : [],
-    );
-
-    if (shifts.length === 0) {
-      return;
-    }
-
-    const delay =
-      retryInMs ?? millisecondsUntilNextShiftBoundary(this.now(), shifts);
-    this.workShiftTimer = setTimeout(() => {
-      void this.advanceWorkClock();
-    }, delay);
-    this.workShiftTimer.unref?.();
-  }
-
-  private async advanceWorkClock(): Promise<void> {
-    let retryInMs: number | undefined;
-
-    try {
-      await this.syncModBotWorkShifts();
-    } catch (error) {
-      retryInMs = 30_000;
-      console.error(
-        `Could not change mod bot work shifts: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-    } finally {
-      this.scheduleNextWorkShiftChange(retryInMs);
-    }
-  }
-
-  private async startWorkClock(): Promise<void> {
-    if (this.workClockStarted) {
-      return;
-    }
-
-    await this.syncModBotWorkShifts();
-    this.workClockStarted = true;
-    this.scheduleNextWorkShiftChange();
   }
 
   public enqueueRoomEvent(
@@ -314,12 +233,7 @@ export class ConversationEngine {
     for (let offset = 0; offset < this.bots.length; offset += 1) {
       const index = (this.nextLearningBotIndex + offset) % this.bots.length;
       const candidate = this.bots[index];
-      const canWork =
-        candidate?.persona.type === "chat_bot" ||
-        (candidate?.persona.type === "mod_bot" &&
-          isOnClockAtUtc(new Date(now), candidate.persona.workShift));
-
-      if (canWork && candidate?.brain.canResearch(now, cooldownMs)) {
+      if (candidate?.brain.canResearch(now, cooldownMs)) {
         selected = candidate;
         this.nextLearningBotIndex = (index + 1) % this.bots.length;
         break;
@@ -534,13 +448,6 @@ export class ConversationEngine {
     });
 
     for (const bot of this.bots) {
-      if (
-        bot.persona.type === "mod_bot" &&
-        !isOnClockAtUtc(new Date(standardizedTime), bot.persona.workShift)
-      ) {
-        continue;
-      }
-
       bot.brain.perceive({
         speaker: display,
         type,
@@ -844,8 +751,6 @@ export class ConversationEngine {
   }
 
   public async run(): Promise<void> {
-    await this.startWorkClock();
-
     while (!this.stopped) {
       await this.continueLearning();
 

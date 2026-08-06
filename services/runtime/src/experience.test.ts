@@ -10,6 +10,7 @@ const persona: Persona = {
   handle: "jacob",
   displayName: "Jakob",
   type: "chat_bot",
+  activity: { startHourUtc: 10, endHourUtc: 20 },
   card: "Friendly and curious.",
 };
 

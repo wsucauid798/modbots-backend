@@ -1,4 +1,4 @@
-export interface DailyWorkShift {
+export interface DailyActivityWindow {
   startHourUtc: number;
   endHourUtc: number;
 }
@@ -7,44 +7,6 @@ export type ActivityLevel = "high" | "mid" | "low";
 
 const minutesSinceUtcMidnight = (date: Date): number =>
   date.getUTCHours() * 60 + date.getUTCMinutes();
-
-export const isOnClockAtUtc = (
-  date: Date,
-  shift: DailyWorkShift,
-): boolean => {
-  const current = minutesSinceUtcMidnight(date);
-  const start = shift.startHourUtc * 60;
-  const end = shift.endHourUtc * 60;
-
-  if (start < end) {
-    return current >= start && current < end;
-  }
-
-  return current >= start || current < end;
-};
-
-export const millisecondsUntilNextShiftBoundary = (
-  date: Date,
-  shifts: DailyWorkShift[],
-): number => {
-  const dayMs = 24 * 60 * 60_000;
-  const current =
-    date.getUTCHours() * 60 * 60_000 +
-    date.getUTCMinutes() * 60_000 +
-    date.getUTCSeconds() * 1_000 +
-    date.getUTCMilliseconds();
-  const boundaries = shifts.flatMap((shift) => [
-    shift.startHourUtc * 60 * 60_000,
-    shift.endHourUtc * 60 * 60_000,
-  ]);
-
-  return Math.min(
-    ...boundaries.map((boundary) => {
-      const remaining = (boundary - current + dayMs) % dayMs;
-      return remaining === 0 ? dayMs : remaining;
-    }),
-  );
-};
 
 export const roomActivityLevelAtUtc = (date: Date): ActivityLevel => {
   const current = minutesSinceUtcMidnight(date);

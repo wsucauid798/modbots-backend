@@ -98,8 +98,8 @@ const main = async (): Promise<void> => {
     }
   }
 
-  // Chat bots are residents, not workers, so they stay in the room without
-  // shifts. Mod bot presence is owned by the work clock in the engine.
+  // The bots take their places: find or create each bot by its
+  // handle and join the room. Presence is part of startup, not a seed step.
   const bots = [];
 
   for (const persona of personas) {
@@ -108,20 +108,14 @@ const main = async (): Promise<void> => {
       persona.displayName,
       persona.type,
     );
-    if (persona.type === "chat_bot") {
-      await client.join(actor.id);
-    }
+    await client.join(actor.id);
     const brain = await BotBrain.load(
       config.experienceDir,
       persona,
       config.mlUrl,
     );
     bots.push({ actorId: actor.id, brain });
-    console.log(
-      persona.type === "chat_bot"
-        ? `${persona.displayName} is in the room (${actor.id})`
-        : `${persona.displayName}'s brain is ready (${actor.id})`,
-    );
+    console.log(`${persona.displayName} is in the room (${actor.id})`);
   }
 
   const engine = new ConversationEngine(

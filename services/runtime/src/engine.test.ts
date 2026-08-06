@@ -28,8 +28,6 @@ interface PostedMessage {
 
 class FakePlatform {
   public readonly posts: PostedMessage[] = [];
-  public readonly joined: string[] = [];
-  public readonly left: string[] = [];
   public onPost?: () => void;
 
   public constructor(private readonly actors: Record<string, Actor>) {}
@@ -52,13 +50,7 @@ class FakePlatform {
     );
   }
 
-  public async join(actorId: string): Promise<void> {
-    this.joined.push(actorId);
-  }
-
-  public async leave(actorId: string): Promise<void> {
-    this.left.push(actorId);
-  }
+  public async join(_actorId: string): Promise<void> {}
 
   public async postMessage(
     actorId: string,
@@ -294,19 +286,21 @@ const arwen: Persona = {
   displayName: "Arwen",
   type: "chat_bot",
   card: "Warm and curious.",
+  activity: { startHourUtc: 4, endHourUtc: 14 },
 };
 const jakob: Persona = {
   handle: "jacob",
   displayName: "Jakob",
   type: "chat_bot",
   card: "Friendly and opinionated.",
+  activity: { startHourUtc: 10, endHourUtc: 20 },
 };
 const iris: Persona = {
   handle: "iris",
   displayName: "Iris",
   type: "mod_bot",
   card: "Always learning how to moderate.",
-  workShift: { startHourUtc: 16, endHourUtc: 0 },
+  activity: { startHourUtc: 16, endHourUtc: 0 },
 };
 
 const noonUtc = () => new Date("2026-07-18T12:00:00.000Z");
@@ -503,113 +497,6 @@ test("tries every available chat bot until one answers the human", async () => {
   assert.equal(mind.considered.length, 5);
   assert.equal(new Set(mind.considered).size, 5);
   assert.equal(platform.posts.length, 1);
-});
-
-test("only the on-clock mod bot joins work while chat bots stay unscheduled", async () => {
-  const platform = new FakePlatform({});
-  const mind = new FakeMind([
-    { speak: true, message: "Ocean heat is worth a closer look today." },
-  ]);
-  const engine = new ConversationEngine(
-    platform,
-    mind,
-    0,
-    makeBotsWithModBot(mind),
-    () => new Date("2026-07-18T17:00:00.000Z"),
-  );
-  platform.onPost = () => engine.stop();
-
-  await engine.run();
-
-  assert.deepEqual(platform.joined, ["mod-iris"]);
-  assert.deepEqual(platform.left, []);
-});
-
-test("an off-clock mod bot leaves work and cannot research", async () => {
-  const platform = new FakePlatform({});
-  const mind = new FakeMind([
-    { speak: true, message: "Ocean heat is worth a closer look today." },
-  ]);
-  const modBrain = {
-    ...makeBrain(iris, mind),
-    canResearch(): boolean {
-      return true;
-    },
-  };
-  const engine = new ConversationEngine(
-    platform,
-    mind,
-    0,
-    [...makeBots(mind), { actorId: "mod-iris", brain: modBrain }],
-    noonUtc,
-  );
-  platform.onPost = () => engine.stop();
-
-  await engine.run();
-
-  assert.deepEqual(platform.joined, []);
-  assert.deepEqual(platform.left, ["mod-iris"]);
-  assert.equal(mind.researchCalls, 0);
-});
-
-test("the on-clock mod bot can learn while working", async () => {
-  const platform = new FakePlatform({});
-  const mind = new FakeMind([]);
-  let researchAllowed = true;
-  const baseBrain = makeBrain(iris, mind);
-  const modBrain = {
-    ...baseBrain,
-    canResearch(): boolean {
-      return researchAllowed;
-    },
-    async research(): ReturnType<typeof baseBrain.research> {
-      researchAllowed = false;
-      return baseBrain.research();
-    },
-  };
-  const engine = new ConversationEngine(
-    platform,
-    mind,
-    0,
-    [{ actorId: "mod-iris", brain: modBrain }],
-    () => new Date("2026-07-18T17:00:00.000Z"),
-  );
-  mind.onResearch = () => engine.stop();
-
-  await engine.run();
-
-  assert.deepEqual(platform.joined, ["mod-iris"]);
-  assert.equal(mind.researchCalls, 1);
-});
-
-test("a mod bot remembers only the chatroom events from its work shift", async () => {
-  const platform = new FakePlatform({
-    "human-one": makeActor("human-one", "Mina"),
-  });
-  const mind = new FakeMind([]);
-  const perceptions: PerceivedMessage[] = [];
-  const engine = new ConversationEngine(
-    platform,
-    mind,
-    0,
-    [
-      ...makeBots(mind),
-      {
-        actorId: "mod-iris",
-        brain: makeBrain(iris, mind, perceptions),
-      },
-    ],
-    noonUtc,
-  );
-  const beforeShift = humanMessage("before-shift", "human-one", "First");
-  beforeShift.occurredAt = "2026-07-18T15:59:00.000Z";
-  const duringShift = humanMessage("during-shift", "human-one", "Second");
-  duringShift.occurredAt = "2026-07-18T16:00:00.000Z";
-
-  await engine.enqueueRoomEvent(beforeShift, { react: false });
-  await engine.enqueueRoomEvent(duringShift, { react: false });
-
-  assert.deepEqual(perceptions.map((entry) => entry.content), ["Second"]);
 });
 
 test("answers a greeting without spending a routing inference", async () => {
