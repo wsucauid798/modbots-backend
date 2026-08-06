@@ -244,7 +244,9 @@ export class ConversationEngine {
     const attemptedAt = this.now().toISOString();
     this.internetResearchAttempts.push(now);
     selected.brain.recordResearchAttempt(attemptedAt);
-    const direction = selected.brain.researchDirection();
+    const direction = selected.brain.researchDirection(
+      this.topics.recentlyCompletedTopics(),
+    );
     console.log(
       `${selected.persona.displayName} is researching ${direction.kind}: ${direction.focus}`,
     );

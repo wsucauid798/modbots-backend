@@ -118,6 +118,24 @@ const stringList = (value: unknown): string[] =>
     ? value.filter((entry): entry is string => typeof entry === "string")
     : [];
 
+// Reduce plural forms so "potatoes" matches "potato" across topic labels,
+// knowledge statements, and room messages.
+const stem = (word: string): string => {
+  if (word.length > 4 && word.endsWith("ies")) {
+    return `${word.slice(0, -3)}y`;
+  }
+
+  if (word.length > 4 && word.endsWith("oes")) {
+    return word.slice(0, -2);
+  }
+
+  if (word.length > 3 && word.endsWith("s") && !word.endsWith("ss")) {
+    return word.slice(0, -1);
+  }
+
+  return word;
+};
+
 const words = (value: string): Set<string> =>
   new Set(
     value
@@ -150,7 +168,8 @@ const words = (value: string): Set<string> =>
             "with",
             "would",
           ]).has(word),
-      ) ?? [],
+      )
+      .map(stem) ?? [],
   );
 
 const relevance = (query: Set<string>, value: string): number => {
@@ -188,12 +207,6 @@ const isSubstantiveRoomSubject = (content: string): boolean => {
     )
   );
 };
-
-const raisesKnowledgeGap = (content: string): boolean =>
-  /\?\s*$/.test(content.trim()) ||
-  /\b(?:i wonder|i do not know|i don't know|it is unclear|remains uncertain|not yet known)\b/i.test(
-    content,
-  );
 
 const cleanSources = (value: unknown): KnowledgeSource[] =>
   Array.isArray(value)
@@ -489,22 +502,29 @@ export class AgentBrain {
     this.saveSoon();
   }
 
-  public researchDirection(): ResearchDirection {
+  public researchDirection(excludedTopics: string[] = []): ResearchDirection {
     const participantSubject = [...this.state.workingMemory]
       .reverse()
       .find(
         (episode) =>
           episode.speaker !== this.state.displayName &&
-          episode.type !== "room" &&
-          episode.type !== "system" &&
+          // Only a human's subject is worth a participant-driven search.
+          // Bot questions are generated chatter: researching them feeds the
+          // room's own words back into every brain until the whole room
+          // circles one subject forever.
+          episode.type === "human" &&
           isSubstantiveRoomSubject(episode.content) &&
-          (episode.type === "human" || raisesKnowledgeGap(episode.content)) &&
+          // A subject the room already talked through is not a knowledge
+          // gap either, even when a human brings it back up.
+          excludedTopics.every(
+            (topic) => relatedness(episode.content, topic) < 0.3,
+          ) &&
           this.state.knowledge.every(
             (memory) =>
               relatedness(
                 episode.content,
                 `${memory.topic} ${memory.statement}`,
-              ) < 0.45,
+              ) < 0.35,
           ),
       );
 
@@ -662,7 +682,9 @@ export class AgentBrain {
     now = Date.now(),
     excludedTopics: string[] = [],
   ): LearnedKnowledge | null {
-    const reuseAfterMs = 30 * 60_000;
+    // A subject the room has finished stays finished for the rest of the
+    // day. Returning to it after half an hour reads as a broken record.
+    const reuseAfterMs = 24 * 60 * 60_000;
     const available = this.state.knowledge
       .filter((memory) => {
         const lastUsed = Date.parse(memory.lastUsedAt ?? "");

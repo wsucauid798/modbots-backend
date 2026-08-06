@@ -159,14 +159,14 @@ test("stores and recalls sourced knowledge across restarts", async () => {
   }
 });
 
-test("researches a subject raised by another chat bot before discovery", async () => {
+test("researches a subject raised by a human before discovery", async () => {
   const directory = await mkdtemp(join(tmpdir(), "modbots-brain-"));
 
   try {
     const brain = await AgentBrain.load(directory, persona);
     brain.perceive({
-      speaker: "Arwen",
-      type: "chat_bot",
+      speaker: "Guest-11",
+      type: "human",
       content:
         "Why are cities changing their rules for electric bicycles on shared paths?",
       occurredAt: "2026-07-18T12:00:00.000Z",
@@ -178,6 +178,55 @@ test("researches a subject raised by another chat bot before discovery", async (
     const direction = brain.researchDirection();
     assert.equal(direction.kind, "participant_subject");
     assert.match(direction.focus, /electric bicycles/);
+    await brain.flush();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("does not research another chat bot's generated question", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "modbots-brain-"));
+
+  try {
+    const brain = await AgentBrain.load(directory, persona);
+    brain.perceive({
+      speaker: "Arwen",
+      type: "chat_bot",
+      content:
+        "Could moisture control preserve aroma while stopping before bitterness appears?",
+      occurredAt: "2026-07-18T12:00:00.000Z",
+      addressedToSelf: false,
+      addressedToRoom: true,
+      fromSelf: false,
+    });
+
+    assert.equal(brain.researchDirection().kind, "public_subject");
+    await brain.flush();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("does not research a subject the room already talked through", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "modbots-brain-"));
+
+  try {
+    const brain = await AgentBrain.load(directory, persona);
+    brain.perceive({
+      speaker: "Guest-11",
+      type: "human",
+      content:
+        "Would soaking potato slices reduce acrylamide without losing their crispness?",
+      occurredAt: "2026-07-18T12:00:00.000Z",
+      addressedToSelf: false,
+      addressedToRoom: true,
+      fromSelf: false,
+    });
+
+    const direction = brain.researchDirection([
+      "crust, browning, and acrylamide potatoes",
+    ]);
+    assert.equal(direction.kind, "public_subject");
     await brain.flush();
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -283,17 +332,17 @@ test("reuses learned knowledge before spending another internet search", async (
 
     brain.markTopicUsed("urban trees", "2026-07-18T13:00:00.000Z");
     assert.equal(
-      brain.topicForConversation(Date.parse("2026-07-18T13:29:59.999Z")),
+      brain.topicForConversation(Date.parse("2026-07-19T12:59:59.999Z")),
       null,
     );
     assert.equal(
-      brain.topicForConversation(Date.parse("2026-07-18T13:30:00.000Z"))
+      brain.topicForConversation(Date.parse("2026-07-19T13:00:00.000Z"))
         ?.topic,
       "urban trees",
     );
     assert.equal(
       brain.topicForConversation(
-        Date.parse("2026-07-18T13:30:00.000Z"),
+        Date.parse("2026-07-19T13:00:00.000Z"),
         ["urban tree heat"],
       ),
       null,

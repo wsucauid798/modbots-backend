@@ -33,7 +33,8 @@ export interface TopicDecisionResult {
   reason?: string;
 }
 
-const topicCooldownMs = 30 * 60_000;
+const topicCooldownMs = 24 * 60 * 60_000;
+const recentlyClosedLimit = 24;
 const maximumBotTurnsWithoutHuman = 3;
 const maximumTopicIdleMs = 15 * 60_000;
 const humanConversationYieldMs = 15_000;
@@ -71,9 +72,23 @@ const words = (text: string): string[] =>
     .replace(/[^\p{L}\p{N}\s]/gu, " ")
     .split(/\s+/)
     .filter((word) => word.length > 1 && !stopWords.has(word))
-    .map((word) =>
-      word.length > 4 && word.endsWith("s") ? word.slice(0, -1) : word,
-    );
+    .map((word) => {
+      // Reduce plural forms so "potatoes" matches "potato". Stripping only
+      // the final "s" left "potatoe", which matched nothing.
+      if (word.length > 4 && word.endsWith("ies")) {
+        return `${word.slice(0, -3)}y`;
+      }
+
+      if (word.length > 4 && word.endsWith("oes")) {
+        return word.slice(0, -2);
+      }
+
+      if (word.length > 3 && word.endsWith("s") && !word.endsWith("ss")) {
+        return word.slice(0, -1);
+      }
+
+      return word;
+    });
 
 const similarity = (left: string, right: string): number => {
   const leftWords = new Set(words(left));
@@ -165,7 +180,7 @@ export class TopicCoordinator {
 
     if (this.active === null) {
       const recentlyCompleted = this.recentlyClosed
-        .slice(-12)
+        .slice(-recentlyClosedLimit)
         .map((topic) => topic.label)
         .join("; ");
 
@@ -371,7 +386,9 @@ export class TopicCoordinator {
   }
 
   public recentlyCompletedTopics(): string[] {
-    return this.recentlyClosed.slice(-12).map((topic) => topic.label);
+    return this.recentlyClosed
+      .slice(-recentlyClosedLimit)
+      .map((topic) => topic.label);
   }
 
   public recordPass(availableBots: number, now: number): void {
@@ -403,7 +420,7 @@ export class TopicCoordinator {
       this.recentlyClosed.shift();
     }
 
-    while (this.recentlyClosed.length > 12) {
+    while (this.recentlyClosed.length > recentlyClosedLimit) {
       this.recentlyClosed.shift();
     }
   }
