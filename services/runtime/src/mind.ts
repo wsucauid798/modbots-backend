@@ -412,8 +412,13 @@ export class Mind {
       `consequences, or disagreements. Do not invent a scene, event, memory, ` +
       `trend, or fact. ` +
       `Prefer primary and authoritative sources. Distinguish established ` +
-      `facts from uncertainty. Do not research private people or personal ` +
-      `data. If the direction is participant_subject, first test the focus ` +
+      `facts from uncertainty. If the direction is participant_question, ` +
+      `answer the participant's exact question. Preserve its meaning and do ` +
+      `not replace it with a broader, safer, more generic, or supposedly ` +
+      `better question. Use relevant brain context when it is needed to ` +
+      `resolve references, identity, location, time, or other details that ` +
+      `the answer depends on. If the direction is participant_subject, ` +
+      `first test the focus ` +
       `against the learning-value criteria. If it is filler, trivia, or an ` +
       `incidental object, do not reinforce it: switch to the public_subject ` +
       `criteria. Otherwise research the general subject without searching ` +

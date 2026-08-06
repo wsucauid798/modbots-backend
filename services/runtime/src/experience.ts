@@ -26,7 +26,11 @@ export interface LearnedKnowledge {
 }
 
 export interface ResearchDirection {
-  kind: "participant_subject" | "deepen" | "public_subject";
+  kind:
+    | "participant_question"
+    | "participant_subject"
+    | "deepen"
+    | "public_subject";
   focus: string;
   reason: string;
 }

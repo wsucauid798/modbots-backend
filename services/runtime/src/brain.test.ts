@@ -109,7 +109,7 @@ test("gives mod bot brains a moderation learning direction", async () => {
   }
 });
 
-test("researches current news without sending private room text", async () => {
+test("researches the participant's exact question with relevant brain context", async () => {
   const directory = await mkdtemp(join(tmpdir(), "modbots-brains-"));
   const originalFetch = globalThis.fetch;
   let requestBody: Record<string, unknown> | undefined;
@@ -146,7 +146,7 @@ test("researches current news without sending private room text", async () => {
     brain.perceive({
       speaker: "Mina",
       type: "human",
-      content: "My private account number is 12345.",
+      content: "I live in Shanghai, near Pudong.",
       occurredAt: "2026-08-07T00:00:00.000Z",
       fromSelf: false,
       addressedToSelf: false,
@@ -155,15 +155,15 @@ test("researches current news without sending private room text", async () => {
     });
 
     const result = await brain.researchForParticipant(
-      "Major public news headlines reported today",
+      "What's the latest local news?",
       "2026-08-07T00:01:00.000Z",
     );
     const serialized = JSON.stringify(requestBody);
 
-    assert.equal(result.direction.kind, "participant_subject");
-    assert.match(serialized, /Major public news headlines reported today/);
-    assert.doesNotMatch(serialized, /private account number|12345/);
-    assert.match(serialized, /No participant messages, identities/);
+    assert.equal(result.direction.kind, "participant_question");
+    assert.match(serialized, /What's the latest local news\?/);
+    assert.match(serialized, /I live in Shanghai, near Pudong/);
+    assert.match(serialized, /do not replace it with a broader/);
     await brain.flush();
   } finally {
     globalThis.fetch = originalFetch;

@@ -280,7 +280,7 @@ export class ConversationEngine {
 
   private async currentKnowledgeFor(
     bot: BotState,
-    publicFocus: string,
+    question: string,
   ): Promise<LearnedKnowledge | undefined> {
     const now = this.now().getTime();
     this.pruneInternetResearchAttempts(now);
@@ -295,7 +295,7 @@ export class ConversationEngine {
 
     try {
       const result = await bot.brain.researchForParticipant(
-        publicFocus,
+        question,
         attemptedAt,
       );
       console.log(
@@ -584,11 +584,25 @@ export class ConversationEngine {
     );
   }
 
-  private static currentInformationFocus(content: string): string | null {
+  private static currentInformationQuery(content: string): string | null {
     const text = content.trim().toLowerCase();
+    const changingPublicInformation =
+      /\b(news|headlines?|breaking news|current events?|weather|forecast|scores?|standings|prices?|exchange rates?|schedules?|election results?|latest releases?|latest versions?)\b/.test(
+        text,
+      );
+    const asksForFreshness =
+      /\b(latest|today|tonight|current|currently|right now|recent|recently|this week|this month|this year)\b/.test(
+        text,
+      );
+    const requestsInformation =
+      ConversationEngine.asksQuestion(content) ||
+      /^(tell|show|give|find|look up|check|update)\b/.test(text);
 
-    if (/\b(news|headlines?|breaking news|current events?)\b/.test(text)) {
-      return "Major public news headlines reported today";
+    if (
+      requestsInformation &&
+      (changingPublicInformation || asksForFreshness)
+    ) {
+      return content.trim();
     }
 
     return null;
@@ -1473,8 +1487,8 @@ export class ConversationEngine {
     await this.sleep(350, 900);
     const first = target ?? pick(responsePool);
     const directQuestion = ConversationEngine.asksQuestion(content);
-    const currentInformationFocus =
-      ConversationEngine.currentInformationFocus(content);
+    const currentInformationQuery =
+      ConversationEngine.currentInformationQuery(content);
     const addressedTo =
       humanActorId === undefined
         ? undefined
@@ -1491,9 +1505,9 @@ export class ConversationEngine {
         continue;
       }
 
-      const currentKnowledge = currentInformationFocus === null
+      const currentKnowledge = currentInformationQuery === null
         ? undefined
-        : await this.currentKnowledgeFor(candidate, currentInformationFocus);
+        : await this.currentKnowledgeFor(candidate, currentInformationQuery);
       const hint = index === 0
         ? `The human ${display} just said: ${content}` +
           `${target !== undefined ? " They are speaking to you." : ""}` +

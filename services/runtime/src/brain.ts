@@ -111,21 +111,20 @@ export class BotBrain {
   }
 
   public async researchForParticipant(
-    focus: string,
+    question: string,
     attemptedAt: string,
   ): Promise<LearningResult> {
     return this.learn(
       {
-        kind: "participant_subject",
-        focus,
+        kind: "participant_question",
+        focus: question,
         reason:
-          "A participant asked for information that may have changed, so " +
-          "this brain needs current sourced knowledge before answering.",
+          "A participant asked this exact question, so this brain needs to " +
+          "retrieve the information required to answer it.",
       },
       [],
       attemptedAt,
-      "No participant messages, identities, or private room context are " +
-        "included in this public current-information lookup.",
+      this.memory.view(question),
     );
   }
 

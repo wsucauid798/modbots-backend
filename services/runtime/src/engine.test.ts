@@ -261,7 +261,7 @@ const makeBrain = (
     knowledge: LearnedKnowledge;
   }> {
     const direction: ResearchDirection = {
-      kind: "participant_subject",
+      kind: "participant_question",
       focus,
       reason: "A participant asked for current sourced knowledge.",
     };
@@ -438,10 +438,10 @@ test("ordinary conversation uses chat bots and never mod bots", async () => {
   assert.notEqual(mind.considered[0], "Iris");
   assert.notEqual(platform.posts[0]?.actorId, "mod-iris");
   assert.equal(mind.researchCalls, 1);
-  assert.equal(mind.researchDirections[0]?.kind, "participant_subject");
+  assert.equal(mind.researchDirections[0]?.kind, "participant_question");
   assert.equal(
     mind.researchDirections[0]?.focus,
-    "Major public news headlines reported today",
+    "What's the latest news?",
   );
   assert.equal(mind.currentKnowledge[0]?.topic, "ocean heat");
 });
