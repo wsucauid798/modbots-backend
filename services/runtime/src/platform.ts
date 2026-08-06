@@ -178,6 +178,14 @@ export class PlatformClient {
     );
   }
 
+  public async leave(actorId: string): Promise<void> {
+    await this.post(
+      `/api/rooms/${this.roomId}/presence`,
+      { actorId, state: "left" },
+      [201],
+    );
+  }
+
   public async postMessage(
     actorId: string,
     content: string,

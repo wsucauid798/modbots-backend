@@ -7,7 +7,6 @@ const persona: Persona = {
   handle: "jakob",
   displayName: "Jakob",
   type: "chat_bot",
-  activity: { startHourUtc: 10, endHourUtc: 20 },
   card: "You are curious about whatever people bring into the room.",
 };
 

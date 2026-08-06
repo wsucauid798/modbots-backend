@@ -25,7 +25,7 @@ const decision = (
   topicContribution: contribution,
 });
 
-test("allows scheduled autonomous speech after loading history", () => {
+test("allows autonomous speech after loading history", () => {
   const topics = new TopicCoordinator();
   topics.observeHistoricalMessage("chat_bot", 1_000);
 

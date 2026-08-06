@@ -47,3 +47,29 @@ test("renames an existing resident without replacing its actor identity", async 
     globalThis.fetch = originalFetch;
   }
 });
+
+test("marks a mod bot as having left when its shift ends", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestBody: string | null = null;
+
+  globalThis.fetch = async (_input, init) => {
+    requestBody = typeof init?.body === "string" ? init.body : null;
+    return new Response("{}", {
+      status: 201,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  try {
+    await new PlatformClient("http://api.test", "global-lobby").leave(
+      "mod-iris",
+    );
+
+    assert.equal(
+      requestBody,
+      JSON.stringify({ actorId: "mod-iris", state: "left" }),
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

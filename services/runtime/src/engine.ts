@@ -2,6 +2,8 @@ import { InferenceError } from "./mind.js";
 import type { Persona } from "./personas.js";
 import {
   autonomousDelayRange,
+  isOnClockAtUtc,
+  millisecondsUntilNextShiftBoundary,
   roomActivityLevelAtUtc,
 } from "./activity.js";
 import { PlatformError } from "./platform.js";
@@ -17,7 +19,7 @@ import type { TurnTrigger } from "./topic-coordinator.js";
 
 type ConversationPlatform = Pick<
   PlatformClient,
-  "getActor" | "inferenceParts" | "join" | "postMessage"
+  "getActor" | "inferenceParts" | "join" | "leave" | "postMessage"
 >;
 type ConversationRoomInterpreter = Pick<
   RoomInterpreter,
@@ -86,8 +88,8 @@ const pick = <Item>(items: Item[]): Item =>
 // on each turn a bot perceives the recent conversation and its mind decides
 // whether to speak, whom to address, and whether to change the subject.
 // The engine keeps the resident loop running and obeys hard room state such
-// as muting. The room clock is UTC, and its activity level sets the beat
-// between scheduled turns so night remains alive without becoming a pile-on.
+// as muting. Room activity sets the beat between autonomous turns. That room
+// pacing is separate from the work clock followed only by mod bots.
 export class ConversationEngine {
   private readonly bots: BotState[];
   private readonly transcript: string[] = [];
@@ -107,6 +109,9 @@ export class ConversationEngine {
   private nextLearningBotIndex = 0;
   private autonomousPauseReason: "budget" | null = null;
   private readonly topics: TopicCoordinator;
+  private readonly workingModBotIds = new Set<string>();
+  private workClockStarted = false;
+  private workShiftTimer: ReturnType<typeof setTimeout> | undefined;
 
   public constructor(
     private readonly client: ConversationPlatform,
@@ -140,6 +145,84 @@ export class ConversationEngine {
 
   public stop(): void {
     this.stopped = true;
+    if (this.workShiftTimer !== undefined) {
+      clearTimeout(this.workShiftTimer);
+      this.workShiftTimer = undefined;
+    }
+  }
+
+  private async syncModBotWorkShifts(): Promise<void> {
+    const now = this.now();
+    const modBots = this.bots.filter(
+      (bot) => bot.persona.type === "mod_bot",
+    );
+
+    for (const bot of modBots) {
+      const onClock =
+        bot.persona.type === "mod_bot" &&
+        isOnClockAtUtc(now, bot.persona.workShift);
+      const wasWorking = this.workingModBotIds.has(bot.actorId);
+
+      if (onClock && !wasWorking) {
+        await this.client.join(bot.actorId);
+        this.workingModBotIds.add(bot.actorId);
+        console.log(
+          `${bot.persona.displayName} started their moderation shift.`,
+        );
+      } else if (!onClock && (!this.workClockStarted || wasWorking)) {
+        await this.client.leave(bot.actorId);
+        this.workingModBotIds.delete(bot.actorId);
+        console.log(`${bot.persona.displayName} is off the clock.`);
+      }
+    }
+  }
+
+  private scheduleNextWorkShiftChange(retryInMs?: number): void {
+    if (this.stopped) {
+      return;
+    }
+
+    const shifts = this.bots.flatMap((bot) =>
+      bot.persona.type === "mod_bot" ? [bot.persona.workShift] : [],
+    );
+
+    if (shifts.length === 0) {
+      return;
+    }
+
+    const delay =
+      retryInMs ?? millisecondsUntilNextShiftBoundary(this.now(), shifts);
+    this.workShiftTimer = setTimeout(() => {
+      void this.advanceWorkClock();
+    }, delay);
+    this.workShiftTimer.unref?.();
+  }
+
+  private async advanceWorkClock(): Promise<void> {
+    let retryInMs: number | undefined;
+
+    try {
+      await this.syncModBotWorkShifts();
+    } catch (error) {
+      retryInMs = 30_000;
+      console.error(
+        `Could not change mod bot work shifts: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    } finally {
+      this.scheduleNextWorkShiftChange(retryInMs);
+    }
+  }
+
+  private async startWorkClock(): Promise<void> {
+    if (this.workClockStarted) {
+      return;
+    }
+
+    await this.syncModBotWorkShifts();
+    this.workClockStarted = true;
+    this.scheduleNextWorkShiftChange();
   }
 
   public enqueueRoomEvent(
@@ -229,7 +312,12 @@ export class ConversationEngine {
     for (let offset = 0; offset < this.bots.length; offset += 1) {
       const index = (this.nextLearningBotIndex + offset) % this.bots.length;
       const candidate = this.bots[index];
-      if (candidate?.brain.canResearch(now, cooldownMs)) {
+      const canWork =
+        candidate?.persona.type === "chat_bot" ||
+        (candidate?.persona.type === "mod_bot" &&
+          isOnClockAtUtc(new Date(now), candidate.persona.workShift));
+
+      if (canWork && candidate?.brain.canResearch(now, cooldownMs)) {
         selected = candidate;
         this.nextLearningBotIndex = (index + 1) % this.bots.length;
         break;
@@ -267,7 +355,7 @@ export class ConversationEngine {
     } catch (error) {
       this.deferForInferenceFailure(error);
       console.error(
-        `A chat bot could not learn from the internet: ${
+        `A bot brain could not learn from the internet: ${
           error instanceof Error ? error.message : String(error)
         }`,
       );
@@ -298,14 +386,10 @@ export class ConversationEngine {
     return true;
   }
 
-  private availableBots(): BotState[] {
+  private availableChatBots(): BotState[] {
     return this.bots.filter(
       (bot) => !bot.muted && bot.persona.type === "chat_bot",
     );
-  }
-
-  private preferredBots(): BotState[] {
-    return this.availableBots();
   }
 
   private addressesIn(content: string): {
@@ -408,6 +492,13 @@ export class ConversationEngine {
     });
 
     for (const bot of this.bots) {
+      if (
+        bot.persona.type === "mod_bot" &&
+        !isOnClockAtUtc(new Date(standardizedTime), bot.persona.workShift)
+      ) {
+        continue;
+      }
+
       bot.brain.perceive({
         speaker: display,
         type,
@@ -606,7 +697,7 @@ export class ConversationEngine {
       return undefined;
     }
 
-    return this.availableBots().find((bot) =>
+    return this.availableChatBots().find((bot) =>
       addresses.addressedTo.includes(bot.persona.displayName),
     );
   }
@@ -701,6 +792,8 @@ export class ConversationEngine {
   }
 
   public async run(): Promise<void> {
+    await this.startWorkClock();
+
     while (!this.stopped) {
       await this.continueLearning();
 
@@ -738,9 +831,8 @@ export class ConversationEngine {
         continue;
       }
 
-      const available = this.availableBots();
-      const preferred = this.preferredBots();
-      let candidates = preferred.length > 0 ? preferred : available;
+      const available = this.availableChatBots();
+      let candidates = available;
       const topicContext = this.topics.turnContext(
         "autonomous",
         this.now().getTime(),
@@ -755,16 +847,6 @@ export class ConversationEngine {
               recentlyCompleted,
             ) !== null,
         );
-
-        if (candidates.length === 0 && preferred.length > 0) {
-          candidates = available.filter(
-            (candidate) =>
-              candidate.brain.topicForConversation(
-                this.now().getTime(),
-                recentlyCompleted,
-              ) !== null,
-          );
-        }
       }
 
       if (candidates.length === 0) {
@@ -846,7 +928,10 @@ export class ConversationEngine {
       this.policy.recordPass(direction.intent);
       bot.lastAttemptedAt = this.now().getTime();
       if (trigger === "autonomous") {
-        this.topics.recordPass(this.availableBots().length, this.now().getTime());
+        this.topics.recordPass(
+          this.availableChatBots().length,
+          this.now().getTime(),
+        );
       }
       return false;
     }
@@ -860,7 +945,7 @@ export class ConversationEngine {
 
       const decision = await bot.brain.consider(
         {
-          residents: this.availableBots().map(
+          residents: this.availableChatBots().map(
             (entry) => entry.persona.displayName,
           ),
           humans: [...this.humansPresent],
@@ -902,7 +987,10 @@ export class ConversationEngine {
           )
         ) {
           if (trigger === "autonomous") {
-            this.topics.recordPass(this.availableBots().length, this.now().getTime());
+            this.topics.recordPass(
+              this.availableChatBots().length,
+              this.now().getTime(),
+            );
           }
 
           return false;
@@ -941,7 +1029,10 @@ export class ConversationEngine {
           );
 
           if (trigger === "autonomous") {
-            this.topics.recordPass(this.availableBots().length, this.now().getTime());
+            this.topics.recordPass(
+              this.availableChatBots().length,
+              this.now().getTime(),
+            );
           }
 
           return false;
@@ -1001,7 +1092,10 @@ export class ConversationEngine {
         );
       }
       if (trigger === "autonomous") {
-        this.topics.recordPass(this.availableBots().length, this.now().getTime());
+        this.topics.recordPass(
+          this.availableChatBots().length,
+          this.now().getTime(),
+        );
       }
     } catch (error) {
       this.deferForInferenceFailure(error);
@@ -1143,9 +1237,7 @@ export class ConversationEngine {
 
       this.topics.noteHumanMessage(this.now().getTime());
 
-      const scheduled = this.preferredBots();
-      const greetingPool =
-        scheduled.length > 0 ? scheduled : this.availableBots();
+      const greetingPool = this.availableChatBots();
       const greeter = pick(greetingPool);
 
       if (greeter !== undefined) {
@@ -1332,14 +1424,13 @@ export class ConversationEngine {
     replyTo?: { contentItemId: string },
     humanActorId?: string,
   ): Promise<void> {
-    const available = this.availableBots();
+    const available = this.availableChatBots();
 
     if (available.length === 0) {
       return;
     }
 
-    const scheduled = this.preferredBots();
-    const responsePool = scheduled.length > 0 ? scheduled : available;
+    const responsePool = available;
 
     const lower = content.toLowerCase();
     const greeting =

@@ -27,6 +27,22 @@ test("constructs one durable brain for each of the eight canonical bots", async 
       brains.filter((brain) => brain.persona.type === "mod_bot").length,
       3,
     );
+    assert.equal(
+      brains.filter(
+        (brain) =>
+          brain.persona.type === "chat_bot" &&
+          !("workShift" in brain.persona),
+      ).length,
+      5,
+    );
+    assert.equal(
+      brains.filter(
+        (brain) =>
+          brain.persona.type === "mod_bot" &&
+          "workShift" in brain.persona,
+      ).length,
+      3,
+    );
 
     for (const brain of brains) {
       brain.perceive({
