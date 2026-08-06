@@ -6,6 +6,7 @@ import type { Persona } from "./personas.js";
 const persona: Persona = {
   handle: "jakob",
   displayName: "Jakob",
+  type: "chat_bot",
   activity: { startHourUtc: 10, endHourUtc: 20 },
   card: "You are curious about whatever people bring into the room.",
 };
@@ -33,11 +34,11 @@ test("returns a model-grounded topic decision", async () => {
       String(init?.body),
     ) as Record<string, unknown>;
     requestBodies.push(requestBody);
-    const content =
-      "MOVE=continue|SOURCE=conversation|TOPIC=rainy bike commutes|" +
-      "ANGLE=keeping belongings dry|" +
-      "GROUNDING=Mira said she cycled through the rain|" +
-      "MESSAGE=Getting caught in rain is rough. Did your bag stay dry?";
+    const content = requestBodies.length === 1
+      ? "MOVE=continue|SOURCE=conversation|TOPIC=rainy bike commutes|" +
+        "ANGLE=keeping belongings dry|" +
+        "GROUNDING=Mira said she cycled through the rain"
+      : "Getting caught in rain is rough. Did your bag stay dry?";
 
     return new Response(
       JSON.stringify({ content }),
@@ -70,13 +71,13 @@ test("returns a model-grounded topic decision", async () => {
       topicGrounding: "Mira said she cycled through the rain",
       topicContribution: "keeping belongings dry",
     });
-    assert.equal(requestBodies.length, 1);
+    assert.equal(requestBodies.length, 2);
     assert.match(
-      JSON.stringify(requestBodies[0]),
-      /Cadence for MESSAGE/,
+      JSON.stringify(requestBodies[1]),
+      /Cadence for the message/,
     );
     assert.match(
-      JSON.stringify(requestBodies[0]),
+      JSON.stringify(requestBodies[1]),
       /never write a message in all caps/,
     );
     assert.match(
@@ -96,7 +97,7 @@ test("returns a model-grounded topic decision", async () => {
       /Your recalled brain state, including working memory/,
     );
     assert.match(
-      JSON.stringify(requestBodies[0]),
+      JSON.stringify(requestBodies[1]),
       /include research citations or source URLs/,
     );
     assert.match(
@@ -104,11 +105,11 @@ test("returns a model-grounded topic decision", async () => {
       /incidental noun is not a reason to replace the subject/,
     );
     assert.match(
-      JSON.stringify(requestBodies[0]),
+      JSON.stringify(requestBodies[1]),
       /Do not use metaphors, poetic or dramatic imagery/,
     );
     assert.match(
-      JSON.stringify(requestBodies[0]),
+      JSON.stringify(requestBodies[1]),
       /ordinary person can understand on the first read/,
     );
     assert.match(
@@ -165,11 +166,11 @@ test("treats a participant-named source as conversation grounding", async () => 
 
   globalThis.fetch = async () => {
     requestCount += 1;
-    const content =
-      "MOVE=start|SOURCE=Mira|TOPIC=rainy bike commutes|" +
-      "ANGLE=wet brakes need extra stopping distance|" +
-      "GROUNDING=Mira said she cycled through the rain|" +
-      "MESSAGE=Wet brakes can make the trip home surprisingly tense.";
+    const content = requestCount === 1
+      ? "MOVE=start|SOURCE=Mira|TOPIC=rainy bike commutes|" +
+        "ANGLE=wet brakes need extra stopping distance|" +
+        "GROUNDING=Mira said she cycled through the rain"
+      : "Wet brakes can make the trip home surprisingly tense.";
 
     return new Response(
       JSON.stringify({ content }),
@@ -190,7 +191,7 @@ test("treats a participant-named source as conversation grounding", async () => 
 
     assert.equal(result.speak, true);
     assert.equal(result.topicSource, "conversation");
-    assert.equal(requestCount, 1);
+    assert.equal(requestCount, 2);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -208,11 +209,11 @@ test("instructs human-triggered turns to answer the human first", async () => {
 
     return new Response(
       JSON.stringify({
-        content:
-          "MOVE=reply|SOURCE=conversation|TOPIC=bot age|" +
-          "ANGLE=Jakob clarifies that he has no human age|" +
-          "GROUNDING=Mira asked Jakob how old he is|" +
-          "MESSAGE=I do not have a human age. I have been here long enough to develop standards.",
+        content: requestBodies.length === 1
+          ? "MOVE=reply|SOURCE=conversation|TOPIC=bot age|" +
+            "ANGLE=Jakob clarifies that he has no human age|" +
+            "GROUNDING=Mira asked Jakob how old he is"
+          : "I do not have a human age. I have been here long enough to develop standards.",
       }),
       { status: 200, headers: { "content-type": "application/json" } },
     );
@@ -230,7 +231,7 @@ test("instructs human-triggered turns to answer the human first", async () => {
     );
 
     assert.equal(decision.speak, true);
-    assert.equal(requestBodies.length, 1);
+    assert.equal(requestBodies.length, 2);
     assert.match(
       JSON.stringify(requestBodies[0]),
       /first sentence must answer it/,
@@ -260,11 +261,11 @@ test("does not apply the human-first rule to autonomous turns", async () => {
 
     return new Response(
       JSON.stringify({
-        content:
-          "MOVE=continue|SOURCE=conversation|TOPIC=rainy bike commutes|" +
-          "ANGLE=wet brakes need extra stopping distance|" +
-          "GROUNDING=Mira said she cycled through the rain|" +
-          "MESSAGE=Wet brakes can make the trip home surprisingly tense.",
+        content: requestBodies.length === 1
+          ? "MOVE=continue|SOURCE=conversation|TOPIC=rainy bike commutes|" +
+            "ANGLE=wet brakes need extra stopping distance|" +
+            "GROUNDING=Mira said she cycled through the rain"
+          : "Wet brakes can make the trip home surprisingly tense.",
       }),
       { status: 200, headers: { "content-type": "application/json" } },
     );
@@ -282,7 +283,7 @@ test("does not apply the human-first rule to autonomous turns", async () => {
     );
 
     assert.equal(decision.speak, true);
-    assert.equal(requestBodies.length, 1);
+    assert.equal(requestBodies.length, 2);
     assert.doesNotMatch(
       JSON.stringify(requestBodies[0]),
       /first sentence must answer it/,
@@ -301,13 +302,14 @@ test("reuses a stable planning prefix and sends only recent transcript", async (
 
   globalThis.fetch = async (_input, init) => {
     requestBodies.push(JSON.parse(String(init?.body)));
+    const planning = requestBodies.length % 2 === 1;
 
     return new Response(
       JSON.stringify({
-        content:
-          "MESSAGE=Fresh detail.|MOVE=continue|SOURCE=conversation|" +
-          "TOPIC=recent detail|ANGLE=fresh detail|" +
-          "GROUNDING=the recent conversation",
+        content: planning
+          ? "MOVE=continue|SOURCE=conversation|TOPIC=recent detail|" +
+            "ANGLE=fresh detail|GROUNDING=the recent conversation"
+          : "Fresh detail.",
       }),
       { status: 200, headers: { "content-type": "application/json" } },
     );
@@ -339,8 +341,9 @@ test("reuses a stable planning prefix and sends only recent transcript", async (
       false,
     );
 
-    assert.equal(requestBodies.length, 2);
-    assert.equal(requestBodies[0]?.system, requestBodies[1]?.system);
+    assert.equal(requestBodies.length, 4);
+    assert.equal(requestBodies[0]?.system, requestBodies[2]?.system);
+    assert.equal(requestBodies[1]?.system, requestBodies[3]?.system);
     const userContext = requestBodies[0]?.messages[0]?.content ?? "";
     assert.equal(userContext.includes("Speaker-0: message-0\n"), false);
     assert.equal(userContext.includes("Speaker-1: message-1\n"), false);

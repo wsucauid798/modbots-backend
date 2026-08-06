@@ -1,5 +1,4 @@
 import { InferenceError } from "./mind.js";
-import type { Mind } from "./mind.js";
 import type { Persona } from "./personas.js";
 import {
   autonomousDelayRange,
@@ -9,8 +8,9 @@ import { PlatformError } from "./platform.js";
 import type { PlatformClient } from "./platform.js";
 import type { ContentAddress, RoomEvent } from "./platform.js";
 import type { RoomContentPart } from "./platform.js";
-import type { AgentBrain } from "./experience.js";
 import type { LearnedKnowledge } from "./experience.js";
+import type { BotBrain } from "./brain.js";
+import type { RoomInterpreter } from "./room-interpreter.js";
 import { ConversationPolicy } from "./conversation-policy.js";
 import { TopicCoordinator } from "./topic-coordinator.js";
 import type { TurnTrigger } from "./topic-coordinator.js";
@@ -19,18 +19,17 @@ type ConversationPlatform = Pick<
   PlatformClient,
   "getActor" | "inferenceParts" | "join" | "postMessage"
 >;
-type ConversationMind = Pick<
-  Mind,
-  "addressee" | "consider" | "observe" | "research"
+type ConversationRoomInterpreter = Pick<
+  RoomInterpreter,
+  "addressee" | "observe"
 >;
 type ConversationBrain = Pick<
-  AgentBrain,
+  BotBrain,
+  | "persona"
   | "perceive"
-  | "view"
-  | "learn"
+  | "consider"
   | "canResearch"
-  | "recordResearchAttempt"
-  | "researchDirection"
+  | "research"
   | "topicForConversation"
   | "markTopicUsed"
 >;
@@ -111,10 +110,9 @@ export class ConversationEngine {
 
   public constructor(
     private readonly client: ConversationPlatform,
-    private readonly mind: ConversationMind,
+    private readonly roomInterpreter: ConversationRoomInterpreter,
     private readonly tempo: number,
     bots: Array<{
-      persona: Persona;
       actorId: string;
       brain: ConversationBrain;
     }>,
@@ -126,6 +124,7 @@ export class ConversationEngine {
     this.topics = topics;
     this.bots = bots.map((bot) => ({
       ...bot,
+      persona: bot.brain.persona,
       muted: false,
       lastSpokeAt: 0,
       lastAttemptedAt: 0,
@@ -133,7 +132,7 @@ export class ConversationEngine {
 
     for (const bot of this.bots) {
       this.actorInfo.set(bot.actorId, {
-        type: "chat_bot",
+        type: bot.persona.type,
         display: bot.persona.displayName,
       });
     }
@@ -243,23 +242,17 @@ export class ConversationEngine {
 
     const attemptedAt = this.now().toISOString();
     this.internetResearchAttempts.push(now);
-    selected.brain.recordResearchAttempt(attemptedAt);
-    const direction = selected.brain.researchDirection(
-      this.topics.recentlyCompletedTopics(),
+    const recentlyCompleted = this.topics.recentlyCompletedTopics();
+    const result = await selected.brain.research(
+      recentlyCompleted,
+      attemptedAt,
     );
     console.log(
-      `${selected.persona.displayName} is researching ${direction.kind}: ${direction.focus}`,
+      `${selected.persona.displayName} researched ${result.direction.kind}: ${result.direction.focus}`,
     );
-    const learned = await this.mind.research(
-      selected.persona,
-      selected.brain.view("questions, uncertainty, and subjects worth learning"),
-      this.topics.recentlyCompletedTopics(),
-      direction,
-    );
-    selected.brain.learn(learned, attemptedAt, direction);
     console.log(
-      `${selected.persona.displayName} learned about '${learned.topic}' from ` +
-        `${learned.sources.length} internet source${learned.sources.length === 1 ? "" : "s"}.`,
+      `${selected.persona.displayName} learned about '${result.knowledge.topic}' from ` +
+        `${result.knowledge.sources.length} internet source${result.knowledge.sources.length === 1 ? "" : "s"}.`,
     );
     return true;
   }
@@ -559,7 +552,7 @@ export class ConversationEngine {
     ) {
       const entry = this.transcriptEntries[index];
 
-      if (entry.type === "chat_bot") {
+      if (entry.type === "chat_bot" || entry.type === "mod_bot") {
         return undefined;
       }
 
@@ -576,7 +569,9 @@ export class ConversationEngine {
 
   private guidanceForOpenTurn(): string | null {
     const recentOpenings = this.transcriptEntries
-      .filter((entry) => entry.type === "chat_bot")
+      .filter(
+        (entry) => entry.type === "chat_bot" || entry.type === "mod_bot",
+      )
       .slice(-3)
       .map((entry) =>
         ConversationEngine.normalizedWords(entry.content).slice(0, 2).join(" "),
@@ -858,15 +853,13 @@ export class ConversationEngine {
         this.autonomousInferenceAttempts.push(this.now().getTime());
       }
 
-      const decision = await this.mind.consider(
-        bot.persona,
+      const decision = await bot.brain.consider(
         {
           residents: this.bots.map((entry) => entry.persona.displayName),
           humans: [...this.humansPresent],
           roomTimeUtc: this.now().toISOString(),
         },
         [...this.transcript],
-        bot.brain.view([...this.transcript].slice(-8).join("\n")),
         hint,
         topicContext,
         !mustSpeak,
@@ -1098,7 +1091,7 @@ export class ConversationEngine {
       ) {
         this.remember(
           bot.persona.displayName,
-          "chat_bot",
+          bot.persona.type,
           event.payload.content,
           event.occurredAt,
           this.addressesFromEvent(event.payload, event.payload.content),
@@ -1106,7 +1099,7 @@ export class ConversationEngine {
 
         if (!options.react) {
           this.topics.observeHistoricalMessage(
-            "chat_bot",
+            bot.persona.type,
             Date.parse(event.occurredAt),
           );
         }
@@ -1259,7 +1252,7 @@ export class ConversationEngine {
 
       try {
         content = hasMedia && options.react
-          ? await this.mind.observe(await this.client.inferenceParts(parts))
+          ? await this.roomInterpreter.observe(await this.client.inferenceParts(parts))
           : parts
               .map((part) =>
                 part.kind === "text"
@@ -1370,7 +1363,7 @@ export class ConversationEngine {
       responsePool.length > 1
     ) {
       try {
-        const name = await this.mind.addressee(
+        const name = await this.roomInterpreter.addressee(
           responsePool.map((entry) => entry.persona.displayName),
           [...this.transcript],
           display,

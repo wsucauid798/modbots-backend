@@ -192,25 +192,61 @@ const makeActor = (id: string, display: string): Actor => ({
 });
 
 const makeBrain = (
+  persona: Persona,
+  mind: FakeMind,
   perceived: PerceivedMessage[] = [],
   topic: LearnedKnowledge = learnedTopic,
 ) => ({
+  persona,
   perceive(message: PerceivedMessage): void {
     perceived.push(message);
   },
-  view(): string {
-    return "No established experience yet.";
+  consider(
+    roster: {
+      residents: string[];
+      humans: string[];
+      roomTimeUtc: string;
+    },
+    transcript: string[],
+    hint: string | null,
+    topicContext: {
+      eligible: boolean;
+      questionAllowed: boolean;
+      guidance: string;
+      learnedKnowledge?: LearnedKnowledge;
+    },
+    allowPass = true,
+  ): Promise<Decision> {
+    return mind.consider(
+      persona,
+      roster,
+      transcript,
+      "No established experience yet.",
+      hint,
+      topicContext,
+      allowPass,
+    );
   },
-  learn(): void {},
   canResearch(): boolean {
     return false;
   },
-  recordResearchAttempt(): void {},
-  researchDirection(): ResearchDirection {
-    return {
+  async research(): Promise<{
+    direction: ResearchDirection;
+    knowledge: LearnedKnowledge;
+  }> {
+    const direction: ResearchDirection = {
       kind: "public_subject",
       focus: "A consequential subject people are discussing",
       reason: "The brain needs a meaningful new area of knowledge.",
+    };
+    return {
+      direction,
+      knowledge: await mind.research(
+        persona,
+        "No established experience yet.",
+        [],
+        direction,
+      ),
     };
   },
   topicForConversation(): LearnedKnowledge {
@@ -222,21 +258,23 @@ const makeBrain = (
 const arwen: Persona = {
   handle: "arwen",
   displayName: "Arwen",
+  type: "chat_bot",
   card: "Warm and curious.",
   activity: { startHourUtc: 4, endHourUtc: 14 },
 };
 const jakob: Persona = {
   handle: "jacob",
   displayName: "Jakob",
+  type: "chat_bot",
   card: "Friendly and opinionated.",
   activity: { startHourUtc: 10, endHourUtc: 20 },
 };
 
 const noonUtc = () => new Date("2026-07-18T12:00:00.000Z");
 
-const makeBots = () => [
-  { persona: arwen, actorId: "bot-arwen", brain: makeBrain() },
-  { persona: jakob, actorId: "bot-jacob", brain: makeBrain() },
+const makeBots = (mind: FakeMind) => [
+  { actorId: "bot-arwen", brain: makeBrain(arwen, mind) },
+  { actorId: "bot-jacob", brain: makeBrain(jakob, mind) },
 ];
 
 const humanMessage = (
@@ -279,7 +317,7 @@ test("queues overlapping human messages without losing a response", async () => 
     ],
     10,
   );
-  const engine = new ConversationEngine(platform, mind, 0, makeBots(), noonUtc);
+  const engine = new ConversationEngine(platform, mind, 0, makeBots(mind), noonUtc);
 
   const first = engine.enqueueRoomEvent(
     humanMessage("1", "human-one", "Which option should I try first?"),
@@ -314,7 +352,7 @@ test("routes a structural address to the intended resident", async () => {
     platform,
     mind,
     0,
-    makeBots(),
+    makeBots(mind),
     () => new Date("2026-07-18T02:00:00.000Z"),
   );
 
@@ -338,7 +376,7 @@ test("answers a greeting without spending a routing inference", async () => {
   const mind = new FakeMind([
     { speak: true, message: "Good morning, glad you stopped in." },
   ]);
-  const engine = new ConversationEngine(platform, mind, 0, makeBots(), noonUtc);
+  const engine = new ConversationEngine(platform, mind, 0, makeBots(mind), noonUtc);
 
   await engine.enqueueRoomEvent(
     humanMessage("greeting", "human-one", "Good morning everyone!"),
@@ -356,7 +394,7 @@ test("answers a structural room address without routing inference", async () => 
   const mind = new FakeMind([
     { speak: true, message: "I would start with the smaller one." },
   ]);
-  const engine = new ConversationEngine(platform, mind, 0, makeBots(), noonUtc);
+  const engine = new ConversationEngine(platform, mind, 0, makeBots(mind), noonUtc);
 
   await engine.enqueueRoomEvent(
     humanMessage("room-address", "human-one", "Which one should I try?", {
@@ -377,7 +415,7 @@ test("uses one fallback resident when the first resident passes", async () => {
     { speak: false },
     { speak: true, message: "I can take that one." },
   ]);
-  const engine = new ConversationEngine(platform, mind, 0, makeBots(), noonUtc);
+  const engine = new ConversationEngine(platform, mind, 0, makeBots(mind), noonUtc);
 
   await engine.enqueueRoomEvent(
     humanMessage("4", "human-one", "Can someone help me decide?"),
@@ -401,7 +439,7 @@ test("keeps residents eligible regardless of room time", async () => {
     platform,
     mind,
     0,
-    makeBots(),
+    makeBots(mind),
     () => new Date("2026-07-18T05:00:00.000Z"),
   );
 
@@ -433,7 +471,7 @@ test("backs off when the provider reports insufficient quota", async () => {
     platform,
     mind,
     0,
-    makeBots(),
+    makeBots(mind),
     () => currentTime,
   );
 
@@ -474,7 +512,7 @@ test("honors the provider's rate-limit reset time", async () => {
     platform,
     mind,
     0,
-    makeBots(),
+    makeBots(mind),
     () => currentTime,
   );
 
@@ -517,7 +555,7 @@ test("does not retry generation after routing is rate limited", async () => {
     platform,
     mind,
     0,
-    makeBots(),
+    makeBots(mind),
     () => currentTime,
   );
 
@@ -549,14 +587,12 @@ test("perceives the authoritative UTC event time", async () => {
     0,
     [
       {
-        persona: arwen,
         actorId: "bot-arwen",
-        brain: makeBrain(arwenPerceptions),
+        brain: makeBrain(arwen, mind, arwenPerceptions),
       },
       {
-        persona: jakob,
         actorId: "bot-jacob",
-        brain: makeBrain(),
+        brain: makeBrain(jakob, mind),
       },
     ],
     noonUtc,
@@ -580,9 +616,9 @@ test("a scheduled activity turn rotates residents until one speaks", async () =>
   const platform = new FakePlatform({});
   const mind = new FakeMind([
     { speak: false },
-    { speak: true, message: "There is something different worth noticing." },
+    { speak: true, message: "Ocean heat is changing something worth noticing." },
   ]);
-  const engine = new ConversationEngine(platform, mind, 0, makeBots(), noonUtc);
+  const engine = new ConversationEngine(platform, mind, 0, makeBots(mind), noonUtc);
   platform.onPost = () => engine.stop();
 
   await engine.run();
@@ -598,10 +634,10 @@ test("a common first word does not suppress a scheduled contribution", async () 
   const mind = new FakeMind([
     {
       speak: true,
-      message: "This separate observation takes the conversation elsewhere.",
+      message: "This ocean heat observation takes the conversation elsewhere.",
     },
   ]);
-  const engine = new ConversationEngine(platform, mind, 0, makeBots(), noonUtc);
+  const engine = new ConversationEngine(platform, mind, 0, makeBots(mind), noonUtc);
   platform.onPost = () => engine.stop();
 
   await engine.enqueueRoomEvent(
@@ -616,16 +652,16 @@ test("a common first word does not suppress a scheduled contribution", async () 
 
   assert.equal(
     platform.posts[0]?.content,
-    "This separate observation takes the conversation elsewhere.",
+    "This ocean heat observation takes the conversation elsewhere.",
   );
 });
 
 test("requests autonomous inference in an empty chatroom", async () => {
   const platform = new FakePlatform({});
   const mind = new FakeMind([
-    { speak: true, message: "The room continues even while it is empty." },
+    { speak: true, message: "Ocean heat keeps changing even while the room is empty." },
   ]);
-  const engine = new ConversationEngine(platform, mind, 0, makeBots(), noonUtc);
+  const engine = new ConversationEngine(platform, mind, 0, makeBots(mind), noonUtc);
   platform.onPost = () => engine.stop();
 
   await engine.run();
@@ -637,10 +673,10 @@ test("requests autonomous inference in an empty chatroom", async () => {
 test("selects a bot with usable knowledge for a new topic", async () => {
   const platform = new FakePlatform({});
   const mind = new FakeMind([
-    { speak: true, message: "Tree canopy can make a hot street more bearable." },
+    { speak: true, message: "Ocean heat can alter what coastlines experience." },
   ]);
   const unavailableBrain = {
-    ...makeBrain(),
+    ...makeBrain(arwen, mind),
     topicForConversation(): null {
       return null;
     },
@@ -650,8 +686,8 @@ test("selects a bot with usable knowledge for a new topic", async () => {
     mind,
     0,
     [
-      { persona: arwen, actorId: "bot-arwen", brain: unavailableBrain },
-      { persona: jakob, actorId: "bot-jacob", brain: makeBrain() },
+      { actorId: "bot-arwen", brain: unavailableBrain },
+      { actorId: "bot-jacob", brain: makeBrain(jakob, mind) },
     ],
     noonUtc,
   );
@@ -670,26 +706,27 @@ test("researches once when a bot brain has no learned topic", async () => {
   ]);
   let knowledge: LearnedKnowledge | null = null;
   let researchAllowed = true;
+  const baseBrain = makeBrain(arwen, mind);
   const brain = {
-    ...makeBrain(),
+    ...baseBrain,
     canResearch(): boolean {
       return researchAllowed;
     },
-    recordResearchAttempt(): void {
+    async research(): ReturnType<typeof baseBrain.research> {
       researchAllowed = false;
+      const result = await baseBrain.research();
+      knowledge = result.knowledge;
+      return result;
     },
     topicForConversation(): LearnedKnowledge | null {
       return knowledge;
-    },
-    learn(learned: LearnedKnowledge): void {
-      knowledge = learned;
     },
   };
   const engine = new ConversationEngine(
     platform,
     mind,
     0,
-    [{ persona: arwen, actorId: "bot-arwen", brain }],
+    [{ actorId: "bot-arwen", brain }],
     noonUtc,
   );
   platform.onPost = () => engine.stop();
@@ -706,24 +743,25 @@ test("starts learning without waiting for a conversation topic", async () => {
   const platform = new FakePlatform({});
   const mind = new FakeMind([]);
   let researchAllowed = true;
+  const baseBrain = makeBrain(arwen, mind);
   const brain = {
-    ...makeBrain(),
+    ...baseBrain,
     canResearch(): boolean {
       return researchAllowed;
     },
-    recordResearchAttempt(): void {
+    async research(): ReturnType<typeof baseBrain.research> {
       researchAllowed = false;
+      return baseBrain.research();
     },
     topicForConversation(): null {
       return null;
     },
-    learn(): void {},
   };
   const engine = new ConversationEngine(
     platform,
     mind,
     0,
-    [{ persona: arwen, actorId: "bot-arwen", brain }],
+    [{ actorId: "bot-arwen", brain }],
     noonUtc,
   );
   mind.onResearch = () => engine.stop();
@@ -736,22 +774,24 @@ test("starts learning without waiting for a conversation topic", async () => {
 
 test("learning continues when the conversation inference budget is exhausted", async () => {
   const platform = new FakePlatform({});
-  const mind = new FakeMind([{ speak: true, message: "A grounded thought." }]);
+  const mind = new FakeMind([{ speak: true, message: "Ocean heat is a grounded subject." }]);
   let researchAllowed = false;
+  const baseBrain = makeBrain(arwen, mind);
   const brain = {
-    ...makeBrain(),
+    ...baseBrain,
     canResearch(): boolean {
       return researchAllowed;
     },
-    recordResearchAttempt(): void {
+    async research(): ReturnType<typeof baseBrain.research> {
       researchAllowed = false;
+      return baseBrain.research();
     },
   };
   const engine = new ConversationEngine(
     platform,
     mind,
     0,
-    [{ persona: arwen, actorId: "bot-arwen", brain }],
+    [{ actorId: "bot-arwen", brain }],
     noonUtc,
     undefined,
     {
@@ -811,8 +851,8 @@ test("rejects an incoherent autonomous topic jump", async () => {
     mind,
     0,
     [
-      { persona: arwen, actorId: "bot-arwen", brain: makeBrain([], oldRadioKnowledge) },
-      { persona: jakob, actorId: "bot-jacob", brain: makeBrain([], oldRadioKnowledge) },
+      { actorId: "bot-arwen", brain: makeBrain(arwen, mind, [], oldRadioKnowledge) },
+      { actorId: "bot-jacob", brain: makeBrain(jakob, mind, [], oldRadioKnowledge) },
     ],
     noonUtc,
   );
@@ -846,7 +886,7 @@ test("enforces the hourly autonomous inference limit", async () => {
     platform,
     mind,
     0,
-    makeBots(),
+    makeBots(mind),
     noonUtc,
     undefined,
     {
@@ -869,7 +909,7 @@ test("does not greet repeated join events for the same human", async () => {
     { speak: true, message: "Welcome, Mina." },
     { speak: true, message: "Welcome again, Mina." },
   ]);
-  const engine = new ConversationEngine(platform, mind, 0, makeBots(), noonUtc);
+  const engine = new ConversationEngine(platform, mind, 0, makeBots(mind), noonUtc);
 
   await engine.enqueueRoomEvent(humanJoined("first-join", "human-one"));
   await engine.enqueueRoomEvent(humanJoined("duplicate-join", "human-one"));

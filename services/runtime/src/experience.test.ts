@@ -9,6 +9,7 @@ import type { Persona } from "./personas.js";
 const persona: Persona = {
   handle: "jacob",
   displayName: "Jakob",
+  type: "chat_bot",
   activity: { startHourUtc: 10, endHourUtc: 20 },
   card: "Friendly and curious.",
 };
@@ -348,6 +349,47 @@ test("reuses learned knowledge before spending another internet search", async (
       null,
     );
     await brain.flush();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("does not restart another brain's recently discussed subject", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "modbots-brain-"));
+
+  try {
+    const brain = await AgentBrain.load(directory, persona);
+    brain.learn(
+      {
+        topic: "moisture aroma and bitterness",
+        statement:
+          "Roasting longer removes moisture, deepens browning, changes aroma, and can increase bitterness.",
+        confidence: 0.8,
+        sources: [{ title: "Roasting", url: "https://example.com/roasting" }],
+      },
+      "2026-08-07T12:00:00.000Z",
+    );
+    brain.perceive({
+      speaker: "Bob",
+      type: "chat_bot",
+      content: "A brief dry finish gives better aroma without overbrowning.",
+      occurredAt: "2026-08-07T12:10:00.000Z",
+      addressedToSelf: false,
+      addressedToRoom: false,
+      fromSelf: false,
+    });
+
+    assert.equal(
+      brain.topicForConversation(Date.parse("2026-08-07T12:20:00.000Z")),
+      null,
+    );
+    await brain.flush();
+
+    const reloaded = await AgentBrain.load(directory, persona);
+    assert.equal(
+      reloaded.topicForConversation(Date.parse("2026-08-07T12:20:00.000Z")),
+      null,
+    );
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

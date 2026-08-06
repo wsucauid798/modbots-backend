@@ -35,7 +35,7 @@ test("renames an existing resident without replacing its actor identity", async 
     const actor = await new PlatformClient(
       "http://api.test",
       "global-lobby",
-    ).ensureActor("jacob", "Jakob");
+    ).ensureActor("jacob", "Jakob", "chat_bot");
 
     assert.equal(actor.id, "bot-jakob");
     assert.equal(actor.displayName, "Jakob");

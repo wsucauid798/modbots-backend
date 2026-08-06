@@ -111,11 +111,18 @@ export class PlatformClient {
   public async ensureActor(
     handle: string,
     displayName: string,
+    type: "chat_bot" | "mod_bot",
   ): Promise<Actor> {
     try {
       const existing = await this.request<Actor>(
         `/api/actors/by-handle/${encodeURIComponent(handle)}`,
       );
+
+      if (existing.type !== type) {
+        throw new Error(
+          `Actor '${handle}' has type '${existing.type}', expected '${type}'`,
+        );
+      }
 
       if (existing.retiredAt !== null) {
         const restored = await this.post<Actor>(
@@ -150,7 +157,7 @@ export class PlatformClient {
       if (error instanceof PlatformError && error.status === 404) {
         return this.post<Actor>(
           "/api/actors",
-          { handle, displayName, type: "chat_bot" },
+          { handle, displayName, type },
           [201],
         );
       }

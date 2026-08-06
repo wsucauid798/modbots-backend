@@ -1,16 +1,16 @@
 import { loadConfig } from "./config.js";
 import { ConversationEngine } from "./engine.js";
-import { AgentBrain } from "./experience.js";
+import { BotBrain } from "./brain.js";
 import { ConversationPolicy } from "./conversation-policy.js";
-import { Mind } from "./mind.js";
 import { personas } from "./personas.js";
 import { PlatformClient } from "./platform.js";
+import { RoomInterpreter } from "./room-interpreter.js";
 import type { RoomEvent } from "./platform.js";
 import { startupEventsFor } from "./startup-history.js";
 
 const config = loadConfig();
 const client = new PlatformClient(config.apiUrl, config.roomId);
-const mind = new Mind(config.mlUrl);
+const roomInterpreter = new RoomInterpreter(config.mlUrl);
 
 const wait = (milliseconds: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -87,7 +87,7 @@ const main = async (): Promise<void> => {
   // can take a while on first boot, so this is patient.
   for (let attempt = 0; ; attempt += 1) {
     try {
-      await mind.health();
+      await roomInterpreter.health();
       break;
     } catch {
       if (attempt === 300) {
@@ -106,19 +106,21 @@ const main = async (): Promise<void> => {
     const actor = await client.ensureActor(
       persona.handle,
       persona.displayName,
+      persona.type,
     );
     await client.join(actor.id);
-    const brain = await AgentBrain.load(
+    const brain = await BotBrain.load(
       config.experienceDir,
       persona,
+      config.mlUrl,
     );
-    bots.push({ persona, actorId: actor.id, brain });
+    bots.push({ actorId: actor.id, brain });
     console.log(`${persona.displayName} is in the room (${actor.id})`);
   }
 
   const engine = new ConversationEngine(
     client,
-    mind,
+    roomInterpreter,
     config.tempo,
     bots,
     undefined,
@@ -146,7 +148,7 @@ const main = async (): Promise<void> => {
   });
 
   console.log(
-    `Chat bot runtime running: room '${config.roomId}', tempo ${config.tempo}, ` +
+    `Bot runtime running: room '${config.roomId}', tempo ${config.tempo}, ` +
       `${config.autonomousInferenceLimitPerHour} autonomous inferences per hour, ` +
       `${config.internetResearchLimitPerHour} internet searches per hour`,
   );

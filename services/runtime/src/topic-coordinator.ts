@@ -274,6 +274,13 @@ export class TopicCoordinator {
       ) {
         return { accepted: false, reason: "learned topic label changed" };
       }
+
+      if (similarity(decision.topic, prepared) === 0) {
+        return {
+          accepted: false,
+          reason: "new topic message did not name its subject",
+        };
+      }
     }
 
     if (trigger === "autonomous" && this.active !== null) {

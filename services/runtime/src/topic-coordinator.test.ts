@@ -303,6 +303,34 @@ test("requires a fresh autonomous topic to use learned knowledge", () => {
   );
 });
 
+test("rejects a vague autonomous opening with a hidden subject", () => {
+  const coordinator = new TopicCoordinator();
+  const context = coordinator.turnContext("autonomous", 1_000, {
+    topic: "nutrient retention in soup",
+    statement: "Cooking changes how nutrients are retained and absorbed.",
+    confidence: 0.8,
+    sources: [{ title: "Nutrition", url: "https://example.com/nutrition" }],
+  });
+  const result = coordinator.evaluate(
+    {
+      speak: true,
+      message: "Does cooking improve absorption?",
+      topic: "nutrient retention in soup",
+      topicMove: "start",
+      topicSource: "knowledge",
+      topicGrounding: "knowledge recalled from the brain",
+      topicContribution: "absorption question",
+    },
+    "Does cooking improve absorption?",
+    "autonomous",
+    1_000,
+    context,
+  );
+
+  assert.equal(result.accepted, false);
+  assert.equal(result.reason, "new topic message did not name its subject");
+});
+
 test("a direct human reply does not become an autonomous bot topic", () => {
   const topics = new TopicCoordinator();
 

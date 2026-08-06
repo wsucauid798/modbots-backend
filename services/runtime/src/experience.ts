@@ -121,19 +121,40 @@ const stringList = (value: unknown): string[] =>
 // Reduce plural forms so "potatoes" matches "potato" across topic labels,
 // knowledge statements, and room messages.
 const stem = (word: string): string => {
-  if (word.length > 4 && word.endsWith("ies")) {
-    return `${word.slice(0, -3)}y`;
+  let normalized = word;
+
+  if (
+    normalized.length > 8 &&
+    (normalized.startsWith("over") || normalized.startsWith("under"))
+  ) {
+    normalized = normalized.startsWith("over")
+      ? normalized.slice(4)
+      : normalized.slice(5);
   }
 
-  if (word.length > 4 && word.endsWith("oes")) {
-    return word.slice(0, -2);
+  if (normalized.length > 5 && normalized.endsWith("ing")) {
+    normalized = normalized.slice(0, -3);
+  } else if (normalized.length > 4 && normalized.endsWith("ed")) {
+    normalized = normalized.slice(0, -2);
   }
 
-  if (word.length > 3 && word.endsWith("s") && !word.endsWith("ss")) {
-    return word.slice(0, -1);
+  if (normalized.length > 4 && normalized.endsWith("ies")) {
+    return `${normalized.slice(0, -3)}y`;
   }
 
-  return word;
+  if (normalized.length > 4 && normalized.endsWith("oes")) {
+    return normalized.slice(0, -2);
+  }
+
+  if (
+    normalized.length > 3 &&
+    normalized.endsWith("s") &&
+    !normalized.endsWith("ss")
+  ) {
+    return normalized.slice(0, -1);
+  }
+
+  return normalized;
 };
 
 const words = (value: string): Set<string> =>
@@ -685,16 +706,21 @@ export class AgentBrain {
     // A subject the room has finished stays finished for the rest of the
     // day. Returning to it after half an hour reads as a broken record.
     const reuseAfterMs = 24 * 60 * 60_000;
+    const recentRoomMessages = this.state.workingMemory
+      .filter((episode) => {
+        const occurredAt = Date.parse(episode.occurredAt);
+        return Number.isFinite(occurredAt) && now - occurredAt < reuseAfterMs;
+      })
+      .map((episode) => episode.content);
     const available = this.state.knowledge
       .filter((memory) => {
         const lastUsed = Date.parse(memory.lastUsedAt ?? "");
-        const wasRecentlyDiscussed = excludedTopics.some(
-          (topic) =>
-            Math.max(
-              relevance(words(topic), memory.topic),
-              relevance(words(memory.topic), topic),
-            ) >= 0.3,
-        );
+        const subject = `${memory.topic} ${memory.statement}`;
+        const wasRecentlyDiscussed =
+          excludedTopics.some((topic) => relatedness(topic, subject) >= 0.3) ||
+          recentRoomMessages.some(
+            (message) => relatedness(message, subject) >= 0.25,
+          );
         return (
           memory.confidence >= 0.5 &&
           memory.sources.length > 0 &&
