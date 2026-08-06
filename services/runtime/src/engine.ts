@@ -299,7 +299,9 @@ export class ConversationEngine {
   }
 
   private availableBots(): BotState[] {
-    return this.bots.filter((bot) => !bot.muted);
+    return this.bots.filter(
+      (bot) => !bot.muted && bot.persona.type === "chat_bot",
+    );
   }
 
   private preferredBots(): BotState[] {
@@ -800,7 +802,10 @@ export class ConversationEngine {
     addressedTo?: ContentAddress[],
     directQuestion = false,
   ): Promise<boolean> {
-    if (bot.muted || this.stopped) {
+    // This is the conversation engine. Mod bot speech must enter through an
+    // explicit moderation-purpose path, never ordinary reply or autonomous
+    // chat selection.
+    if (bot.persona.type !== "chat_bot" || bot.muted || this.stopped) {
       return false;
     }
 
@@ -855,7 +860,9 @@ export class ConversationEngine {
 
       const decision = await bot.brain.consider(
         {
-          residents: this.bots.map((entry) => entry.persona.displayName),
+          residents: this.availableBots().map(
+            (entry) => entry.persona.displayName,
+          ),
           humans: [...this.humansPresent],
           roomTimeUtc: this.now().toISOString(),
         },
@@ -1345,6 +1352,33 @@ export class ConversationEngine {
         latest.content === content &&
         latest.addressedToRoom) ||
       this.addressesIn(content).addressedToRoom;
+    const addressedModBot = this.bots.some((entry) => {
+      if (entry.persona.type !== "mod_bot") {
+        return false;
+      }
+
+      const structurallyAddressed =
+        latest?.speaker === display &&
+        latest.content === content &&
+        latest.addressedTo.includes(entry.persona.displayName);
+      const namedAtStart = new RegExp(
+        `^\\s*@?${entry.persona.displayName.replace(
+          /[.*+?^${}()|[\]\\]/g,
+          "\\$&",
+        )}\\b`,
+        "i",
+      ).test(content);
+
+      return structurallyAddressed || namedAtStart;
+    });
+
+    // A message structurally addressed to a mod bot belongs to moderation.
+    // Chat bots must not steal it, and this conversation engine must not make
+    // the mod bot answer it as ordinary chat.
+    if (addressedModBot) {
+      return;
+    }
+
     let target = available.find(
       (entry) =>
         latest?.speaker === display &&

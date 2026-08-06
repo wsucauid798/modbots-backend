@@ -269,12 +269,24 @@ const jakob: Persona = {
   card: "Friendly and opinionated.",
   activity: { startHourUtc: 10, endHourUtc: 20 },
 };
+const iris: Persona = {
+  handle: "iris",
+  displayName: "Iris",
+  type: "mod_bot",
+  card: "Always learning how to moderate.",
+  activity: { startHourUtc: 16, endHourUtc: 0 },
+};
 
 const noonUtc = () => new Date("2026-07-18T12:00:00.000Z");
 
 const makeBots = (mind: FakeMind) => [
   { actorId: "bot-arwen", brain: makeBrain(arwen, mind) },
   { actorId: "bot-jacob", brain: makeBrain(jakob, mind) },
+];
+
+const makeBotsWithModBot = (mind: FakeMind) => [
+  ...makeBots(mind),
+  { actorId: "mod-iris", brain: makeBrain(iris, mind) },
 ];
 
 const humanMessage = (
@@ -367,6 +379,55 @@ test("routes a structural address to the intended resident", async () => {
   assert.deepEqual(platform.posts[0]?.addressedTo, [
     { targetType: "actor", actorId: "human-one" },
   ]);
+});
+
+test("ordinary conversation uses chat bots and never mod bots", async () => {
+  const platform = new FakePlatform({
+    "human-one": makeActor("human-one", "Mina"),
+  });
+  const mind = new FakeMind([
+    { speak: true, message: "I can look at the news topic with you." },
+  ]);
+  const engine = new ConversationEngine(
+    platform,
+    mind,
+    0,
+    makeBotsWithModBot(mind),
+    noonUtc,
+  );
+
+  await engine.enqueueRoomEvent(
+    humanMessage("ordinary-news", "human-one", "What's the latest news?"),
+  );
+
+  assert.equal(mind.considered.length, 1);
+  assert.notEqual(mind.considered[0], "Iris");
+  assert.notEqual(platform.posts[0]?.actorId, "mod-iris");
+});
+
+test("chat bots do not steal a message addressed to a mod bot", async () => {
+  const platform = new FakePlatform({
+    "human-one": makeActor("human-one", "Mina"),
+  });
+  const mind = new FakeMind([
+    { speak: true, message: "A chat bot should not answer this." },
+  ]);
+  const engine = new ConversationEngine(
+    platform,
+    mind,
+    0,
+    makeBotsWithModBot(mind),
+    noonUtc,
+  );
+
+  await engine.enqueueRoomEvent(
+    humanMessage("mod-address", "human-one", "Iris, please review this.", {
+      addressedTo: [{ targetType: "actor", actorId: "mod-iris" }],
+    }),
+  );
+
+  assert.equal(mind.considered.length, 0);
+  assert.equal(platform.posts.length, 0);
 });
 
 test("answers a greeting without spending a routing inference", async () => {
