@@ -841,6 +841,59 @@ describe("media routes", () => {
     await app.close();
   });
 
+  it("recognizes an audio-only WebM recording as audio", async () => {
+    const app = Fastify();
+    await app.register(mediaRoutes(media, auth));
+    const audioWebm = Buffer.from(
+      "1a45dfa31654ae6b94ae92d7810173c581018381028686415f4f505553",
+      "hex",
+    );
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/rooms/global-lobby/media-assets",
+      payload: {
+        actorId: "human-1",
+        mediaKind: "audio",
+        originalFilename: "voice-message.webm",
+        declaredMediaType: "audio/webm;codecs=opus",
+        data: audioWebm.toString("base64"),
+      },
+    });
+
+    assert.equal(response.statusCode, 201);
+    assert.equal(response.json().detectedMediaType, "audio/webm");
+    await app.close();
+  });
+
+  it("does not accept a video WebM track as audio", async () => {
+    const app = Fastify();
+    await app.register(mediaRoutes(media, auth));
+    const videoWebm = Buffer.from(
+      "1a45dfa31654ae6b85ae83838101",
+      "hex",
+    );
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/rooms/global-lobby/media-assets",
+      payload: {
+        actorId: "human-1",
+        mediaKind: "audio",
+        originalFilename: "not-a-voice-message.webm",
+        declaredMediaType: "audio/webm",
+        data: videoWebm.toString("base64"),
+      },
+    });
+
+    assert.equal(response.statusCode, 400);
+    assert.equal(
+      response.json().message,
+      "The uploaded data is video/webm, not audio",
+    );
+    await app.close();
+  });
+
   it("serves byte ranges for audio and video playback", async () => {
     const asset = await media.createPublished({
       roomId: "global-lobby",

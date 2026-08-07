@@ -24,6 +24,180 @@ interface UploadBody {
 
 const maximumMediaBytes = 100 * 1024 * 1024;
 const mediaKinds = new Set<MediaKind>(["image", "audio", "video", "file"]);
+const webmTracksId = Buffer.from("1654ae6b", "hex");
+
+interface VariableInteger {
+  value: number;
+  width: number;
+}
+
+const variableIntegerAt = (
+  data: Buffer,
+  offset: number,
+): VariableInteger | null => {
+  const first = data[offset];
+
+  if (first === undefined || first === 0) {
+    return null;
+  }
+
+  let marker = 0x80;
+  let width = 1;
+
+  while ((first & marker) === 0) {
+    marker >>= 1;
+    width += 1;
+  }
+
+  if (width > 8 || offset + width > data.length) {
+    return null;
+  }
+
+  let value = first & (marker - 1);
+
+  for (let index = 1; index < width; index += 1) {
+    value = value * 256 + data[offset + index]!;
+  }
+
+  return { value, width };
+};
+
+const elementIdAt = (data: Buffer, offset: number): VariableInteger | null => {
+  const first = data[offset];
+
+  if (first === undefined || first === 0) {
+    return null;
+  }
+
+  let marker = 0x80;
+  let width = 1;
+
+  while ((first & marker) === 0) {
+    marker >>= 1;
+    width += 1;
+  }
+
+  if (width > 4 || offset + width > data.length) {
+    return null;
+  }
+
+  let value = first;
+
+  for (let index = 1; index < width; index += 1) {
+    value = value * 256 + data[offset + index]!;
+  }
+
+  return { value, width };
+};
+
+const webmTrackTypes = (data: Buffer): Set<number> => {
+  const types = new Set<number>();
+  const tracksOffset = data.indexOf(webmTracksId);
+
+  if (tracksOffset < 0) {
+    return types;
+  }
+
+  const tracksSize = variableIntegerAt(
+    data,
+    tracksOffset + webmTracksId.length,
+  );
+
+  if (tracksSize === null) {
+    return types;
+  }
+
+  const tracksStart = tracksOffset + webmTracksId.length + tracksSize.width;
+  const tracksEnd = Math.min(data.length, tracksStart + tracksSize.value);
+  let entryOffset = tracksStart;
+
+  while (entryOffset < tracksEnd) {
+    const elementId = elementIdAt(data, entryOffset);
+
+    if (elementId === null) {
+      break;
+    }
+
+    const elementSize = variableIntegerAt(
+      data,
+      entryOffset + elementId.width,
+    );
+
+    if (elementSize === null) {
+      break;
+    }
+
+    const elementStart = entryOffset + elementId.width + elementSize.width;
+    const elementEnd = elementStart + elementSize.value;
+
+    if (elementEnd > tracksEnd) {
+      break;
+    }
+
+    if (elementId.value === 0xae) {
+      let trackOffset = elementStart;
+
+      while (trackOffset < elementEnd) {
+        const trackElementId = elementIdAt(data, trackOffset);
+
+        if (trackElementId === null) {
+          break;
+        }
+
+        const trackElementSize = variableIntegerAt(
+          data,
+          trackOffset + trackElementId.width,
+        );
+
+        if (trackElementSize === null) {
+          break;
+        }
+
+        const trackElementStart =
+          trackOffset + trackElementId.width + trackElementSize.width;
+        const trackElementEnd = trackElementStart + trackElementSize.value;
+
+        if (trackElementEnd > elementEnd) {
+          break;
+        }
+
+        if (trackElementId.value === 0x83 && trackElementSize.value > 0) {
+          let trackType = 0;
+
+          for (
+            let index = trackElementStart;
+            index < trackElementEnd;
+            index += 1
+          ) {
+            trackType = trackType * 256 + data[index]!;
+          }
+
+          types.add(trackType);
+        }
+
+        trackOffset = trackElementEnd;
+      }
+    }
+
+    entryOffset = elementEnd;
+  }
+
+  return types;
+};
+
+const webmMediaType = (data: Buffer): string => {
+  const trackTypes = webmTrackTypes(data);
+
+  if (trackTypes.has(2) && !trackTypes.has(1)) {
+    return "audio/webm";
+  }
+
+  if (trackTypes.has(1)) {
+    return "video/webm";
+  }
+
+  return "application/octet-stream";
+};
 
 const string = (value: unknown, label: string, maximum: number): string => {
   if (
@@ -60,7 +234,7 @@ const mediaTypeFor = (data: Buffer, declared: string): string => {
   }
 
   if (data.subarray(0, 4).equals(Buffer.from("1a45dfa3", "hex"))) {
-    return "video/webm";
+    return webmMediaType(data);
   }
 
   if (data.subarray(0, 5).toString("ascii") === "%PDF-") {
