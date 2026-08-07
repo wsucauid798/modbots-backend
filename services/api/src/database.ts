@@ -488,6 +488,13 @@ const gamesMigration = `
   );
 `;
 
+const mediaStatusRoomsMigration = `
+  UPDATE rooms
+  SET capabilities = array_append(capabilities, 'media_status')
+  WHERE id IN ('share-show-off', 'chill-play')
+    AND NOT capabilities @> ARRAY['media_status'];
+`;
+
 const migrations = [
   { version: 1, sql: initialMigration },
   { version: 2, sql: outboxMigration },
@@ -508,6 +515,7 @@ const migrations = [
   { version: 19, sql: actorStatusMigration },
   { version: 20, sql: roomDirectoryMigration },
   { version: 21, sql: gamesMigration },
+  { version: 22, sql: mediaStatusRoomsMigration },
 ] as const;
 
 export const createDatabase = (config: PoolConfig): Pool =>

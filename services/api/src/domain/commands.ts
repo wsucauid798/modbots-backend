@@ -35,6 +35,7 @@ import {
   notFound,
 } from "./errors.js";
 import { ModerationPolicy } from "./moderation-policy.js";
+import { supportsMediaStatus } from "./room-capabilities.js";
 
 interface ActorRow {
   id: string;
@@ -136,6 +137,34 @@ export interface PostMessageCommand {
   replyTo?: ContentItemReference;
   addressedTo?: ContentAddress[];
 }
+
+const mediaStatusAvailableInRoom = async (
+  client: PoolClient,
+  roomId: string,
+): Promise<boolean> => {
+  const result = await client.query<{ capabilities: string[] }>(
+    "SELECT capabilities FROM rooms WHERE id = $1",
+    [roomId],
+  );
+
+  if (result.rows[0] === undefined) {
+    throw notFound("room_not_found", `Room '${roomId}' does not exist`);
+  }
+
+  return supportsMediaStatus(result.rows[0].capabilities);
+};
+
+const requireMediaStatusRoom = async (
+  client: PoolClient,
+  roomId: string,
+): Promise<void> => {
+  if (!(await mediaStatusAvailableInRoom(client, roomId))) {
+    throw conflict(
+      "media_status_not_available",
+      "Media status is not available in this room",
+    );
+  }
+};
 
 export type ContentPartInput =
   | {
@@ -1036,7 +1065,11 @@ export class CommandService implements CommandHandler {
     command: UpdateActorStatusCommand,
   ): Promise<{ actor: Actor; event: RoomEvent }> {
     return withTransaction(this.database, async (client) => {
-      await requireRoom(client, command.roomId);
+      if (command.statusMode === "media") {
+        await requireMediaStatusRoom(client, command.roomId);
+      } else {
+        await requireRoom(client, command.roomId);
+      }
       await requireActiveActor(client, command.actorId);
       await requireOnline(client, command.roomId, command.actorId);
 
@@ -1092,7 +1125,7 @@ export class CommandService implements CommandHandler {
     command: UpdateMediaPlaybackCommand,
   ): Promise<{ actor: Actor; event: RoomEvent }> {
     return withTransaction(this.database, async (client) => {
-      await requireRoom(client, command.roomId);
+      await requireMediaStatusRoom(client, command.roomId);
       await requireActiveActor(client, command.actorId);
       await requireOnline(client, command.roomId, command.actorId);
 
@@ -1259,7 +1292,10 @@ export class CommandService implements CommandHandler {
 
   public async setPresence(command: PresenceCommand): Promise<RoomEvent> {
     return withTransaction(this.database, async (client) => {
-      await requireRoom(client, command.roomId);
+      const mediaStatusAvailable = await mediaStatusAvailableInRoom(
+        client,
+        command.roomId,
+      );
 
       // A retired actor may still leave a room, but never join one.
       if (command.state === "joined") {
@@ -1272,7 +1308,28 @@ export class CommandService implements CommandHandler {
         const cleared = await client.query<{ id: string }>(
           `
             UPDATE actors
-            SET profile_status_text = 'Nothing playing'
+            SET profile_status_text = NULL
+            WHERE id = $1
+              AND profile_status_mode = 'media'
+              AND profile_status_text IS NOT NULL
+            RETURNING id
+          `,
+          [command.actorId],
+        );
+        if (cleared.rows[0] !== undefined) {
+          await appendRoomEvent(client, {
+            roomId: command.roomId,
+            type: "actor_status_changed",
+            actorId: command.actorId,
+            payload: { statusMode: "media", statusText: null },
+          });
+        }
+      } else if (!mediaStatusAvailable) {
+        const cleared = await client.query<{ id: string }>(
+          `
+            UPDATE actors
+            SET profile_status_mode = NULL,
+                profile_status_text = NULL
             WHERE id = $1 AND profile_status_mode = 'media'
             RETURNING id
           `,
@@ -1283,7 +1340,7 @@ export class CommandService implements CommandHandler {
             roomId: command.roomId,
             type: "actor_status_changed",
             actorId: command.actorId,
-            payload: { statusMode: "media", statusText: "Nothing playing" },
+            payload: { statusMode: null, statusText: null },
           });
         }
       }
