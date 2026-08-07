@@ -9,6 +9,7 @@ import type {
 } from "./experience.js";
 import { InferenceError } from "./mind.js";
 import type { Decision } from "./mind.js";
+import type { GeneratedMeme } from "./memegen.js";
 import { personas } from "./personas.js";
 import type { Persona } from "./personas.js";
 import type {
@@ -26,8 +27,16 @@ interface PostedMessage {
   addressedTo?: ContentAddress[];
 }
 
+interface PostedImage {
+  actorId: string;
+  image: GeneratedMeme;
+  replyTo?: { contentItemId: string };
+  addressedTo?: ContentAddress[];
+}
+
 class FakePlatform {
   public readonly posts: PostedMessage[] = [];
+  public readonly images: PostedImage[] = [];
   public onPost?: () => void;
 
   public constructor(private readonly actors: Record<string, Actor>) {}
@@ -61,6 +70,16 @@ class FakePlatform {
     this.posts.push({ actorId, content, replyTo, addressedTo });
     this.onPost?.();
   }
+
+  public async postImage(
+    actorId: string,
+    image: GeneratedMeme,
+    replyTo?: { contentItemId: string },
+    addressedTo?: ContentAddress[],
+  ): Promise<void> {
+    this.images.push({ actorId, image, replyTo, addressedTo });
+    this.onPost?.();
+  }
 }
 
 class FakeMind {
@@ -72,6 +91,8 @@ class FakeMind {
   public readonly researchDirections: ResearchDirection[] = [];
   public readonly researchExcludedTopics: string[][] = [];
   public readonly currentKnowledge: Array<LearnedKnowledge | undefined> = [];
+  public readonly memeRequests: string[] = [];
+  public generatedMeme: GeneratedMeme | null = null;
   public onResearch?: () => void;
 
   public constructor(
@@ -236,6 +257,14 @@ const makeBrain = (
       currentKnowledge,
     );
   },
+  async createMeme(
+    _transcript: string[],
+    humanRequest: string,
+    _responseMeaning: string,
+  ): Promise<GeneratedMeme | null> {
+    mind.memeRequests.push(humanRequest);
+    return mind.generatedMeme;
+  },
   canResearch(): boolean {
     return false;
   },
@@ -393,6 +422,57 @@ test("queues overlapping human messages without losing a response", async () => 
     platform.posts.map((post) => post.replyTo?.contentItemId),
     ["content-1", "content-2"],
   );
+});
+
+test("posts a brain-generated meme as an addressed image reply", async () => {
+  const platform = new FakePlatform({
+    "human-one": makeActor("human-one", "Mina"),
+  });
+  const mind = new FakeMind([
+    {
+      speak: true,
+      message: "Tests passing without changes is unexpectedly funny.",
+    },
+  ]);
+  mind.generatedMeme = {
+    template: "reaction",
+    topText: "WHEN THE TESTS PASS",
+    bottomText: "AND YOU CHANGED NOTHING",
+    altText: "A joke about tests unexpectedly passing without code changes.",
+    data: "PHN2Zz48L3N2Zz4=",
+    mediaType: "image/svg+xml",
+    filename: "arwen-meme.svg",
+    caption: "Meme by Arwen",
+  };
+  const engine = new ConversationEngine(
+    platform,
+    mind,
+    0,
+    [{ actorId: "bot-arwen", brain: makeBrain(arwen, mind) }],
+    noonUtc,
+  );
+
+  await engine.enqueueRoomEvent(
+    humanMessage(
+      "meme-request",
+      "human-one",
+      "Arwen, make a meme about tests passing without changes.",
+    ),
+  );
+
+  assert.equal(platform.posts.length, 0);
+  assert.equal(platform.images.length, 1);
+  assert.equal(platform.images[0]?.image.caption, "Meme by Arwen");
+  assert.equal(
+    platform.images[0]?.replyTo?.contentItemId,
+    "content-meme-request",
+  );
+  assert.deepEqual(platform.images[0]?.addressedTo, [
+    { targetType: "actor", actorId: "human-one" },
+  ]);
+  assert.deepEqual(mind.memeRequests, [
+    "Arwen, make a meme about tests passing without changes.",
+  ]);
 });
 
 test("routes a structural address to the intended resident", async () => {

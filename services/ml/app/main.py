@@ -17,6 +17,7 @@ from .media import (
     process_document,
     process_video,
 )
+from .memegen import MemeTemplate, render_meme_svg
 
 OPENAI_API_URL = "https://api.openai.com/v1"
 MODEL_ID = os.environ.get("MODEL_ID", "").strip()
@@ -131,6 +132,20 @@ class ResearchResponse(BaseModel):
     sources: list[ResearchSource]
 
 
+class MemeRenderRequest(BaseModel):
+    template: MemeTemplate
+    topText: str = Field(min_length=1, max_length=180)
+    bottomText: str = Field(min_length=1, max_length=180)
+    author: str = Field(min_length=1, max_length=60)
+
+
+class MemeRenderResponse(BaseModel):
+    data: str
+    mediaType: str
+    width: int
+    height: int
+
+
 def _data_url(data: str, media_type: str) -> str:
     encoded = encode_base64(decode_base64(data))
     return f"data:{media_type};base64,{encoded}"
@@ -143,6 +158,26 @@ def _audio_format(media_type: str, filename: str) -> str:
 
     subtype = media_type.split(";", 1)[0].partition("/")[2]
     return subtype or "wav"
+
+
+@app.post("/v1/memes/render", response_model=MemeRenderResponse)
+async def render_meme(request: MemeRenderRequest) -> MemeRenderResponse:
+    try:
+        rendered = render_meme_svg(
+            request.template,
+            request.topText,
+            request.bottomText,
+            request.author,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    return MemeRenderResponse(
+        data=encode_base64(rendered.data),
+        mediaType=rendered.media_type,
+        width=rendered.width,
+        height=rendered.height,
+    )
 
 
 def _prepare_message(

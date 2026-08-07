@@ -43,6 +43,14 @@ export type InferencePart =
       filename: string;
     };
 
+export interface PostImageInput {
+  data: string;
+  mediaType: string;
+  filename: string;
+  caption: string;
+  altText: string;
+}
+
 interface MediaAsset {
   mediaAssetId: string;
   originalFilename: string;
@@ -189,6 +197,45 @@ export class PlatformClient {
       {
         actorId,
         content,
+        ...(replyTo === undefined ? {} : { replyTo }),
+        ...(addressedTo === undefined || addressedTo.length === 0
+          ? {}
+          : { addressedTo }),
+      },
+      [201],
+    );
+  }
+
+  public async postImage(
+    actorId: string,
+    image: PostImageInput,
+    replyTo?: { contentItemId: string },
+    addressedTo?: ContentAddress[],
+  ): Promise<void> {
+    const asset = await this.post<MediaAsset>(
+      `/api/rooms/${this.roomId}/media-assets`,
+      {
+        actorId,
+        mediaKind: "image",
+        originalFilename: image.filename,
+        declaredMediaType: image.mediaType,
+        data: image.data,
+      },
+      [201],
+    );
+
+    await this.post(
+      `/api/rooms/${this.roomId}/content`,
+      {
+        actorId,
+        parts: [
+          {
+            kind: "image",
+            mediaAssetId: asset.mediaAssetId,
+            caption: image.caption,
+            altText: image.altText,
+          },
+        ],
         ...(replyTo === undefined ? {} : { replyTo }),
         ...(addressedTo === undefined || addressedTo.length === 0
           ? {}

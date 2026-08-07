@@ -2,6 +2,8 @@ import type { Persona } from "./personas.js";
 import type { InferencePart } from "./platform.js";
 import type { TopicTurnContext } from "./topic-coordinator.js";
 import type { ConversationDirection } from "./conversation-policy.js";
+import type { MemeIdea } from "./memegen.js";
+import { parseMemeIdea } from "./memegen.js";
 import { subjectSimilarity } from "./subject-similarity.js";
 import type {
   LearnedKnowledge,
@@ -417,6 +419,34 @@ export class Mind {
 
     const payload = (await response.json()) as { content: string };
     return payload.content.trim();
+  }
+
+  public async memeIdea(
+    persona: Persona,
+    transcript: string[],
+    humanRequest: string,
+    responseMeaning: string,
+  ): Promise<MemeIdea | null> {
+    const system =
+      `You decide whether an already-grounded chatbot response should become ` +
+      `an image meme. Create one only when the participant is actually asking ` +
+      `the chatbot to make, show, or respond with a meme. Otherwise return ` +
+      `PASS. The meme must express the supplied response meaning and fit the ` +
+      `chatbot's personality without inventing facts, targeting a person, ` +
+      `mocking protected traits, or revealing private information. TOP and ` +
+      `BOTTOM must each be concise, clear, and understandable without hidden ` +
+      `context. ALT must describe the joke and all visible text for someone ` +
+      `who cannot see the image. Return exactly PASS or one JSON object with ` +
+      `these keys and no markdown: template, topText, bottomText, altText. ` +
+      `template must be reaction, contrast, or announcement.`;
+    const user =
+      `Chatbot: ${persona.displayName}\n` +
+      `Character: ${persona.card}\n\n` +
+      `Recent conversation:\n${transcript.slice(-8).join("\n")}\n\n` +
+      `Participant request: ${humanRequest}\n` +
+      `Grounded response meaning: ${responseMeaning}`;
+    const content = await this.generate(system, user, 260, 0.7);
+    return parseMemeIdea(content);
   }
 
   public async research(

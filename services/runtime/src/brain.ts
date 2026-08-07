@@ -9,6 +9,8 @@ import type { Decision } from "./mind.js";
 import type { Persona } from "./personas.js";
 import type { ConversationDirection } from "./conversation-policy.js";
 import type { TopicTurnContext } from "./topic-coordinator.js";
+import { MemeGenerator } from "./memegen.js";
+import type { GeneratedMeme } from "./memegen.js";
 
 export interface BrainRoster {
   residents: string[];
@@ -30,6 +32,7 @@ export class BotBrain {
     public readonly persona: Persona,
     private readonly memory: AgentBrain,
     private readonly cognition: Mind,
+    private readonly memes: MemeGenerator,
   ) {}
 
   public static async load(
@@ -42,6 +45,7 @@ export class BotBrain {
       persona,
       await AgentBrain.load(directory, persona),
       new Mind(mlUrl, random),
+      new MemeGenerator(mlUrl),
     );
   }
 
@@ -95,6 +99,23 @@ export class BotBrain {
 
   public canResearch(now: number, cooldownMs: number): boolean {
     return this.memory.canResearch(now, cooldownMs);
+  }
+
+  public async createMeme(
+    transcript: string[],
+    humanRequest: string,
+    responseMeaning: string,
+  ): Promise<GeneratedMeme | null> {
+    const idea = await this.cognition.memeIdea(
+      this.persona,
+      transcript,
+      humanRequest,
+      responseMeaning,
+    );
+
+    return idea === null
+      ? null
+      : this.memes.render(this.persona.displayName, idea);
   }
 
   public knownTopicsSince(since: number): string[] {

@@ -10,6 +10,7 @@ import type { ContentAddress, RoomEvent } from "./platform.js";
 import type { RoomContentPart } from "./platform.js";
 import type { LearnedKnowledge } from "./experience.js";
 import type { BotBrain } from "./brain.js";
+import type { GeneratedMeme } from "./memegen.js";
 import type { RoomInterpreter } from "./room-interpreter.js";
 import { ConversationPolicy } from "./conversation-policy.js";
 import { TopicCoordinator } from "./topic-coordinator.js";
@@ -17,7 +18,7 @@ import type { TurnTrigger } from "./topic-coordinator.js";
 
 type ConversationPlatform = Pick<
   PlatformClient,
-  "getActor" | "inferenceParts" | "join" | "postMessage"
+  "getActor" | "inferenceParts" | "join" | "postImage" | "postMessage"
 >;
 type ConversationRoomInterpreter = Pick<
   RoomInterpreter,
@@ -28,6 +29,7 @@ type ConversationBrain = Pick<
   | "persona"
   | "perceive"
   | "consider"
+  | "createMeme"
   | "canResearch"
   | "knownTopicsSince"
   | "usedTopicsSince"
@@ -549,6 +551,9 @@ export class ConversationEngine {
           ...(typeof part.caption === "string"
             ? { caption: part.caption }
             : {}),
+          ...(typeof part.altText === "string"
+            ? { altText: part.altText }
+            : {}),
         }];
       }
 
@@ -621,6 +626,10 @@ export class ConversationEngine {
     return /^(who|what|when|where|why|how|which|can|could|would|should|do|does|did|is|are|am|was|were|has|have|had)\b/.test(
       text,
     );
+  }
+
+  private static offersMemeOpportunity(content: string): boolean {
+    return /\b(?:meme|memes|image macro|reaction image)\b/i.test(content);
   }
 
   private static currentInformationQuery(
@@ -909,6 +918,7 @@ export class ConversationEngine {
     addressedTo?: ContentAddress[],
     directQuestion = false,
     currentKnowledge?: LearnedKnowledge,
+    memeRequest?: string,
   ): Promise<boolean> {
     // This is the conversation engine. Mod bot speech must enter through an
     // explicit moderation-purpose path, never ordinary reply or autonomous
@@ -1078,12 +1088,28 @@ export class ConversationEngine {
           );
         }
 
-        const posted = await this.say(
-          bot,
-          evaluated.message,
-          replyTo,
-          addressedTo,
-        );
+        let posted = false;
+        let meme: GeneratedMeme | null = null;
+
+        if (memeRequest !== undefined) {
+          try {
+            meme = await bot.brain.createMeme(
+              [...this.transcript],
+              memeRequest,
+              evaluated.message,
+            );
+          } catch (error) {
+            console.error(
+              `${bot.persona.displayName} could not finish a meme: ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+            );
+          }
+        }
+
+        posted = meme === null
+          ? await this.say(bot, evaluated.message, replyTo, addressedTo)
+          : await this.sayMeme(bot, meme, replyTo, addressedTo);
 
         if (posted) {
           this.topics.recordBotTurn(
@@ -1186,6 +1212,53 @@ export class ConversationEngine {
     }
   }
 
+  private async sayMeme(
+    bot: BotState,
+    meme: GeneratedMeme,
+    replyTo?: { contentItemId: string },
+    addressedTo: ContentAddress[] = [],
+  ): Promise<boolean> {
+    if (bot.muted || this.stopped) {
+      return false;
+    }
+
+    const post = () =>
+      this.client.postImage(bot.actorId, meme, replyTo, addressedTo);
+
+    try {
+      await post();
+      this.lastBotMessageAt = this.now().getTime();
+      bot.lastSpokeAt = this.now().getTime();
+      return true;
+    } catch (error) {
+      if (error instanceof PlatformError) {
+        if (error.code === "actor_muted") {
+          bot.muted = true;
+          this.policy.recordModeration(
+            bot.persona.displayName,
+            this.now().getTime(),
+          );
+          return false;
+        }
+
+        if (error.code === "actor_not_in_room") {
+          await this.client.join(bot.actorId);
+          await post();
+          this.lastBotMessageAt = this.now().getTime();
+          bot.lastSpokeAt = this.now().getTime();
+          return true;
+        }
+      }
+
+      console.error(
+        `${bot.persona.displayName} could not post a meme: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return false;
+    }
+  }
+
   private async onRoomEvent(
     event: RoomEvent,
     options: { react: boolean } = { react: true },
@@ -1229,6 +1302,25 @@ export class ConversationEngine {
           this.topics.observeHistoricalMessage(
             bot.persona.type,
             Date.parse(event.occurredAt),
+          );
+        }
+      } else if (event.type === "content_posted") {
+        const description = this.contentParts(event.payload)
+          .map((part) =>
+            part.kind === "text"
+              ? part.text
+              : (part.altText ?? part.caption ?? `shared ${part.kind}`),
+          )
+          .join("\n")
+          .trim();
+
+        if (description.length > 0) {
+          this.remember(
+            bot.persona.displayName,
+            bot.persona.type,
+            description,
+            event.occurredAt,
+            this.addressesFromEvent(event.payload, description),
           );
         }
       }
@@ -1555,6 +1647,9 @@ export class ConversationEngine {
     );
     const first = target ?? openSpeaker ?? pick(responsePool);
     const directQuestion = ConversationEngine.asksQuestion(content);
+    const memeRequest = ConversationEngine.offersMemeOpportunity(content)
+      ? content
+      : undefined;
     const currentInformationQuery =
       ConversationEngine.currentInformationQuery(
         content,
@@ -1601,6 +1696,7 @@ export class ConversationEngine {
         addressedTo,
         directQuestion,
         currentKnowledge,
+        memeRequest,
       );
 
       if (spoke) {

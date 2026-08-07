@@ -71,6 +71,21 @@ class OpenAIInferenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(b'"execution":"hosted"', result.body)
         self.assertIn(main.MODEL_ID.encode(), result.body)
 
+    async def test_meme_renderer_returns_base64_svg(self):
+        result = await main.render_meme(
+            main.MemeRenderRequest(
+                template="reaction",
+                topText="When the room gets quiet",
+                bottomText="Ru has entered the chat",
+                author="Ru",
+            )
+        )
+
+        rendered = base64.b64decode(result.data).decode("utf-8")
+        self.assertEqual(result.mediaType, "image/svg+xml")
+        self.assertEqual((result.width, result.height), (1200, 1200))
+        self.assertIn("Ru has entered the", rendered)
+
     async def test_health_has_user_friendly_starting_message(self):
         main.state["client"] = FakeClient(
             health_response=response(
