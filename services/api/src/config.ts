@@ -18,6 +18,7 @@ export interface AppConfig {
     accountUrl: string;
   };
   translationUrl: string;
+  mlUrl: string;
   // Browser origins allowed to call the API cross-origin (the web app).
   webOrigins: string[];
   database: {
@@ -160,6 +161,7 @@ export const loadConfig = (
     "TRANSLATION_URL",
     "http://localhost:5000",
   ),
+  mlUrl: url(environment, "ML_URL", "http://localhost:8000"),
   webOrigins: required(environment, "WEB_ORIGINS", "http://localhost:3000")
     .split(",")
     .map((origin) => origin.trim())

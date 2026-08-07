@@ -28,6 +28,8 @@ import { roomRoutes } from "./routes/rooms.js";
 import { sessionRoutes } from "./routes/sessions.js";
 import { translationRoutes } from "./routes/translations.js";
 import type { TranslationService } from "./translation.js";
+import { visualExpressionRoutes } from "./routes/visual-expressions.js";
+import type { VisualExpressionService } from "./visual-expressions.js";
 
 export interface AppDependencies {
   accountUrl: string;
@@ -47,6 +49,7 @@ export interface AppDependencies {
   rooms: RoomRepository;
   sessions: SessionRepository;
   translations: TranslationService;
+  visualExpressions: VisualExpressionService;
 }
 
 export const buildApp = (dependencies: AppDependencies): FastifyInstance => {
@@ -116,6 +119,13 @@ export const buildApp = (dependencies: AppDependencies): FastifyInstance => {
   app.register(credentialRoutes(dependencies.actors, dependencies.credentials));
   app.register(gameRoutes(dependencies.games, dependencies.auth));
   app.register(translationRoutes(dependencies.translations, dependencies.auth));
+  app.register(
+    visualExpressionRoutes(
+      dependencies.actors,
+      dependencies.auth,
+      dependencies.visualExpressions,
+    ),
+  );
   app.register(
     commandRoutes(
       dependencies.commands,

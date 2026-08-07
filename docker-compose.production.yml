@@ -25,6 +25,7 @@ services:
       SESSION_TTL_DAYS: ${SESSION_TTL_DAYS:-30}
       ACCOUNT_URL: ${ACCOUNT_URL:-http://account:3003}
       TRANSLATION_URL: ${TRANSLATION_URL:-http://translation:5000}
+      ML_URL: http://ml:8000
       UPPS_PUBLIC_URL: ${PRODUCTION_UPPS_PUBLIC_URL:-https://upps.modbots.ai}
       UPPS_INTERNAL_URL: http://upps:3010
       UPPS_SERVICE_TOKEN: ${UPPS_SERVICE_TOKEN:?Set UPPS_SERVICE_TOKEN}
@@ -44,6 +45,8 @@ services:
         condition: service_started
       translation:
         condition: service_healthy
+      ml:
+        condition: service_started
 
   realtime:
     image: ghcr.io/mod-bots/modbots-backend-realtime:${MODBOTS_IMAGE_TAG:-0.0.1-beta}

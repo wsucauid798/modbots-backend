@@ -12,6 +12,7 @@ describe("loadConfig", () => {
     assert.equal(config.upps.publicUrl, "http://localhost:3010/");
     assert.equal(config.upps.internalUrl, "http://localhost:3010/");
     assert.equal(config.translationUrl, "http://localhost:5000/");
+    assert.equal(config.mlUrl, "http://localhost:8000/");
   });
 
   it("rejects an invalid server port", () => {
