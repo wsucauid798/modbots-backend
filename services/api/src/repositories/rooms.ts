@@ -116,27 +116,38 @@ export class PostgresRoomRepository implements RoomRepository {
             AND event_type IN ('actor_joined', 'actor_left')
           ORDER BY room_id, actor_id, sequence DESC
         ),
-        online_counts AS (
-          SELECT
-            latest_presence.room_id,
-            count(*) FILTER (
-              WHERE latest_presence.event_type = 'actor_joined'
-            ) AS actors_online,
-            count(*) FILTER (
-              WHERE latest_presence.event_type = 'actor_joined'
-                AND actors.actor_type = 'human'
-            ) AS people_online,
-            count(*) FILTER (
-              WHERE latest_presence.event_type = 'actor_joined'
-                AND actors.actor_type = 'chat_bot'
-            ) AS chat_bots_online,
-            count(*) FILTER (
-              WHERE latest_presence.event_type = 'actor_joined'
-                AND actors.actor_type = 'mod_bot'
-            ) AS mod_bots_online
+        room_participants AS (
+          SELECT latest_presence.room_id, latest_presence.actor_id
           FROM latest_presence
           JOIN actors ON actors.id = latest_presence.actor_id
-          GROUP BY latest_presence.room_id
+          WHERE latest_presence.event_type = 'actor_joined'
+            AND actors.actor_type <> 'mod_bot'
+            AND actors.retired_at IS NULL
+
+          UNION
+
+          SELECT assignments.room_id, assignments.mod_bot_id
+          FROM room_mod_bot_assignments assignments
+          JOIN actors ON actors.id = assignments.mod_bot_id
+          WHERE actors.actor_type = 'mod_bot'
+            AND actors.retired_at IS NULL
+        ),
+        online_counts AS (
+          SELECT
+            room_participants.room_id,
+            count(*) AS actors_online,
+            count(*) FILTER (
+              WHERE actors.actor_type = 'human'
+            ) AS people_online,
+            count(*) FILTER (
+              WHERE actors.actor_type = 'chat_bot'
+            ) AS chat_bots_online,
+            count(*) FILTER (
+              WHERE actors.actor_type = 'mod_bot'
+            ) AS mod_bots_online
+          FROM room_participants
+          JOIN actors ON actors.id = room_participants.actor_id
+          GROUP BY room_participants.room_id
         )
         SELECT
           rooms.id,
@@ -182,23 +193,37 @@ export class PostgresRoomRepository implements RoomRepository {
             AND event_type IN ('actor_joined', 'actor_left')
           ORDER BY actor_id, sequence DESC
         ),
-        online_counts AS (
-          SELECT
-            count(*) FILTER (WHERE latest_presence.event_type = 'actor_joined') AS actors_online,
-            count(*) FILTER (
-              WHERE latest_presence.event_type = 'actor_joined'
-                AND actors.actor_type = 'human'
-            ) AS people_online,
-            count(*) FILTER (
-              WHERE latest_presence.event_type = 'actor_joined'
-                AND actors.actor_type = 'chat_bot'
-            ) AS chat_bots_online,
-            count(*) FILTER (
-              WHERE latest_presence.event_type = 'actor_joined'
-                AND actors.actor_type = 'mod_bot'
-            ) AS mod_bots_online
+        room_participants AS (
+          SELECT latest_presence.actor_id
           FROM latest_presence
           JOIN actors ON actors.id = latest_presence.actor_id
+          WHERE latest_presence.event_type = 'actor_joined'
+            AND actors.actor_type <> 'mod_bot'
+            AND actors.retired_at IS NULL
+
+          UNION
+
+          SELECT assignments.mod_bot_id
+          FROM room_mod_bot_assignments assignments
+          JOIN actors ON actors.id = assignments.mod_bot_id
+          WHERE assignments.room_id = $1
+            AND actors.actor_type = 'mod_bot'
+            AND actors.retired_at IS NULL
+        ),
+        online_counts AS (
+          SELECT
+            count(*) AS actors_online,
+            count(*) FILTER (
+              WHERE actors.actor_type = 'human'
+            ) AS people_online,
+            count(*) FILTER (
+              WHERE actors.actor_type = 'chat_bot'
+            ) AS chat_bots_online,
+            count(*) FILTER (
+              WHERE actors.actor_type = 'mod_bot'
+            ) AS mod_bots_online
+          FROM room_participants
+          JOIN actors ON actors.id = room_participants.actor_id
         ),
         moderation_counts AS (
           SELECT
@@ -277,12 +302,27 @@ export class PostgresRoomRepository implements RoomRepository {
             AND actor_id IS NOT NULL
             AND event_type IN ('actor_joined', 'actor_left')
           ORDER BY actor_id, sequence DESC
+        ),
+        room_participants AS (
+          SELECT latest_presence.actor_id
+          FROM latest_presence
+          JOIN actors ON actors.id = latest_presence.actor_id
+          WHERE latest_presence.event_type = 'actor_joined'
+            AND actors.actor_type <> 'mod_bot'
+            AND actors.retired_at IS NULL
+
+          UNION
+
+          SELECT assignments.mod_bot_id
+          FROM room_mod_bot_assignments assignments
+          JOIN actors ON actors.id = assignments.mod_bot_id
+          WHERE assignments.room_id = $1
+            AND actors.actor_type = 'mod_bot'
+            AND actors.retired_at IS NULL
         )
         SELECT ${actorColumns}
-        FROM latest_presence
-        JOIN actors ON actors.id = latest_presence.actor_id
-        WHERE latest_presence.event_type = 'actor_joined'
-          AND actors.retired_at IS NULL
+        FROM room_participants
+        JOIN actors ON actors.id = room_participants.actor_id
         ORDER BY
           CASE actors.actor_type
             WHEN 'mod_bot' THEN 0

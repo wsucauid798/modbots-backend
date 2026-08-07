@@ -495,6 +495,51 @@ const mediaStatusRoomsMigration = `
     AND NOT capabilities @> ARRAY['media_status'];
 `;
 
+const roomModBotAssignmentsMigration = `
+  CREATE TABLE IF NOT EXISTS room_mod_bot_assignments (
+    room_id text PRIMARY KEY REFERENCES rooms(id) ON DELETE CASCADE,
+    mod_bot_id text NOT NULL REFERENCES actors(id)
+  );
+
+  INSERT INTO actors (
+    id, handle, display_name, discriminator, registered, actor_type,
+    profile_picture_id
+  )
+  SELECT
+    gen_random_uuid()::text,
+    bot.handle,
+    bot.display_name,
+    NULL,
+    false,
+    'mod_bot',
+    bot.profile_picture_id
+  FROM (VALUES
+    ('vera', 'Vera', 'resident-vera'),
+    ('milo', 'Milo', 'resident-milo'),
+    ('iris', 'Iris', 'resident-iris')
+  ) AS bot(handle, display_name, profile_picture_id)
+  WHERE NOT EXISTS (
+    SELECT 1 FROM actors WHERE actors.handle = bot.handle
+  );
+
+  INSERT INTO room_mod_bot_assignments (room_id, mod_bot_id)
+  SELECT assignment.room_id, actors.id
+  FROM (VALUES
+    ('global-lobby', 'vera'),
+    ('share-show-off', 'vera'),
+    ('education', 'milo'),
+    ('sports', 'milo'),
+    ('chill-play', 'iris'),
+    ('science-technology', 'iris')
+  ) AS assignment(room_id, mod_bot_handle)
+  JOIN actors
+    ON actors.handle = assignment.mod_bot_handle
+    AND actors.actor_type = 'mod_bot'
+    AND actors.retired_at IS NULL
+  ON CONFLICT (room_id) DO UPDATE SET
+    mod_bot_id = EXCLUDED.mod_bot_id;
+`;
+
 const migrations = [
   { version: 1, sql: initialMigration },
   { version: 2, sql: outboxMigration },
@@ -516,6 +561,7 @@ const migrations = [
   { version: 20, sql: roomDirectoryMigration },
   { version: 21, sql: gamesMigration },
   { version: 22, sql: mediaStatusRoomsMigration },
+  { version: 23, sql: roomModBotAssignmentsMigration },
 ] as const;
 
 export const createDatabase = (config: PoolConfig): Pool =>
