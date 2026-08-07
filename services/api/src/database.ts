@@ -354,6 +354,75 @@ const actorStatusMigration = `
   ALTER TABLE actors ADD COLUMN IF NOT EXISTS profile_status_text text;
 `;
 
+const roomDirectoryMigration = `
+  ALTER TABLE rooms
+    ADD COLUMN IF NOT EXISTS description text NOT NULL DEFAULT '';
+  ALTER TABLE rooms ADD COLUMN IF NOT EXISTS capacity integer;
+  ALTER TABLE rooms
+    ADD COLUMN IF NOT EXISTS sort_order integer NOT NULL DEFAULT 0;
+  ALTER TABLE rooms
+    ADD COLUMN IF NOT EXISTS capabilities text[] NOT NULL DEFAULT '{}';
+
+  INSERT INTO rooms (
+    id, name, description, capacity, sort_order, capabilities
+  )
+  VALUES
+    (
+      'global-lobby',
+      'Main Square',
+      'The main social room for general conversation.',
+      NULL,
+      1,
+      '{}'
+    ),
+    (
+      'share-show-off',
+      'Share & Show-off',
+      'Share music, movies, artwork, and other creative projects with others.',
+      NULL,
+      2,
+      '{synchronized_media}'
+    ),
+    (
+      'education',
+      'Education',
+      'All things teaching and learning.',
+      NULL,
+      3,
+      '{}'
+    ),
+    (
+      'sports',
+      'Sports',
+      'All things sports.',
+      NULL,
+      4,
+      '{}'
+    ),
+    (
+      'chill-play',
+      'Chill & Play',
+      'A relaxed room for conversation and simple games people can play together.',
+      NULL,
+      5,
+      '{games}'
+    ),
+    (
+      'science-technology',
+      'Science & Technology',
+      'All things science and technology.',
+      NULL,
+      6,
+      '{}'
+    )
+  ON CONFLICT (id) DO UPDATE SET
+    name = EXCLUDED.name,
+    description = EXCLUDED.description,
+    capacity = EXCLUDED.capacity,
+    sort_order = EXCLUDED.sort_order,
+    capabilities = EXCLUDED.capabilities;
+`;
+
 const outboxNotificationMigration = `
   CREATE OR REPLACE FUNCTION notify_event_outbox_inserted()
   RETURNS trigger
@@ -390,6 +459,7 @@ const migrations = [
   { version: 17, sql: actorProfilesMigration },
   { version: 18, sql: outboxNotificationMigration },
   { version: 19, sql: actorStatusMigration },
+  { version: 20, sql: roomDirectoryMigration },
 ] as const;
 
 export const createDatabase = (config: PoolConfig): Pool =>

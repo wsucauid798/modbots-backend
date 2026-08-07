@@ -9,7 +9,12 @@ export interface RoomOverview {
   room: {
     id: string;
     name: string;
+    description: string;
+    capacity: number | null;
+    sortOrder: number;
+    capabilities: string[];
     actorsOnline: number;
+    peopleOnline: number;
     chatBotsOnline: number;
     modBotsOnline: number;
   };
@@ -18,6 +23,19 @@ export interface RoomOverview {
     proposalsAccepted: number;
     proposalsRejected: number;
   };
+}
+
+export interface RoomSummary {
+  id: string;
+  name: string;
+  description: string;
+  capacity: number | null;
+  sortOrder: number;
+  capabilities: string[];
+  actorsOnline: number;
+  peopleOnline: number;
+  chatBotsOnline: number;
+  modBotsOnline: number;
 }
 
 export interface RoomEvent {
@@ -29,6 +47,7 @@ export interface RoomEvent {
 }
 
 export interface RoomRepository {
+  listRooms(): Promise<RoomSummary[]>;
   getOverview(roomId: string): Promise<RoomOverview | null>;
   listRoster(roomId: string): Promise<Actor[] | null>;
   listEvents(
@@ -44,12 +63,30 @@ export interface RoomRepository {
 interface OverviewRow {
   id: string;
   name: string;
+  description: string;
+  capacity: number | null;
+  sort_order: number;
+  capabilities: string[];
   actors_online: string;
+  people_online: string;
   chat_bots_online: string;
   mod_bots_online: string;
   proposals_pending: string;
   proposals_accepted: string;
   proposals_rejected: string;
+}
+
+interface RoomSummaryRow {
+  id: string;
+  name: string;
+  description: string;
+  capacity: number | null;
+  sort_order: number;
+  capabilities: string[];
+  actors_online: string;
+  people_online: string;
+  chat_bots_online: string;
+  mod_bots_online: string;
 }
 
 interface EventRow {
@@ -65,6 +102,72 @@ export class PostgresRoomRepository implements RoomRepository {
     private readonly database: Pool,
     private readonly uppsBaseUrl: string,
   ) {}
+
+  public async listRooms(): Promise<RoomSummary[]> {
+    const result = await this.database.query<RoomSummaryRow>(
+      `
+        WITH latest_presence AS (
+          SELECT DISTINCT ON (room_id, actor_id)
+            room_id,
+            actor_id,
+            event_type
+          FROM room_events
+          WHERE actor_id IS NOT NULL
+            AND event_type IN ('actor_joined', 'actor_left')
+          ORDER BY room_id, actor_id, sequence DESC
+        ),
+        online_counts AS (
+          SELECT
+            latest_presence.room_id,
+            count(*) FILTER (
+              WHERE latest_presence.event_type = 'actor_joined'
+            ) AS actors_online,
+            count(*) FILTER (
+              WHERE latest_presence.event_type = 'actor_joined'
+                AND actors.actor_type = 'human'
+            ) AS people_online,
+            count(*) FILTER (
+              WHERE latest_presence.event_type = 'actor_joined'
+                AND actors.actor_type = 'chat_bot'
+            ) AS chat_bots_online,
+            count(*) FILTER (
+              WHERE latest_presence.event_type = 'actor_joined'
+                AND actors.actor_type = 'mod_bot'
+            ) AS mod_bots_online
+          FROM latest_presence
+          JOIN actors ON actors.id = latest_presence.actor_id
+          GROUP BY latest_presence.room_id
+        )
+        SELECT
+          rooms.id,
+          rooms.name,
+          rooms.description,
+          rooms.capacity,
+          rooms.sort_order,
+          rooms.capabilities,
+          COALESCE(online_counts.actors_online, 0) AS actors_online,
+          COALESCE(online_counts.people_online, 0) AS people_online,
+          COALESCE(online_counts.chat_bots_online, 0) AS chat_bots_online,
+          COALESCE(online_counts.mod_bots_online, 0) AS mod_bots_online
+        FROM rooms
+        LEFT JOIN online_counts ON online_counts.room_id = rooms.id
+        ORDER BY rooms.sort_order, rooms.name
+      `,
+    );
+
+    return result.rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      description: row.description,
+      capacity: row.capacity,
+      sortOrder: row.sort_order,
+      capabilities: row.capabilities,
+      actorsOnline: Number(row.actors_online),
+      peopleOnline: Number(row.people_online),
+      chatBotsOnline: Number(row.chat_bots_online),
+      modBotsOnline: Number(row.mod_bots_online),
+    }));
+  }
 
   public async getOverview(roomId: string): Promise<RoomOverview | null> {
     const result = await this.database.query<OverviewRow>(
@@ -82,6 +185,10 @@ export class PostgresRoomRepository implements RoomRepository {
         online_counts AS (
           SELECT
             count(*) FILTER (WHERE latest_presence.event_type = 'actor_joined') AS actors_online,
+            count(*) FILTER (
+              WHERE latest_presence.event_type = 'actor_joined'
+                AND actors.actor_type = 'human'
+            ) AS people_online,
             count(*) FILTER (
               WHERE latest_presence.event_type = 'actor_joined'
                 AND actors.actor_type = 'chat_bot'
@@ -104,7 +211,12 @@ export class PostgresRoomRepository implements RoomRepository {
         SELECT
           rooms.id,
           rooms.name,
+          rooms.description,
+          rooms.capacity,
+          rooms.sort_order,
+          rooms.capabilities,
           online_counts.actors_online,
+          online_counts.people_online,
           online_counts.chat_bots_online,
           online_counts.mod_bots_online,
           moderation_counts.proposals_pending,
@@ -127,7 +239,12 @@ export class PostgresRoomRepository implements RoomRepository {
       room: {
         id: row.id,
         name: row.name,
+        description: row.description,
+        capacity: row.capacity,
+        sortOrder: row.sort_order,
+        capabilities: row.capabilities,
         actorsOnline: Number(row.actors_online),
+        peopleOnline: Number(row.people_online),
         chatBotsOnline: Number(row.chat_bots_online),
         modBotsOnline: Number(row.mod_bots_online),
       },

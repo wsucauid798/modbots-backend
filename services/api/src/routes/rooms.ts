@@ -48,6 +48,8 @@ export const roomRoutes = (
   publisher: EventPublisher,
 ): FastifyPluginAsync => {
   return async (app): Promise<void> => {
+    app.get("/api/rooms", async () => ({ rooms: await rooms.listRooms() }));
+
     app.get<{ Params: RoomParams }>(
       "/api/rooms/:roomId/overview",
       async (request, reply) => {

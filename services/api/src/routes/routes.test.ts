@@ -95,13 +95,32 @@ const credentials: CredentialRepository = {
 };
 
 const rooms: RoomRepository = {
+  listRooms: async () => [
+    {
+      id: "global-lobby",
+      name: "Main Square",
+      description: "The main social room for general conversation.",
+      capacity: null,
+      sortOrder: 1,
+      capabilities: [],
+      actorsOnline: 0,
+      peopleOnline: 0,
+      chatBotsOnline: 0,
+      modBotsOnline: 0,
+    },
+  ],
   getOverview: async (roomId) =>
     roomId === "global-lobby"
       ? {
           room: {
             id: roomId,
-            name: "Global Lobby",
+            name: "Main Square",
+            description: "The main social room for general conversation.",
+            capacity: null,
+            sortOrder: 1,
+            capabilities: [],
             actorsOnline: 0,
+            peopleOnline: 0,
             chatBotsOnline: 0,
             modBotsOnline: 0,
           },
@@ -417,6 +436,20 @@ describe("actor routes", () => {
 });
 
 describe("room routes", () => {
+  it("returns the configured room directory", async () => {
+    const app = Fastify();
+    await app.register(roomRoutes(rooms, publisher));
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/rooms",
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.json().rooms[0].name, "Main Square");
+    await app.close();
+  });
+
   it("returns persisted room overview data", async () => {
     const app = Fastify();
     await app.register(roomRoutes(rooms, publisher));
