@@ -9,8 +9,15 @@ import type { Decision } from "./mind.js";
 import type { Persona } from "./personas.js";
 import type { ConversationDirection } from "./conversation-policy.js";
 import type { TopicTurnContext } from "./topic-coordinator.js";
-import { MemeGenerator } from "./memegen.js";
-import type { GeneratedMeme } from "./memegen.js";
+import { VisualExpressionGenerator } from "./visual-expression.js";
+import type {
+  GeneratedVisual,
+  VisualRequest,
+} from "./visual-expression.js";
+import {
+  emojiForMood,
+  requestedEmojiMood,
+} from "./emoji-expression.js";
 
 export interface BrainRoster {
   residents: string[];
@@ -32,7 +39,8 @@ export class BotBrain {
     public readonly persona: Persona,
     private readonly memory: AgentBrain,
     private readonly cognition: Mind,
-    private readonly memes: MemeGenerator,
+    private readonly visuals: VisualExpressionGenerator,
+    private readonly random: () => number,
   ) {}
 
   public static async load(
@@ -45,7 +53,8 @@ export class BotBrain {
       persona,
       await AgentBrain.load(directory, persona),
       new Mind(mlUrl, random),
-      new MemeGenerator(mlUrl),
+      new VisualExpressionGenerator(mlUrl),
+      random,
     );
   }
 
@@ -101,21 +110,63 @@ export class BotBrain {
     return this.memory.canResearch(now, cooldownMs);
   }
 
-  public async createMeme(
+  public async createVisual(
+    transcript: string[],
+    humanRequest: string | undefined,
+    responseMeaning: string,
+  ): Promise<GeneratedVisual | null> {
+    const requested = BotBrain.visualRequest(humanRequest);
+
+    if (requested === undefined && this.random() >= 0.08) {
+      return null;
+    }
+
+    const idea = await this.cognition.visualIdea(
+      this.persona,
+      transcript,
+      humanRequest,
+      responseMeaning,
+      requested,
+    );
+
+    return idea === null
+      ? null
+      : this.visuals.render(this.persona.displayName, idea);
+  }
+
+  public async createEmoji(
     transcript: string[],
     humanRequest: string,
     responseMeaning: string,
-  ): Promise<GeneratedMeme | null> {
-    const idea = await this.cognition.memeIdea(
+  ): Promise<string | null> {
+    const requestedMood = requestedEmojiMood(humanRequest);
+    if (requestedMood !== null) {
+      return emojiForMood(requestedMood);
+    }
+
+    const mood = await this.cognition.emojiIdea(
       this.persona,
       transcript,
       humanRequest,
       responseMeaning,
     );
+    return mood === null ? null : emojiForMood(mood);
+  }
 
-    return idea === null
-      ? null
-      : this.memes.render(this.persona.displayName, idea);
+  private static visualRequest(
+    humanRequest: string | undefined,
+  ): VisualRequest | undefined {
+    if (humanRequest === undefined) {
+      return undefined;
+    }
+
+    if (/\b(?:gif|gifs|animated reaction|animated image)\b/i.test(humanRequest)) {
+      return "gif";
+    }
+
+    return /\b(?:meme|memes|image macro)\b/i.test(humanRequest)
+      ? "meme"
+      : undefined;
   }
 
   public knownTopicsSince(since: number): string[] {

@@ -86,6 +86,21 @@ class OpenAIInferenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((result.width, result.height), (1200, 1200))
         self.assertIn("Ru has entered the", rendered)
 
+    async def test_reaction_renderer_returns_an_animated_gif(self):
+        result = await main.render_gif(
+            main.GifRenderRequest(
+                template="side_eye",
+                text="You called that a tiny change?",
+                author="Felix",
+            )
+        )
+
+        rendered = base64.b64decode(result.data)
+        self.assertEqual(result.mediaType, "image/gif")
+        self.assertEqual((result.width, result.height), (640, 480))
+        self.assertTrue(rendered.startswith((b"GIF87a", b"GIF89a")))
+        self.assertIn(b"NETSCAPE2.0", rendered)
+
     async def test_health_has_user_friendly_starting_message(self):
         main.state["client"] = FakeClient(
             health_response=response(

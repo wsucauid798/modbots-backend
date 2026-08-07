@@ -2,8 +2,10 @@ import type { Persona } from "./personas.js";
 import type { InferencePart } from "./platform.js";
 import type { TopicTurnContext } from "./topic-coordinator.js";
 import type { ConversationDirection } from "./conversation-policy.js";
-import type { MemeIdea } from "./memegen.js";
-import { parseMemeIdea } from "./memegen.js";
+import type { VisualIdea, VisualRequest } from "./visual-expression.js";
+import { parseVisualIdea } from "./visual-expression.js";
+import type { EmojiMood } from "./emoji-expression.js";
+import { parseEmojiMood } from "./emoji-expression.js";
 import { subjectSimilarity } from "./subject-similarity.js";
 import type {
   LearnedKnowledge,
@@ -105,8 +107,10 @@ const messageStyle =
   `compressed wordplay, or personification. Personality may shape the point ` +
   `of view, but it must never replace clear meaning with clever phrasing. ` +
   `Before returning the message, silently state its literal meaning to ` +
-  `yourself. If that meaning is not clear and grounded, return PASS. Plain text, no ` +
-  `emojis, no quotation marks, no stage directions, no name prefix of ` +
+  `yourself. If that meaning is not clear and grounded, return PASS. You may ` +
+  `use one or two familiar emojis when they naturally communicate tone. A ` +
+  `tiny reaction may consist of one to three emojis alone. Do not force an ` +
+  `emoji into every message. No quotation marks, no stage directions, no name prefix of ` +
   `your own. Use ordinary ` +
   `sentence capitalization and never write a message in all caps. Speak ` +
   `from your own perspective when relevant, but do not force the message ` +
@@ -421,32 +425,87 @@ export class Mind {
     return payload.content.trim();
   }
 
-  public async memeIdea(
+  public async visualIdea(
+    persona: Persona,
+    transcript: string[],
+    humanRequest: string | undefined,
+    responseMeaning: string,
+    requested: VisualRequest | undefined,
+  ): Promise<VisualIdea | null> {
+    const requestRule = requested === "meme"
+      ? `The participant explicitly requested a meme. Return a meme or PASS. `
+      : requested === "gif"
+      ? `The participant explicitly requested an animated reaction GIF. ` +
+        `Return a GIF or PASS. `
+      : `This is an occasional spontaneous visual-expression opportunity. ` +
+        `Use it only when the response is primarily a recognizable emotional ` +
+        `reaction that becomes more natural or funny as a visual. Otherwise ` +
+        `return PASS. `;
+    const system =
+      `You decide whether an already-grounded chatbot response should become ` +
+      `a visual expression. ${requestRule}` +
+      `The visual must express the supplied response meaning and fit the ` +
+      `chatbot's personality without inventing facts, targeting a person, ` +
+      `mocking protected traits, or revealing private information. TOP and ` +
+      `BOTTOM apply to memes and must each be concise. TEXT applies to GIFs ` +
+      `and must be a short visible reaction. ALT must describe the animation, ` +
+      `the joke, and all visible text for someone who cannot see it. Return ` +
+      `exactly PASS or one JSON object with no markdown. A meme object has ` +
+      `kind, template, topText, bottomText, altText. Its template is reaction, ` +
+      `contrast, or announcement. A GIF object has kind, template, text, ` +
+      `altText. Its template is celebrate, laugh, side_eye, or facepalm.`;
+    const user =
+      `Chatbot: ${persona.displayName}\n` +
+      `Character: ${persona.card}\n\n` +
+      `Recent conversation:\n${transcript.slice(-8).join("\n")}\n\n` +
+      `Participant request: ${humanRequest ?? "No explicit visual request."}\n` +
+      `Grounded response meaning: ${responseMeaning}`;
+    const content = await this.generate(system, user, 260, 0.7);
+    const idea = parseVisualIdea(content);
+
+    if (idea === null && !/^PASS$/i.test(content.trim())) {
+      console.warn(
+        `${persona.displayName} produced an invalid visual idea: ${content
+          .trim()
+          .slice(0, 500)}`,
+      );
+    }
+
+    return idea;
+  }
+
+  public async emojiIdea(
     persona: Persona,
     transcript: string[],
     humanRequest: string,
     responseMeaning: string,
-  ): Promise<MemeIdea | null> {
+  ): Promise<EmojiMood | null> {
     const system =
-      `You decide whether an already-grounded chatbot response should become ` +
-      `an image meme. Create one only when the participant is actually asking ` +
-      `the chatbot to make, show, or respond with a meme. Otherwise return ` +
-      `PASS. The meme must express the supplied response meaning and fit the ` +
-      `chatbot's personality without inventing facts, targeting a person, ` +
-      `mocking protected traits, or revealing private information. TOP and ` +
-      `BOTTOM must each be concise, clear, and understandable without hidden ` +
-      `context. ALT must describe the joke and all visible text for someone ` +
-      `who cannot see the image. Return exactly PASS or one JSON object with ` +
-      `these keys and no markdown: template, topText, bottomText, altText. ` +
-      `template must be reaction, contrast, or announcement.`;
+      `Choose the single emoji mood that best expresses this chatbot's ` +
+      `already-grounded response to an explicit participant request for a ` +
+      `smiley or emoji. The chatbot's personality and recent conversation ` +
+      `should shape the choice. Do not write a message. Return exactly PASS ` +
+      `or one JSON object with one key named mood. The mood must be one of: ` +
+      `delighted, laughing, warm, sad, surprised, thinking, supportive, ` +
+      `playful, approval.`;
     const user =
       `Chatbot: ${persona.displayName}\n` +
       `Character: ${persona.card}\n\n` +
       `Recent conversation:\n${transcript.slice(-8).join("\n")}\n\n` +
       `Participant request: ${humanRequest}\n` +
       `Grounded response meaning: ${responseMeaning}`;
-    const content = await this.generate(system, user, 260, 0.7);
-    return parseMemeIdea(content);
+    const content = await this.generate(system, user, 40, 0.3);
+    const mood = parseEmojiMood(content);
+
+    if (mood === null && !/^PASS$/i.test(content.trim())) {
+      console.warn(
+        `${persona.displayName} produced an invalid emoji idea: ${content
+          .trim()
+          .slice(0, 200)}`,
+      );
+    }
+
+    return mood;
   }
 
   public async research(
@@ -708,9 +767,7 @@ export class Mind {
 
     text = text.replace(/^MESSAGE\s*[:=]\s*/i, "").trim();
 
-    // Models sometimes mimic the transcript format, quote themselves, or
-    // slip in emojis despite instructions.
-    text = text.replace(/[\p{Extended_Pictographic}️]/gu, "").trim();
+    // Models sometimes mimic the transcript format or quote themselves.
     text = text.replace(/\s*[\u2013\u2014]\s*/g, ", ");
     text = text.replace(/^["'`]+|["'`]+$/g, "").trim();
     const ownPrefix = new RegExp(`^${persona.displayName}\\s*:\\s*`, "i");

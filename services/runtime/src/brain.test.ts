@@ -59,6 +59,67 @@ test("constructs one durable brain for each of the eight canonical bots", async 
   }
 });
 
+test("an individual brain can choose and render a requested reaction GIF", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "modbots-brains-"));
+  const originalFetch = globalThis.fetch;
+  const requests: string[] = [];
+
+  globalThis.fetch = async (input) => {
+    const url = String(input);
+    requests.push(url);
+
+    if (url.endsWith("/v1/chat")) {
+      return new Response(
+        JSON.stringify({
+          content:
+            '{"kind":"gif","template":"celebrate","text":"WE DID IT","altText":"An animated robot celebrates with falling confetti."}',
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+
+    return new Response(
+      JSON.stringify({
+        data: "R0lGODlhAQABAIAAAAUEBA==",
+        mediaType: "image/gif",
+        width: 640,
+        height: 480,
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  };
+
+  try {
+    const felix = personas.find((persona) => persona.handle === "felix");
+    assert.notEqual(felix, undefined);
+    const brain = await BotBrain.load(
+      directory,
+      felix as (typeof personas)[number],
+      "http://ml.test",
+      () => 0.99,
+    );
+
+    const spontaneous = await brain.createVisual(
+      ["Mina: That worked."],
+      undefined,
+      "The test worked.",
+    );
+    const requested = await brain.createVisual(
+      ["Mina: That worked."],
+      "Felix, send a celebration GIF.",
+      "The test worked.",
+    );
+
+    assert.equal(spontaneous, null);
+    assert.equal(requests.length, 2);
+    assert.equal(requested?.mediaType, "image/gif");
+    assert.equal(requested?.caption, "Reaction GIF by Felix");
+  } finally {
+    globalThis.fetch = originalFetch;
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("gives mod bot brains a moderation learning direction", async () => {
   const directory = await mkdtemp(join(tmpdir(), "modbots-brains-"));
   const originalFetch = globalThis.fetch;

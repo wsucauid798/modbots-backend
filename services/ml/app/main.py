@@ -18,6 +18,7 @@ from .media import (
     process_video,
 )
 from .memegen import MemeTemplate, render_meme_svg
+from .reactiongif import GifTemplate, render_reaction_gif
 
 OPENAI_API_URL = "https://api.openai.com/v1"
 MODEL_ID = os.environ.get("MODEL_ID", "").strip()
@@ -146,6 +147,19 @@ class MemeRenderResponse(BaseModel):
     height: int
 
 
+class GifRenderRequest(BaseModel):
+    template: GifTemplate
+    text: str = Field(min_length=1, max_length=120)
+    author: str = Field(min_length=1, max_length=60)
+
+
+class GifRenderResponse(BaseModel):
+    data: str
+    mediaType: str
+    width: int
+    height: int
+
+
 def _data_url(data: str, media_type: str) -> str:
     encoded = encode_base64(decode_base64(data))
     return f"data:{media_type};base64,{encoded}"
@@ -173,6 +187,25 @@ async def render_meme(request: MemeRenderRequest) -> MemeRenderResponse:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
     return MemeRenderResponse(
+        data=encode_base64(rendered.data),
+        mediaType=rendered.media_type,
+        width=rendered.width,
+        height=rendered.height,
+    )
+
+
+@app.post("/v1/reaction-gifs/render", response_model=GifRenderResponse)
+async def render_gif(request: GifRenderRequest) -> GifRenderResponse:
+    try:
+        rendered = render_reaction_gif(
+            request.template,
+            request.text,
+            request.author,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    return GifRenderResponse(
         data=encode_base64(rendered.data),
         mediaType=rendered.media_type,
         width=rendered.width,

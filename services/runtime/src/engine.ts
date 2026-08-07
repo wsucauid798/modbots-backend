@@ -10,7 +10,7 @@ import type { ContentAddress, RoomEvent } from "./platform.js";
 import type { RoomContentPart } from "./platform.js";
 import type { LearnedKnowledge } from "./experience.js";
 import type { BotBrain } from "./brain.js";
-import type { GeneratedMeme } from "./memegen.js";
+import type { GeneratedVisual } from "./visual-expression.js";
 import type { RoomInterpreter } from "./room-interpreter.js";
 import { ConversationPolicy } from "./conversation-policy.js";
 import { TopicCoordinator } from "./topic-coordinator.js";
@@ -29,7 +29,8 @@ type ConversationBrain = Pick<
   | "persona"
   | "perceive"
   | "consider"
-  | "createMeme"
+  | "createEmoji"
+  | "createVisual"
   | "canResearch"
   | "knownTopicsSince"
   | "usedTopicsSince"
@@ -628,8 +629,16 @@ export class ConversationEngine {
     );
   }
 
-  private static offersMemeOpportunity(content: string): boolean {
-    return /\b(?:meme|memes|image macro|reaction image)\b/i.test(content);
+  private static requestsVisual(content: string): boolean {
+    return /\b(?:meme|memes|image macro|gif|gifs|animated reaction|animated image)\b/i.test(
+      content,
+    );
+  }
+
+  private static requestsEmoji(content: string): boolean {
+    return /\b(?:emoji|emojis|smiley|smileys|emoticon|emoticons)\b/i.test(
+      content,
+    );
   }
 
   private static currentInformationQuery(
@@ -918,7 +927,8 @@ export class ConversationEngine {
     addressedTo?: ContentAddress[],
     directQuestion = false,
     currentKnowledge?: LearnedKnowledge,
-    memeRequest?: string,
+    visualRequest?: string,
+    emojiRequest?: string,
   ): Promise<boolean> {
     // This is the conversation engine. Mod bot speech must enter through an
     // explicit moderation-purpose path, never ordinary reply or autonomous
@@ -1089,27 +1099,46 @@ export class ConversationEngine {
         }
 
         let posted = false;
-        let meme: GeneratedMeme | null = null;
+        let emoji: string | null = null;
+        let visual: GeneratedVisual | null = null;
 
-        if (memeRequest !== undefined) {
+        if (emojiRequest !== undefined) {
           try {
-            meme = await bot.brain.createMeme(
+            emoji = await bot.brain.createEmoji(
               [...this.transcript],
-              memeRequest,
+              emojiRequest,
               evaluated.message,
             );
           } catch (error) {
             console.error(
-              `${bot.persona.displayName} could not finish a meme: ${
+              `${bot.persona.displayName} could not finish an emoji expression: ${
                 error instanceof Error ? error.message : String(error)
               }`,
             );
           }
         }
 
-        posted = meme === null
+        if (emoji === null) {
+          try {
+            visual = await bot.brain.createVisual(
+              [...this.transcript],
+              visualRequest,
+              evaluated.message,
+            );
+          } catch (error) {
+            console.error(
+              `${bot.persona.displayName} could not finish a visual expression: ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+            );
+          }
+        }
+
+        posted = emoji !== null
+          ? await this.say(bot, emoji, replyTo, addressedTo)
+          : visual === null
           ? await this.say(bot, evaluated.message, replyTo, addressedTo)
-          : await this.sayMeme(bot, meme, replyTo, addressedTo);
+          : await this.sayVisual(bot, visual, replyTo, addressedTo);
 
         if (posted) {
           this.topics.recordBotTurn(
@@ -1212,9 +1241,9 @@ export class ConversationEngine {
     }
   }
 
-  private async sayMeme(
+  private async sayVisual(
     bot: BotState,
-    meme: GeneratedMeme,
+    visual: GeneratedVisual,
     replyTo?: { contentItemId: string },
     addressedTo: ContentAddress[] = [],
   ): Promise<boolean> {
@@ -1223,7 +1252,7 @@ export class ConversationEngine {
     }
 
     const post = () =>
-      this.client.postImage(bot.actorId, meme, replyTo, addressedTo);
+      this.client.postImage(bot.actorId, visual, replyTo, addressedTo);
 
     try {
       await post();
@@ -1251,7 +1280,7 @@ export class ConversationEngine {
       }
 
       console.error(
-        `${bot.persona.displayName} could not post a meme: ${
+        `${bot.persona.displayName} could not post a visual expression: ${
           error instanceof Error ? error.message : String(error)
         }`,
       );
@@ -1402,21 +1431,24 @@ export class ConversationEngine {
       event.type === "message_posted" &&
       typeof event.payload.content === "string"
     ) {
+      const participantContent = typeof event.payload.sourceText === "string"
+        ? event.payload.sourceText
+        : event.payload.content;
       const addresses = this.addressesFromEvent(
         event.payload,
-        event.payload.content,
+        participantContent,
       );
       this.remember(
         info.display,
         info.type,
-        event.payload.content,
+        participantContent,
         event.occurredAt,
         addresses,
       );
 
       if (info.type === "human") {
         this.policy.observeHumanMessage(
-          event.payload.content,
+          participantContent,
           Date.parse(event.occurredAt),
           addresses.addressedTo[0],
         );
@@ -1441,7 +1473,7 @@ export class ConversationEngine {
         try {
           await this.replyToHuman(
             info.display,
-            event.payload.content,
+            participantContent,
             typeof event.payload.contentItemId === "string"
               ? { contentItemId: event.payload.contentItemId }
               : undefined,
@@ -1647,7 +1679,10 @@ export class ConversationEngine {
     );
     const first = target ?? openSpeaker ?? pick(responsePool);
     const directQuestion = ConversationEngine.asksQuestion(content);
-    const memeRequest = ConversationEngine.offersMemeOpportunity(content)
+    const visualRequest = ConversationEngine.requestsVisual(content)
+      ? content
+      : undefined;
+    const emojiRequest = ConversationEngine.requestsEmoji(content)
       ? content
       : undefined;
     const currentInformationQuery =
@@ -1696,7 +1731,8 @@ export class ConversationEngine {
         addressedTo,
         directQuestion,
         currentKnowledge,
-        memeRequest,
+        visualRequest,
+        emojiRequest,
       );
 
       if (spoke) {

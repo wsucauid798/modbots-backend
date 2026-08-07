@@ -9,7 +9,7 @@ import type {
 } from "./experience.js";
 import { InferenceError } from "./mind.js";
 import type { Decision } from "./mind.js";
-import type { GeneratedMeme } from "./memegen.js";
+import type { GeneratedVisual } from "./visual-expression.js";
 import { personas } from "./personas.js";
 import type { Persona } from "./personas.js";
 import type {
@@ -29,7 +29,7 @@ interface PostedMessage {
 
 interface PostedImage {
   actorId: string;
-  image: GeneratedMeme;
+  image: GeneratedVisual;
   replyTo?: { contentItemId: string };
   addressedTo?: ContentAddress[];
 }
@@ -73,7 +73,7 @@ class FakePlatform {
 
   public async postImage(
     actorId: string,
-    image: GeneratedMeme,
+    image: GeneratedVisual,
     replyTo?: { contentItemId: string },
     addressedTo?: ContentAddress[],
   ): Promise<void> {
@@ -91,8 +91,10 @@ class FakeMind {
   public readonly researchDirections: ResearchDirection[] = [];
   public readonly researchExcludedTopics: string[][] = [];
   public readonly currentKnowledge: Array<LearnedKnowledge | undefined> = [];
-  public readonly memeRequests: string[] = [];
-  public generatedMeme: GeneratedMeme | null = null;
+  public readonly visualRequests: Array<string | undefined> = [];
+  public generatedVisual: GeneratedVisual | null = null;
+  public readonly emojiRequests: string[] = [];
+  public generatedEmoji: string | null = null;
   public onResearch?: () => void;
 
   public constructor(
@@ -257,13 +259,21 @@ const makeBrain = (
       currentKnowledge,
     );
   },
-  async createMeme(
+  async createVisual(
+    _transcript: string[],
+    humanRequest: string | undefined,
+    _responseMeaning: string,
+  ): Promise<GeneratedVisual | null> {
+    mind.visualRequests.push(humanRequest);
+    return mind.generatedVisual;
+  },
+  async createEmoji(
     _transcript: string[],
     humanRequest: string,
     _responseMeaning: string,
-  ): Promise<GeneratedMeme | null> {
-    mind.memeRequests.push(humanRequest);
-    return mind.generatedMeme;
+  ): Promise<string | null> {
+    mind.emojiRequests.push(humanRequest);
+    return mind.generatedEmoji;
   },
   canResearch(): boolean {
     return false;
@@ -331,6 +341,13 @@ const jakob: Persona = {
   type: "chat_bot",
   card: "Friendly and opinionated.",
   activity: { startHourUtc: 10, endHourUtc: 20 },
+};
+const felix: Persona = {
+  handle: "felix",
+  displayName: "Felix",
+  type: "chat_bot",
+  card: "Playful and observant.",
+  activity: { startHourUtc: 0, endHourUtc: 24 },
 };
 const iris: Persona = {
   handle: "iris",
@@ -434,7 +451,7 @@ test("posts a brain-generated meme as an addressed image reply", async () => {
       message: "Tests passing without changes is unexpectedly funny.",
     },
   ]);
-  mind.generatedMeme = {
+  mind.generatedVisual = {
     template: "reaction",
     topText: "WHEN THE TESTS PASS",
     bottomText: "AND YOU CHANGED NOTHING",
@@ -470,8 +487,102 @@ test("posts a brain-generated meme as an addressed image reply", async () => {
   assert.deepEqual(platform.images[0]?.addressedTo, [
     { targetType: "actor", actorId: "human-one" },
   ]);
-  assert.deepEqual(mind.memeRequests, [
+  assert.deepEqual(mind.visualRequests, [
     "Arwen, make a meme about tests passing without changes.",
+  ]);
+});
+
+test("posts a brain-generated animated GIF as an addressed image reply", async () => {
+  const platform = new FakePlatform({
+    "human-one": makeActor("human-one", "Mina"),
+  });
+  const mind = new FakeMind([
+    {
+      speak: true,
+      message: "That surprise deserves a proper reaction.",
+    },
+  ]);
+  mind.generatedVisual = {
+    template: "side_eye",
+    text: "YOU SAID IT WAS A TINY CHANGE",
+    altText: "An animated robot gives a suspicious side-eye.",
+    data: "R0lGODlhAQABAIAAAAUEBA==",
+    mediaType: "image/gif",
+    filename: "felix-reaction.gif",
+    caption: "Reaction GIF by Felix",
+  };
+  const engine = new ConversationEngine(
+    platform,
+    mind,
+    0,
+    [{ actorId: "bot-felix", brain: makeBrain(felix, mind) }],
+    noonUtc,
+  );
+
+  await engine.enqueueRoomEvent(
+    humanMessage(
+      "gif-request",
+      "human-one",
+      "Felix, send a funny GIF about that tiny change.",
+    ),
+  );
+
+  assert.equal(platform.posts.length, 0);
+  assert.equal(platform.images.length, 1);
+  assert.equal(
+    platform.images[0]?.image.caption,
+    "Reaction GIF by Felix",
+  );
+  assert.equal(platform.images[0]?.image.mediaType, "image/gif");
+  assert.equal(
+    platform.images[0]?.replyTo?.contentItemId,
+    "content-gif-request",
+  );
+  assert.deepEqual(mind.visualRequests, [
+    "Felix, send a funny GIF about that tiny change.",
+  ]);
+});
+
+test("posts a brain-selected smiley as an addressed text reply", async () => {
+  const platform = new FakePlatform({
+    "human-one": makeActor("human-one", "Mina"),
+  });
+  const mind = new FakeMind([
+    {
+      speak: true,
+      message: "That makes me delighted.",
+    },
+  ]);
+  mind.generatedEmoji = "😄";
+  const engine = new ConversationEngine(
+    platform,
+    mind,
+    0,
+    [{ actorId: "bot-felix", brain: makeBrain(felix, mind) }],
+    noonUtc,
+  );
+
+  await engine.enqueueRoomEvent(
+    humanMessage(
+      "emoji-request",
+      "human-one",
+      "Reply with one drawn symbol.",
+      {
+        sourceText: "Reply with one delighted smiley.",
+        sourceLanguage: "en",
+      },
+    ),
+  );
+
+  assert.equal(platform.images.length, 0);
+  assert.equal(platform.posts.length, 1);
+  assert.equal(platform.posts[0]?.content, "😄");
+  assert.equal(
+    platform.posts[0]?.replyTo?.contentItemId,
+    "content-emoji-request",
+  );
+  assert.deepEqual(mind.emojiRequests, [
+    "Reply with one delighted smiley.",
   ]);
 });
 

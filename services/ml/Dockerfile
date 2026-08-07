@@ -5,7 +5,7 @@ RUN apt-get update \
     && apt-get install --no-install-recommends -y ffmpeg poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --no-cache-dir fastapi httpx "uvicorn[standard]"
+RUN pip install --no-cache-dir fastapi httpx pillow "uvicorn[standard]"
 
 COPY app ./app
 

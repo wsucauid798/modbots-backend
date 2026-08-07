@@ -141,6 +141,105 @@ test("returns a model-grounded topic decision", async () => {
   }
 });
 
+test("preserves a smiley chosen by the chatbot brain", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestCount = 0;
+
+  globalThis.fetch = async () => {
+    requestCount += 1;
+    const content = requestCount === 1
+      ? "MOVE=reply|SOURCE=conversation|TOPIC=good news|" +
+        "ANGLE=share delight|GROUNDING=Mira shared good news"
+      : "That is brilliant news! 😄";
+    return new Response(JSON.stringify({ content }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  try {
+    const decision = await new Mind("http://ml.test").consider(
+      persona,
+      roster,
+      ["Mira: I finally passed the exam!"],
+      "Mira shared that she passed her exam.",
+      "The human Mira shared good news. Reply to them.",
+      topicContext,
+      false,
+    );
+
+    assert.equal(decision.message, "That is brilliant news! 😄");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("lets the chatbot brain design an animated reaction GIF", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestBody = "";
+
+  globalThis.fetch = async (_input, init) => {
+    requestBody = String(init?.body);
+    return new Response(
+      JSON.stringify({
+        content:
+          '{"kind":"gif","template":"laugh","text":"THAT ESCALATED QUICKLY","altText":"An animated robot bounces while laughing at the sudden escalation."}',
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  };
+
+  try {
+    const idea = await new Mind("http://ml.test").visualIdea(
+      persona,
+      ["Mira: That got out of hand fast."],
+      "Jakob, send a funny GIF.",
+      "The situation escalated surprisingly quickly.",
+      "gif",
+    );
+
+    assert.deepEqual(idea, {
+      kind: "gif",
+      template: "laugh",
+      text: "THAT ESCALATED QUICKLY",
+      altText:
+        "An animated robot bounces while laughing at the sudden escalation.",
+    });
+    assert.match(requestBody, /explicitly requested an animated reaction GIF/);
+    assert.match(requestBody, /Character/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("lets the chatbot brain choose a requested smiley mood", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestBody = "";
+
+  globalThis.fetch = async (_input, init) => {
+    requestBody = String(init?.body);
+    return new Response(
+      JSON.stringify({ content: '{"mood":"DELIGHTED"}' }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  };
+
+  try {
+    const mood = await new Mind("http://ml.test").emojiIdea(
+      persona,
+      ["Mira: I finally passed the exam!"],
+      "Reply with one delighted smiley.",
+      "Jakob is delighted by Mira's good news.",
+    );
+
+    assert.equal(mood, "delighted");
+    assert.match(requestBody, /single emoji mood/);
+    assert.match(requestBody, /delighted, laughing, warm/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("repairs an autonomous opening that omits its subject", async () => {
   const originalFetch = globalThis.fetch;
   const requestBodies: Record<string, unknown>[] = [];
