@@ -153,17 +153,21 @@ const profileLinks = (body: Record<string, unknown>): string[] => {
 const profileStatus = (
   body: Record<string, unknown>,
 ): {
-  statusMode: "preset" | "custom" | null;
+  statusMode: "preset" | "custom" | "media" | null;
   statusText: string | null;
 } => {
   if (body.statusMode === null && body.statusText === null) {
     return { statusMode: null, statusText: null };
   }
 
+  if (body.statusMode === "media" && body.statusText === null) {
+    return { statusMode: "media", statusText: null };
+  }
+
   if (body.statusMode !== "preset" && body.statusMode !== "custom") {
     throw badRequest(
       "invalid_body",
-      "'statusMode' must be 'preset', 'custom', or null",
+      "'statusMode' must be 'preset', 'custom', 'media', or null",
     );
   }
 
@@ -698,6 +702,27 @@ export const commandRoutes = (
           ...status,
         });
 
+        return reply.code(200).send(result.actor);
+      },
+    );
+
+    app.patch<{ Params: RoomActorParams; Body: unknown }>(
+      "/api/rooms/:roomId/actors/:actorId/media-playback",
+      async (request, reply) => {
+        await auth.authorizeActor(
+          request.headers.authorization,
+          request.params.actorId,
+        );
+        const body = record(request.body);
+        const mediaAssetId =
+          body.mediaAssetId === null
+            ? null
+            : string(body, "mediaAssetId", { maximum: 128 });
+        const result = await commands.updateMediaPlayback({
+          roomId: request.params.roomId,
+          actorId: request.params.actorId,
+          mediaAssetId,
+        });
         return reply.code(200).send(result.actor);
       },
     );

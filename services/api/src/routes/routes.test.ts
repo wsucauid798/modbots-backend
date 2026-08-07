@@ -314,6 +314,38 @@ const commands: CommandHandler = {
       },
     },
   }),
+  updateMediaPlayback: async (command) => ({
+    actor: {
+      id: command.actorId,
+      handle: "profile-user",
+      displayName: "Profile User",
+      discriminator: "0005",
+      registered: true,
+      display: "Profile User#0005",
+      profilePictureId: null,
+      profilePictureUrl: null,
+      bio: null,
+      pronouns: null,
+      location: null,
+      links: [],
+      statusMode: "media",
+      statusText:
+        command.mediaAssetId === null
+          ? "Nothing playing"
+          : "Listening to verified-audio.mp3",
+      type: "human",
+      policyVersionAccepted: null,
+      policyAcceptedAt: null,
+      retiredAt: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+    },
+    event: {
+      ...event,
+      type: "actor_status_changed",
+      actorId: command.actorId,
+      payload: {},
+    },
+  }),
   retireActor: async (command) => ({
     id: command.actorId,
     handle: null,
@@ -676,6 +708,32 @@ describe("command routes", () => {
 
     assert.equal(mediaResponse.statusCode, 400);
     assert.equal(unsupportedPresetResponse.statusCode, 400);
+    await app.close();
+  });
+
+  it("enables media status and reports validated playback", async () => {
+    const app = Fastify();
+    await app.register(
+      commandRoutes(commands, sessions, requiredAuth, credentials),
+    );
+
+    const enabled = await app.inject({
+      method: "PATCH",
+      url: "/api/rooms/mod-bots/actors/human-1/status",
+      headers: { authorization: "Bearer human-1-token" },
+      payload: { statusMode: "media", statusText: null },
+    });
+    const playing = await app.inject({
+      method: "PATCH",
+      url: "/api/rooms/mod-bots/actors/human-1/media-playback",
+      headers: { authorization: "Bearer human-1-token" },
+      payload: { mediaAssetId: "asset-1" },
+    });
+
+    assert.equal(enabled.statusCode, 200);
+    assert.equal(enabled.json().statusMode, "media");
+    assert.equal(playing.statusCode, 200);
+    assert.equal(playing.json().statusText, "Listening to verified-audio.mp3");
     await app.close();
   });
 

@@ -103,8 +103,14 @@ export interface UpdateActorProfilePictureCommand {
 export interface UpdateActorStatusCommand {
   roomId: string;
   actorId: string;
-  statusMode: Exclude<ActorStatusMode, "media" | "game"> | null;
+  statusMode: Exclude<ActorStatusMode, "game"> | null;
   statusText: string | null;
+}
+
+export interface UpdateMediaPlaybackCommand {
+  roomId: string;
+  actorId: string;
+  mediaAssetId: string | null;
 }
 
 export interface RetireActorCommand {
@@ -199,6 +205,9 @@ export interface CommandHandler {
   ): Promise<Actor>;
   updateActorStatus(
     command: UpdateActorStatusCommand,
+  ): Promise<{ actor: Actor; event: RoomEvent }>;
+  updateMediaPlayback(
+    command: UpdateMediaPlaybackCommand,
   ): Promise<{ actor: Actor; event: RoomEvent }>;
   retireActor(command: RetireActorCommand): Promise<Actor>;
   restoreActor(command: RestoreActorCommand): Promise<Actor>;
@@ -1031,6 +1040,8 @@ export class CommandService implements CommandHandler {
       await requireActiveActor(client, command.actorId);
       await requireOnline(client, command.roomId, command.actorId);
 
+      const statusText =
+        command.statusMode === "media" ? "Nothing playing" : command.statusText;
       const result = await client.query<ActorRow>(
         `
           UPDATE actors
@@ -1039,7 +1050,7 @@ export class CommandService implements CommandHandler {
           WHERE id = $1
           RETURNING ${actorColumns}
         `,
-        [command.actorId, command.statusMode, command.statusText],
+        [command.actorId, command.statusMode, statusText],
       );
       const row = result.rows[0];
 
@@ -1061,6 +1072,75 @@ export class CommandService implements CommandHandler {
         },
       });
 
+      return { actor, event };
+    });
+  }
+
+  public async updateMediaPlayback(
+    command: UpdateMediaPlaybackCommand,
+  ): Promise<{ actor: Actor; event: RoomEvent }> {
+    return withTransaction(this.database, async (client) => {
+      await requireRoom(client, command.roomId);
+      await requireActiveActor(client, command.actorId);
+      await requireOnline(client, command.roomId, command.actorId);
+
+      const current = await client.query<{ profile_status_mode: ActorStatusMode | null }>(
+        "SELECT profile_status_mode FROM actors WHERE id = $1 FOR UPDATE",
+        [command.actorId],
+      );
+      if (current.rows[0]?.profile_status_mode !== "media") {
+        throw conflict(
+          "media_status_not_enabled",
+          "Enable the media-title status before sharing playback activity",
+        );
+      }
+
+      let statusText = "Nothing playing";
+      if (command.mediaAssetId !== null) {
+        const media = await client.query<{
+          media_kind: "audio" | "video";
+          original_filename: string;
+        }>(
+          `
+            SELECT media_kind, original_filename
+            FROM media_assets
+            WHERE id = $1
+              AND room_id = $2
+              AND lifecycle_state = 'published'
+              AND media_kind IN ('audio', 'video')
+          `,
+          [command.mediaAssetId, command.roomId],
+        );
+        const asset = media.rows[0];
+        if (asset === undefined) {
+          throw notFound(
+            "media_asset_not_found",
+            "That playable media asset does not exist in this room",
+          );
+        }
+        const prefix = asset.media_kind === "audio" ? "Listening to " : "Watching ";
+        statusText = `${prefix}${asset.original_filename}`.slice(0, 80);
+      }
+
+      const updated = await client.query<ActorRow>(
+        `
+          UPDATE actors
+          SET profile_status_text = $2
+          WHERE id = $1
+          RETURNING ${actorColumns}
+        `,
+        [command.actorId, statusText],
+      );
+      const actor = actorFromRow(updated.rows[0]!, this.uppsBaseUrl);
+      const event = await appendRoomEvent(client, {
+        roomId: command.roomId,
+        type: "actor_status_changed",
+        actorId: command.actorId,
+        payload: {
+          statusMode: actor.statusMode,
+          statusText: actor.statusText,
+        },
+      });
       return { actor, event };
     });
   }
@@ -1162,6 +1242,26 @@ export class CommandService implements CommandHandler {
         await requireActiveActor(client, command.actorId);
       } else {
         await requireActor(client, command.actorId);
+      }
+
+      if (command.state === "left") {
+        const cleared = await client.query<{ id: string }>(
+          `
+            UPDATE actors
+            SET profile_status_text = 'Nothing playing'
+            WHERE id = $1 AND profile_status_mode = 'media'
+            RETURNING id
+          `,
+          [command.actorId],
+        );
+        if (cleared.rows[0] !== undefined) {
+          await appendRoomEvent(client, {
+            roomId: command.roomId,
+            type: "actor_status_changed",
+            actorId: command.actorId,
+            payload: { statusMode: "media", statusText: "Nothing playing" },
+          });
+        }
       }
 
       return appendRoomEvent(client, {
