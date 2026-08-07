@@ -242,8 +242,13 @@ export class GameService implements GameHandler {
         [sessionId, roomId, actorId],
       );
       await rememberAndSetStatus(client, sessionId, roomId, actorId, "player", "Playing Tic-tac-toe");
-      await client.query("UPDATE actors SET profile_status_mode = 'game', profile_status_text = 'Playing Tic-tac-toe' WHERE id = $1", [game.playerXActorId]);
-      await appendRoomEvent(client, { roomId, type: "actor_status_changed", actorId: game.playerXActorId, payload: { actorId: game.playerXActorId, statusMode: "game", statusText: "Playing Tic-tac-toe" } });
+      const playerXStatus = await client.query(
+        "UPDATE actors SET profile_status_text = 'Playing Tic-tac-toe' WHERE id = $1 AND profile_status_mode = 'game' RETURNING id",
+        [game.playerXActorId],
+      );
+      if (playerXStatus.rows[0] !== undefined) {
+        await appendRoomEvent(client, { roomId, type: "actor_status_changed", actorId: game.playerXActorId, payload: { actorId: game.playerXActorId, statusMode: "game", statusText: "Playing Tic-tac-toe" } });
+      }
       const session = await loadGame(client, roomId, sessionId);
       await emitGame(client, roomId, "game_started", actorId, session);
       return session;

@@ -27,6 +27,16 @@ const post = (path, actor, body = {}) =>
     body: JSON.stringify({ actorId: actor.actor.id, ...body }),
   });
 
+const patch = (path, actor, body) =>
+  request(path, {
+    method: "PATCH",
+    headers: {
+      authorization: `Bearer ${actor.session.token}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
 const first = await createGuest("Game Smoke One");
 const second = await createGuest("Game Smoke Two");
 
@@ -35,8 +45,16 @@ await post(`/api/rooms/${roomId}/presence`, second, { state: "joined" });
 
 const created = await post(`/api/rooms/${roomId}/games/tic-tac-toe`, first);
 const gameId = created.session.id;
+await patch(`/api/rooms/${roomId}/actors/${first.actor.id}/status`, first, {
+  statusMode: "preset",
+  statusText: "Busy",
+});
 const joined = await post(`/api/rooms/${roomId}/games/${gameId}/join`, second);
 if (joined.session.state !== "active") throw new Error("Game did not start");
+const statusAfterJoin = await request(`/api/actors/${first.actor.id}`);
+if (statusAfterJoin.statusMode !== "preset" || statusAfterJoin.statusText !== "Busy") {
+  throw new Error("Starting the game replaced the player's chosen status");
+}
 
 for (const [actor, cell] of [
   [first, 0],
@@ -55,6 +73,10 @@ if (completed?.state !== "won" || completed.winnerActorId !== first.actor.id) {
 }
 if (completed.winningLine?.join(",") !== "0,1,2") {
   throw new Error("Winning line was not persisted");
+}
+const statusAfterGame = await request(`/api/actors/${first.actor.id}`);
+if (statusAfterGame.statusMode !== "preset" || statusAfterGame.statusText !== "Busy") {
+  throw new Error("Completing the game replaced the player's chosen status");
 }
 
 await post(`/api/rooms/${roomId}/games/${gameId}/rematch`, first);

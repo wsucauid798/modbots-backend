@@ -1042,6 +1042,18 @@ export class CommandService implements CommandHandler {
 
       const statusText =
         command.statusMode === "media" ? "Nothing playing" : command.statusText;
+      await client.query(
+        `
+          UPDATE game_participant_statuses AS participant_statuses
+          SET previous_mode = $2,
+              previous_text = $3
+          FROM game_sessions AS sessions
+          WHERE participant_statuses.session_id = sessions.id
+            AND participant_statuses.actor_id = $1
+            AND sessions.state IN ('waiting', 'active')
+        `,
+        [command.actorId, command.statusMode, statusText],
+      );
       const result = await client.query<ActorRow>(
         `
           UPDATE actors
@@ -1128,6 +1140,18 @@ export class CommandService implements CommandHandler {
           SET profile_status_text = $2
           WHERE id = $1
           RETURNING ${actorColumns}
+        `,
+        [command.actorId, statusText],
+      );
+      await client.query(
+        `
+          UPDATE game_participant_statuses AS participant_statuses
+          SET previous_mode = 'media',
+              previous_text = $2
+          FROM game_sessions AS sessions
+          WHERE participant_statuses.session_id = sessions.id
+            AND participant_statuses.actor_id = $1
+            AND sessions.state IN ('waiting', 'active')
         `,
         [command.actorId, statusText],
       );
