@@ -3,6 +3,7 @@ import { loadConfig } from "./config.js";
 import { createDatabase, migrateDatabase } from "./database.js";
 import { SessionWriteAuthorizer } from "./domain/auth.js";
 import { CommandService } from "./domain/commands.js";
+import { GameService } from "./domain/games.js";
 import { ModerationPolicy } from "./domain/moderation-policy.js";
 import { JetStreamOutboxPublisher } from "./events/outbox-publisher.js";
 import { PostgresActorRepository } from "./repositories/actors.js";
@@ -43,6 +44,7 @@ const start = async (): Promise<void> => {
     ),
     content: new PostgresContentRepository(database),
     credentials: new PostgresCredentialRepository(database),
+    games: new GameService(database),
     database,
     moderation: new PostgresModerationRepository(database),
     media,

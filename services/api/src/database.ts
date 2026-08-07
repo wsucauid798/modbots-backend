@@ -441,6 +441,53 @@ const outboxNotificationMigration = `
   EXECUTE FUNCTION notify_event_outbox_inserted();
 `;
 
+const gamesMigration = `
+  CREATE TABLE IF NOT EXISTS game_sessions (
+    id text PRIMARY KEY,
+    room_id text NOT NULL REFERENCES rooms(id),
+    game_type text NOT NULL CHECK (game_type IN ('tic_tac_toe')),
+    state text NOT NULL CHECK (state IN ('waiting', 'active', 'won', 'draw', 'cancelled')),
+    player_x_actor_id text NOT NULL REFERENCES actors(id),
+    player_o_actor_id text REFERENCES actors(id),
+    board jsonb NOT NULL DEFAULT '[null,null,null,null,null,null,null,null,null]'::jsonb,
+    next_mark text CHECK (next_mark IN ('X', 'O')),
+    winner_actor_id text REFERENCES actors(id),
+    winning_line jsonb,
+    rematch_of_session_id text REFERENCES game_sessions(id),
+    rematch_session_id text REFERENCES game_sessions(id),
+    revision integer NOT NULL DEFAULT 1,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    completed_at timestamptz
+  );
+
+  CREATE INDEX IF NOT EXISTS game_sessions_room_state_idx
+    ON game_sessions (room_id, state, updated_at DESC);
+
+  CREATE TABLE IF NOT EXISTS game_spectators (
+    session_id text NOT NULL REFERENCES game_sessions(id) ON DELETE CASCADE,
+    actor_id text NOT NULL REFERENCES actors(id),
+    joined_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (session_id, actor_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS game_rematch_votes (
+    session_id text NOT NULL REFERENCES game_sessions(id) ON DELETE CASCADE,
+    actor_id text NOT NULL REFERENCES actors(id),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (session_id, actor_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS game_participant_statuses (
+    session_id text NOT NULL REFERENCES game_sessions(id) ON DELETE CASCADE,
+    actor_id text NOT NULL REFERENCES actors(id),
+    previous_mode text,
+    previous_text text,
+    participation_role text NOT NULL CHECK (participation_role IN ('player', 'spectator')),
+    PRIMARY KEY (session_id, actor_id)
+  );
+`;
+
 const migrations = [
   { version: 1, sql: initialMigration },
   { version: 2, sql: outboxMigration },
@@ -460,6 +507,7 @@ const migrations = [
   { version: 18, sql: outboxNotificationMigration },
   { version: 19, sql: actorStatusMigration },
   { version: 20, sql: roomDirectoryMigration },
+  { version: 21, sql: gamesMigration },
 ] as const;
 
 export const createDatabase = (config: PoolConfig): Pool =>

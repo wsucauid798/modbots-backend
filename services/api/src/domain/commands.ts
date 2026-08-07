@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { withTransaction } from "../database.js";
+import { appendRoomEvent } from "../events/room-events.js";
 import { roomRules } from "./rules.js";
 import {
   renderActorProfilePictureUrl,
@@ -34,14 +35,6 @@ import {
   notFound,
 } from "./errors.js";
 import { ModerationPolicy } from "./moderation-policy.js";
-
-interface EventRow {
-  sequence: string;
-  event_type: string;
-  actor_id: string | null;
-  payload: unknown;
-  occurred_at: Date;
-}
 
 interface ActorRow {
   id: string;
@@ -110,7 +103,7 @@ export interface UpdateActorProfilePictureCommand {
 export interface UpdateActorStatusCommand {
   roomId: string;
   actorId: string;
-  statusMode: Exclude<ActorStatusMode, "media"> | null;
+  statusMode: Exclude<ActorStatusMode, "media" | "game"> | null;
   statusText: string | null;
 }
 
@@ -292,14 +285,6 @@ const proposalFromRow = (proposal: ProposalRow): ModerationProposal => ({
   status: proposal.status,
   createdAt: proposal.created_at.toISOString(),
   resolvedAt: proposal.resolved_at?.toISOString() ?? null,
-});
-
-const eventFromRow = (event: EventRow): RoomEvent => ({
-  sequence: event.sequence,
-  type: event.event_type,
-  actorId: event.actor_id,
-  payload: event.payload,
-  occurredAt: event.occurred_at.toISOString(),
 });
 
 const requireRoom = async (
@@ -828,64 +813,6 @@ const requireModerationEvidence = async (
   }
 };
 
-const subjectToken = (roomId: string): string => {
-  if (!/^[A-Za-z0-9_-]+$/.test(roomId)) {
-    throw badRequest(
-      "invalid_room_id",
-      "Room IDs may only contain letters, numbers, underscores, and hyphens",
-    );
-  }
-
-  return roomId;
-};
-
-const appendEvent = async (
-  client: PoolClient,
-  input: {
-    roomId: string;
-    type: string;
-    actorId: string | null;
-    payload: unknown;
-  },
-): Promise<RoomEvent> => {
-  const result = await client.query<EventRow>(
-    `
-      INSERT INTO room_events (room_id, event_type, actor_id, payload)
-      VALUES ($1, $2, $3, $4)
-      RETURNING
-        sequence::text,
-        event_type,
-        actor_id,
-        payload,
-        occurred_at
-    `,
-    [input.roomId, input.type, input.actorId, input.payload],
-  );
-  const event = eventFromRow(result.rows[0]!);
-  const subject = `rooms.${subjectToken(input.roomId)}.events.${input.type}`;
-
-  await client.query(
-    `
-      INSERT INTO event_outbox (
-        room_event_sequence,
-        subject,
-        payload
-      )
-      VALUES ($1, $2, $3)
-    `,
-    [
-      event.sequence,
-      subject,
-      {
-        roomId: input.roomId,
-        event,
-      },
-    ],
-  );
-
-  return event;
-};
-
 export class CommandService implements CommandHandler {
   public constructor(
     private readonly database: Pool,
@@ -1124,7 +1051,7 @@ export class CommandService implements CommandHandler {
       }
 
       const actor = actorFromRow(row, this.uppsBaseUrl);
-      const event = await appendEvent(client, {
+      const event = await appendRoomEvent(client, {
         roomId: command.roomId,
         type: "actor_status_changed",
         actorId: command.actorId,
@@ -1180,7 +1107,7 @@ export class CommandService implements CommandHandler {
       );
 
       for (const row of activeRooms.rows) {
-        await appendEvent(client, {
+        await appendRoomEvent(client, {
           roomId: row.room_id,
           type: "actor_left",
           actorId: command.actorId,
@@ -1237,7 +1164,7 @@ export class CommandService implements CommandHandler {
         await requireActor(client, command.actorId);
       }
 
-      return appendEvent(client, {
+      return appendRoomEvent(client, {
         roomId: command.roomId,
         type: command.state === "joined" ? "actor_joined" : "actor_left",
         actorId: command.actorId,
@@ -1273,7 +1200,7 @@ export class CommandService implements CommandHandler {
       // clients, while the same transaction materializes the message as a
       // content item with one text part.
       const contentItemId = randomUUID();
-      const event = await appendEvent(client, {
+      const event = await appendRoomEvent(client, {
         roomId: command.roomId,
         type: "message_posted",
         actorId: command.actorId,
@@ -1366,7 +1293,7 @@ export class CommandService implements CommandHandler {
       await requireReferences(client, command.roomId, references);
 
       const contentItemId = randomUUID();
-      const event = await appendEvent(client, {
+      const event = await appendRoomEvent(client, {
         roomId: command.roomId,
         type: "content_posted",
         actorId: command.actorId,
@@ -1456,7 +1383,7 @@ export class CommandService implements CommandHandler {
       const parts = buildContentParts(command.parts, row.parts);
       await requirePublishedMediaAssets(client, command.roomId, command.parts);
       const revision = row.revision + 1;
-      const event = await appendEvent(client, {
+      const event = await appendRoomEvent(client, {
         roomId: command.roomId,
         type: "content_edited",
         actorId: command.actorId,
@@ -1527,7 +1454,7 @@ export class CommandService implements CommandHandler {
         );
       }
 
-      const event = await appendEvent(client, {
+      const event = await appendRoomEvent(client, {
         roomId: command.roomId,
         type: "content_removed",
         actorId: command.actorId,
@@ -1613,7 +1540,7 @@ export class CommandService implements CommandHandler {
         ],
       );
       const proposal = proposalFromRow(proposalResult.rows[0]!);
-      const event = await appendEvent(client, {
+      const event = await appendRoomEvent(client, {
         roomId: command.roomId,
         type: "moderation_proposal_created",
         actorId: command.modBotId,
@@ -1693,7 +1620,7 @@ export class CommandService implements CommandHandler {
         command.decision === "accepted"
           ? "moderation_action_applied"
           : "moderation_proposal_rejected";
-      const event = await appendEvent(client, {
+      const event = await appendRoomEvent(client, {
         roomId: command.roomId,
         type: eventType,
         actorId: command.reviewerActorId,
@@ -1727,7 +1654,7 @@ export class CommandService implements CommandHandler {
         );
 
         if (row !== null && row.lifecycle_state !== "removed") {
-          const removal = await appendEvent(client, {
+          const removal = await appendRoomEvent(client, {
             roomId: command.roomId,
             type: "content_removed",
             actorId: command.reviewerActorId,
@@ -1768,7 +1695,7 @@ export class CommandService implements CommandHandler {
           proposal.action === "mute_actor" &&
           !(await isMuted(client, command.roomId, targetActorId))
         ) {
-          await appendEvent(client, {
+          await appendRoomEvent(client, {
             roomId: command.roomId,
             type: "actor_muted",
             actorId: targetActorId,
@@ -1778,7 +1705,7 @@ export class CommandService implements CommandHandler {
           proposal.action === "unmute_actor" &&
           (await isMuted(client, command.roomId, targetActorId))
         ) {
-          await appendEvent(client, {
+          await appendRoomEvent(client, {
             roomId: command.roomId,
             type: "actor_unmuted",
             actorId: targetActorId,
@@ -1788,7 +1715,7 @@ export class CommandService implements CommandHandler {
           proposal.action === "remove_actor" &&
           (await isOnline(client, command.roomId, targetActorId))
         ) {
-          await appendEvent(client, {
+          await appendRoomEvent(client, {
             roomId: command.roomId,
             type: "actor_left",
             actorId: targetActorId,

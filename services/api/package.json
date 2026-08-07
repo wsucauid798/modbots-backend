@@ -8,6 +8,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "smoke:activity": "node ../../scripts/room-activity-smoke.mjs",
+    "smoke:game": "node ../../scripts/game-smoke.mjs",
     "test:contracts": "node ../../scripts/validate-contracts.mjs",
     "test": "tsx --test src/*.test.ts src/**/*.test.ts",
     "seed:bots": "node ../../scripts/seed-bots.mjs"

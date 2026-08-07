@@ -1,7 +1,7 @@
 import type { Pool } from "pg";
 
 export type ActorType = "human" | "chat_bot" | "mod_bot";
-export type ActorStatusMode = "preset" | "custom" | "media";
+export type ActorStatusMode = "preset" | "custom" | "media" | "game";
 
 const residentProfilePictureIds: Record<string, string> = {
   arwen: "resident-arwen",

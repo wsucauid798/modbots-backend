@@ -3,6 +3,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import type { Pool } from "pg";
 import type { WriteAuthorizer } from "./domain/auth.js";
 import type { CommandHandler } from "./domain/commands.js";
+import type { GameHandler } from "./domain/games.js";
 import { DomainError } from "./domain/errors.js";
 import { registerCrawlerPolicy } from "./crawler-policy.js";
 import type { EventPublisher } from "./events/outbox-publisher.js";
@@ -19,6 +20,7 @@ import { commandRoutes } from "./routes/commands.js";
 import { contentRoutes } from "./routes/content.js";
 import { credentialRoutes } from "./routes/credentials.js";
 import { healthRoutes } from "./routes/health.js";
+import { gameRoutes } from "./routes/games.js";
 import { moderationRoutes } from "./routes/moderation.js";
 import { mediaRoutes } from "./routes/media.js";
 import { profilePictureRoutes } from "./routes/profile-pictures.js";
@@ -37,6 +39,7 @@ export interface AppDependencies {
   commands: CommandHandler;
   content: ContentRepository;
   credentials: CredentialRepository;
+  games: GameHandler;
   moderation: ModerationRepository;
   media: MediaRepository;
   profilePictures: ProfilePictureStore;
@@ -111,6 +114,7 @@ export const buildApp = (dependencies: AppDependencies): FastifyInstance => {
     ),
   );
   app.register(credentialRoutes(dependencies.actors, dependencies.credentials));
+  app.register(gameRoutes(dependencies.games, dependencies.auth));
   app.register(translationRoutes(dependencies.translations, dependencies.auth));
   app.register(
     commandRoutes(
