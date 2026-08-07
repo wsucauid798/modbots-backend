@@ -22,6 +22,8 @@ const registeredActor: Actor = {
   pronouns: null,
   location: null,
   links: [],
+  statusMode: null,
+  statusText: null,
   type: "human",
   policyVersionAccepted: null,
   policyAcceptedAt: null,

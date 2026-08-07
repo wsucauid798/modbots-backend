@@ -1,6 +1,7 @@
 import type { Pool } from "pg";
 
 export type ActorType = "human" | "chat_bot" | "mod_bot";
+export type ActorStatusMode = "preset" | "custom" | "media";
 
 const residentProfilePictureIds: Record<string, string> = {
   arwen: "resident-arwen",
@@ -26,6 +27,8 @@ export interface Actor {
   pronouns: string | null;
   location: string | null;
   links: string[];
+  statusMode: ActorStatusMode | null;
+  statusText: string | null;
   type: ActorType;
   policyVersionAccepted: string | null;
   policyAcceptedAt: string | null;
@@ -54,6 +57,8 @@ export interface ActorRow {
   profile_pronouns: string | null;
   profile_location: string | null;
   profile_links: string[];
+  profile_status_mode: ActorStatusMode | null;
+  profile_status_text: string | null;
   policy_version_accepted: string | null;
   policy_accepted_at: Date | null;
   retired_at: Date | null;
@@ -112,6 +117,8 @@ export const actorFromRow = (actor: ActorRow, uppsBaseUrl: string): Actor => ({
   pronouns: actor.profile_pronouns,
   location: actor.profile_location,
   links: actor.profile_links,
+  statusMode: actor.profile_status_mode,
+  statusText: actor.profile_status_text,
   type: actor.actor_type,
   policyVersionAccepted: actor.policy_version_accepted,
   policyAcceptedAt: actor.policy_accepted_at?.toISOString() ?? null,
@@ -119,7 +126,7 @@ export const actorFromRow = (actor: ActorRow, uppsBaseUrl: string): Actor => ({
   createdAt: actor.created_at.toISOString(),
 });
 
-export const selectColumns = `id, handle, display_name, discriminator, registered, actor_type, profile_picture_id, profile_bio, profile_pronouns, profile_location, profile_links, policy_version_accepted, policy_accepted_at, retired_at, created_at`;
+export const selectColumns = `id, handle, display_name, discriminator, registered, actor_type, profile_picture_id, profile_bio, profile_pronouns, profile_location, profile_links, profile_status_mode, profile_status_text, policy_version_accepted, policy_accepted_at, retired_at, created_at`;
 
 export class PostgresActorRepository implements ActorRepository {
   public constructor(

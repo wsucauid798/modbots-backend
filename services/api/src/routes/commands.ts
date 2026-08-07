@@ -34,11 +34,19 @@ interface ActorParams {
   actorId: string;
 }
 
+interface RoomActorParams extends RoomParams, ActorParams {}
+
 interface ContentParams extends RoomParams {
   contentItemId: string;
 }
 
 const actorTypes = new Set<ActorType>(["human", "chat_bot", "mod_bot"]);
+const profileStatusPresets = new Set([
+  "Available",
+  "Away",
+  "Busy",
+  "Do not disturb",
+]);
 
 const record = (body: unknown): Record<string, unknown> => {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
@@ -140,6 +148,32 @@ const profileLinks = (body: Record<string, unknown>): string[] => {
 
     return url.toString();
   });
+};
+
+const profileStatus = (
+  body: Record<string, unknown>,
+): {
+  statusMode: "preset" | "custom" | null;
+  statusText: string | null;
+} => {
+  if (body.statusMode === null && body.statusText === null) {
+    return { statusMode: null, statusText: null };
+  }
+
+  if (body.statusMode !== "preset" && body.statusMode !== "custom") {
+    throw badRequest(
+      "invalid_body",
+      "'statusMode' must be 'preset', 'custom', or null",
+    );
+  }
+
+  const statusText = string(body, "statusText", { maximum: 80 });
+
+  if (body.statusMode === "preset" && !profileStatusPresets.has(statusText)) {
+    throw badRequest("invalid_body", "'statusText' must be a supported preset");
+  }
+
+  return { statusMode: body.statusMode, statusText };
 };
 
 const actorId = (body: Record<string, unknown>, field: string): string => {
@@ -647,6 +681,24 @@ export const commandRoutes = (
         });
 
         return reply.code(200).send(actor);
+      },
+    );
+
+    app.patch<{ Params: RoomActorParams; Body: unknown }>(
+      "/api/rooms/:roomId/actors/:actorId/status",
+      async (request, reply) => {
+        await auth.authorizeActor(
+          request.headers.authorization,
+          request.params.actorId,
+        );
+        const status = profileStatus(record(request.body));
+        const result = await commands.updateActorStatus({
+          roomId: request.params.roomId,
+          actorId: request.params.actorId,
+          ...status,
+        });
+
+        return reply.code(200).send(result.actor);
       },
     );
 

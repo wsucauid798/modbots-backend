@@ -24,6 +24,8 @@ const emptyProfile = {
   pronouns: null,
   location: null,
   links: [],
+  statusMode: null,
+  statusText: null,
 };
 
 const actors: ActorRepository = {
@@ -234,6 +236,8 @@ const commands: CommandHandler = {
     pronouns: command.pronouns,
     location: command.location,
     links: command.links,
+    statusMode: null,
+    statusText: null,
     type: "human",
     policyVersionAccepted: null,
     policyAcceptedAt: null,
@@ -258,6 +262,38 @@ const commands: CommandHandler = {
     policyAcceptedAt: null,
     retiredAt: null,
     createdAt: "2026-01-01T00:00:00.000Z",
+  }),
+  updateActorStatus: async (command) => ({
+    actor: {
+      id: command.actorId,
+      handle: "profile-user",
+      displayName: "Profile User",
+      discriminator: "0005",
+      registered: true,
+      display: "Profile User#0005",
+      profilePictureId: null,
+      profilePictureUrl: null,
+      bio: null,
+      pronouns: null,
+      location: null,
+      links: [],
+      statusMode: command.statusMode,
+      statusText: command.statusText,
+      type: "human",
+      policyVersionAccepted: null,
+      policyAcceptedAt: null,
+      retiredAt: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+    },
+    event: {
+      ...event,
+      type: "actor_status_changed",
+      actorId: command.actorId,
+      payload: {
+        statusMode: command.statusMode,
+        statusText: command.statusText,
+      },
+    },
   }),
   retireActor: async (command) => ({
     id: command.actorId,
@@ -555,6 +591,58 @@ describe("command routes", () => {
     assert.deepEqual(response.json().payload.addressedTo, [
       { targetType: "actor", actorId: "chat-bot-1" },
     ]);
+    await app.close();
+  });
+
+  it("updates a person's status through their authenticated room session", async () => {
+    const app = Fastify();
+    await app.register(
+      commandRoutes(commands, sessions, requiredAuth, credentials),
+    );
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/api/rooms/mod-bots/actors/human-1/status",
+      headers: { authorization: "Bearer human-1-token" },
+      payload: {
+        statusMode: "custom",
+        statusText: "Building something thoughtful",
+      },
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.json().statusMode, "custom");
+    assert.equal(response.json().statusText, "Building something thoughtful");
+    await app.close();
+  });
+
+  it("rejects unavailable and unsupported profile statuses", async () => {
+    const app = Fastify();
+    await app.register(
+      commandRoutes(commands, sessions, requiredAuth, credentials),
+    );
+
+    const mediaResponse = await app.inject({
+      method: "PATCH",
+      url: "/api/rooms/mod-bots/actors/human-1/status",
+      headers: { authorization: "Bearer human-1-token" },
+      payload: {
+        statusMode: "media",
+        statusText: "A film",
+      },
+    });
+    const unsupportedPresetResponse = await app.inject({
+      method: "PATCH",
+      url: "/api/rooms/mod-bots/actors/human-1/status",
+      headers: { authorization: "Bearer human-1-token" },
+      payload: {
+        statusMode: "preset",
+        statusText: "Invented preset",
+      },
+    });
+
+    assert.equal(mediaResponse.statusCode, 400);
+    assert.equal(unsupportedPresetResponse.statusCode, 400);
     await app.close();
   });
 

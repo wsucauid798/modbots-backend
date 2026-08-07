@@ -7,7 +7,11 @@ import {
   renderActorDisplay,
   residentProfilePictureId,
 } from "../repositories/actors.js";
-import type { Actor, ActorType } from "../repositories/actors.js";
+import type {
+  Actor,
+  ActorStatusMode,
+  ActorType,
+} from "../repositories/actors.js";
 import { contentItemFromRow } from "../repositories/content.js";
 import type {
   ContentAddress,
@@ -51,6 +55,8 @@ interface ActorRow {
   profile_pronouns: string | null;
   profile_location: string | null;
   profile_links: string[];
+  profile_status_mode: ActorStatusMode | null;
+  profile_status_text: string | null;
   policy_version_accepted: string | null;
   policy_accepted_at: Date | null;
   retired_at: Date | null;
@@ -99,6 +105,13 @@ export interface UpdateActorProfileCommand {
 export interface UpdateActorProfilePictureCommand {
   actorId: string;
   profilePictureId: string | null;
+}
+
+export interface UpdateActorStatusCommand {
+  roomId: string;
+  actorId: string;
+  statusMode: Exclude<ActorStatusMode, "media"> | null;
+  statusText: string | null;
 }
 
 export interface RetireActorCommand {
@@ -191,6 +204,9 @@ export interface CommandHandler {
   updateActorProfilePicture(
     command: UpdateActorProfilePictureCommand,
   ): Promise<Actor>;
+  updateActorStatus(
+    command: UpdateActorStatusCommand,
+  ): Promise<{ actor: Actor; event: RoomEvent }>;
   retireActor(command: RetireActorCommand): Promise<Actor>;
   restoreActor(command: RestoreActorCommand): Promise<Actor>;
   setPresence(command: PresenceCommand): Promise<RoomEvent>;
@@ -228,6 +244,8 @@ const actorFromRow = (actor: ActorRow, uppsBaseUrl: string): Actor => ({
   pronouns: actor.profile_pronouns,
   location: actor.profile_location,
   links: actor.profile_links,
+  statusMode: actor.profile_status_mode,
+  statusText: actor.profile_status_text,
   type: actor.actor_type,
   policyVersionAccepted: actor.policy_version_accepted,
   policyAcceptedAt: actor.policy_accepted_at?.toISOString() ?? null,
@@ -235,7 +253,7 @@ const actorFromRow = (actor: ActorRow, uppsBaseUrl: string): Actor => ({
   createdAt: actor.created_at.toISOString(),
 });
 
-const actorColumns = `id, handle, display_name, discriminator, registered, actor_type, profile_picture_id, profile_bio, profile_pronouns, profile_location, profile_links, policy_version_accepted, policy_accepted_at, retired_at, created_at`;
+const actorColumns = `id, handle, display_name, discriminator, registered, actor_type, profile_picture_id, profile_bio, profile_pronouns, profile_location, profile_links, profile_status_mode, profile_status_text, policy_version_accepted, policy_accepted_at, retired_at, created_at`;
 
 const uniqueViolation = (error: unknown): string | null => {
   if (
@@ -1076,6 +1094,48 @@ export class CommandService implements CommandHandler {
     }
 
     return actorFromRow(actor, this.uppsBaseUrl);
+  }
+
+  public async updateActorStatus(
+    command: UpdateActorStatusCommand,
+  ): Promise<{ actor: Actor; event: RoomEvent }> {
+    return withTransaction(this.database, async (client) => {
+      await requireRoom(client, command.roomId);
+      await requireActiveActor(client, command.actorId);
+      await requireOnline(client, command.roomId, command.actorId);
+
+      const result = await client.query<ActorRow>(
+        `
+          UPDATE actors
+          SET profile_status_mode = $2,
+              profile_status_text = $3
+          WHERE id = $1
+          RETURNING ${actorColumns}
+        `,
+        [command.actorId, command.statusMode, command.statusText],
+      );
+      const row = result.rows[0];
+
+      if (row === undefined) {
+        throw notFound(
+          "actor_not_found",
+          `Actor '${command.actorId}' does not exist`,
+        );
+      }
+
+      const actor = actorFromRow(row, this.uppsBaseUrl);
+      const event = await appendEvent(client, {
+        roomId: command.roomId,
+        type: "actor_status_changed",
+        actorId: command.actorId,
+        payload: {
+          statusMode: actor.statusMode,
+          statusText: actor.statusText,
+        },
+      });
+
+      return { actor, event };
+    });
   }
 
   public async retireActor(command: RetireActorCommand): Promise<Actor> {

@@ -349,6 +349,11 @@ const actorProfilesMigration = `
     ADD COLUMN IF NOT EXISTS profile_links text[] NOT NULL DEFAULT '{}';
 `;
 
+const actorStatusMigration = `
+  ALTER TABLE actors ADD COLUMN IF NOT EXISTS profile_status_mode text;
+  ALTER TABLE actors ADD COLUMN IF NOT EXISTS profile_status_text text;
+`;
+
 const outboxNotificationMigration = `
   CREATE OR REPLACE FUNCTION notify_event_outbox_inserted()
   RETURNS trigger
@@ -384,6 +389,7 @@ const migrations = [
   { version: 16, sql: mediaAssetsMigration },
   { version: 17, sql: actorProfilesMigration },
   { version: 18, sql: outboxNotificationMigration },
+  { version: 19, sql: actorStatusMigration },
 ] as const;
 
 export const createDatabase = (config: PoolConfig): Pool =>
